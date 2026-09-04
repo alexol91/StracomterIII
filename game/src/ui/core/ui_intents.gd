@@ -1,5 +1,5 @@
 class_name UIIntents
-extends Object
+extends RefCounted
 ## Bus de señales de INTENCIÓN de la interfaz.
 ##
 ## Regla dura del ámbito `ui-ux` (GDD §10, `docs/03-equipo-agentes.md`): la UI
@@ -66,6 +66,11 @@ signal settings_applied()
 ## para que otra pantalla reaccione (p. ej. cerrarse) si lo necesita.
 signal console_line_submitted(line: String)
 
+## Se extiende RefCounted y no Object a propósito: un Object creado con `new()`
+## y guardado en un `static var` no lo libera nadie nunca, y aparece como fuga
+## al terminar el proceso. Con RefCounted, el propio `static var` es la
+## referencia fuerte que lo mantiene vivo mientras dure el juego y lo suelta al
+## salir. Las señales funcionan igual en ambos.
 static var _singleton: UIIntents = null
 
 
