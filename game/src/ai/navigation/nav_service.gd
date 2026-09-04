@@ -19,6 +19,9 @@ extends WorldQuery
 ##
 ## NO decide dónde ponerse un bot: eso es `CoverProviderBaked`.
 ## NO decide por dónde flanquear: eso es `RoutePlanner`.
+## NO contesta preguntas de física: eso es `WorldQueryPhysics`. Sigue siendo un
+## `WorldQuery` para poder inyectarse como backend de navegación en
+## `WorldQueryComposite`, pero no tiene rayo propio.
 
 
 ## Localizador del servicio activo del nivel en curso. Lo necesitan los nodos
@@ -48,8 +51,6 @@ var _sources: Dictionary[StringName, NavigationMeshSourceGeometryData3D] = {}
 ## Regiones cuyo RID lo posee un `NavigationRegion3D` de la escena: no se
 ## liberan al destruir el servicio.
 var _adopted: Dictionary[StringName, bool] = {}
-
-var _space: PhysicsDirectSpaceState3D = null
 
 var _path_cache: Dictionary[StringName, PackedVector3Array] = {}
 var _cost_cache: Dictionary[StringName, float] = {}
@@ -132,17 +133,6 @@ func map_rid() -> RID:
 
 func is_ready() -> bool:
 	return _map.is_valid() and not _regions.is_empty()
-
-
-## Espacio físico para línea de visión y sondeo de cobertura. Sin él,
-## `has_line_of_sight` es optimista (siempre true) y el horneado de cobertura
-## no clasifica nada: los tests deben comprobarlo.
-func set_space(space: PhysicsDirectSpaceState3D) -> void:
-	_space = space
-
-
-func space() -> PhysicsDirectSpaceState3D:
-	return _space
 
 
 # ---------------------------------------------------------------------------
@@ -301,24 +291,23 @@ func _install_region(region_id: StringName, mesh: NavigationMesh) -> void:
 # WorldQuery
 # ---------------------------------------------------------------------------
 
-func has_line_of_sight(from: Vector3, to: Vector3,
-		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> bool:
-	if _space == null:
-		return true
-	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask)
-	query.hit_from_inside = false
-	return _space.intersect_ray(query).is_empty()
+## `NavService` NO responde preguntas de física, y estas dos existen SÓLO para
+## que el valor heredado de `WorldQuery` no llegue a un bot por la puerta de
+## atrás: el del contrato concede visión, y eso son rayos X.
+##
+## No hay aquí ningún rayo. Quien contesta a la oclusión es el backend de
+## física a través de `WorldQueryComposite`. El rayo estaba duplicado entre
+## este servicio y `WorldQueryPhysics`, las dos copias divergieron y una acabó
+## concediendo visión sin espacio físico enlazado — el bug del legacy
+## resucitado por duplicación. Se quita la copia, no se arregla.
+func has_line_of_sight(_from: Vector3, _to: Vector3,
+		_collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> bool:
+	return false
 
 
-func raycast(from: Vector3, to: Vector3,
-		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> Vector3:
-	if _space == null:
-		return Vector3.INF
-	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask)
-	var hit := _space.intersect_ray(query)
-	if hit.is_empty():
-		return Vector3.INF
-	return hit.get("position", Vector3.INF)
+func raycast(_from: Vector3, _to: Vector3,
+		_collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> Vector3:
+	return Vector3.INF
 
 
 func snap_to_navmesh(point: Vector3) -> Vector3:
@@ -333,28 +322,39 @@ func snap_to_navmesh(point: Vector3) -> Vector3:
 ## Coste de camino en metros. Es lo que permite estimar la propagación del
 ## sonido por la geometría real en lugar de por distancia recta (GDD §8.1):
 ## un disparo al otro lado de una pared está lejos aunque esté a 3 m.
+## Coste de camino en metros, o INF si no hay ruta.
+##
+## NO pasa por el techo de 4 peticiones por frame, y es deliberado. El techo
+## de ADR-002 acota las PETICIONES DE CAMINO —un bot pidiendo una ruta para
+## recorrerla, que es `path()` / `request_path()`—, no las consultas sobre el
+## mundo. Si `path_cost` se encolara, devolvería INF al agotarse el
+## presupuesto, INF es indistinguible de "no hay ruta", y el oído estimaría el
+## mismo disparo cerca o lejos según el frame en que cayera. Eso mete no
+## determinismo en un módulo cuyo contrato entero es ser una función pura de
+## (estado, pizarra, consulta del mundo).
+##
+## `WorldQuery.path_cost` no tiene forma de decir "todavía no lo sé", así que
+## la única respuesta honesta es no tener nunca ese estado. Lo que acota el
+## coste es la caché por par (origen, destino): quien consulte en bucle debe
+## acotarse él (`SpawnSampler.MAX_MEASURED_CANDIDATES` lo hace).
 func path_cost(from: Vector3, to: Vector3) -> float:
 	var key := _cache_key(from, to)
 	if _cost_cache.has(key):
 		return _cost_cache[key]
-	var route := path(from, to)
-	if route.is_empty():
-		return INF
-	return _cost_cache.get(key, INF)
-
-
-## Coste de camino SIN pasar por el presupuesto por frame.
-##
-## Es para operaciones de nivel y de director (muestreo de aparición, análisis
-## de forma del mapa para el Simplex), no para bots. Un bot que pida rutas por
-## aquí se salta ADR-002; quien lo llame debe acotar su propio número de
-## consultas. Sigue usando la caché.
-func path_cost_immediate(from: Vector3, to: Vector3) -> float:
-	var key := _cache_key(from, to)
-	if _cost_cache.has(key):
-		return _cost_cache[key]
+	# Sin mapa horneado no hay información de topología. Devolver INF sería
+	# AFIRMAR que no hay paso, y eso amortiguaría todos los ruidos de un nivel
+	# sin hornear; la distancia recta dice "no sé, por lo menos esto".
+	if not _map.is_valid():
+		return from.distance_to(to)
 	_compute_and_store(key, from, to)
 	return _cost_cache.get(key, INF)
+
+
+## Alias explícito de `path_cost`, para quien quiera dejar por escrito en la
+## llamada que sabe que esto no pasa por el presupuesto por frame: el director
+## al muestrear apariciones, el análisis de forma del mapa para el Simplex.
+func path_cost_immediate(from: Vector3, to: Vector3) -> float:
+	return path_cost(from, to)
 
 
 func path(from: Vector3, to: Vector3) -> PackedVector3Array:

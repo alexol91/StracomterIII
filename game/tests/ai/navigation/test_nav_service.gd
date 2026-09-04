@@ -165,18 +165,53 @@ func test_request_path_no_consume_presupuesto_y_deja_la_ruta_en_cache() -> void:
 	world.dispose()
 
 
-func test_sin_espacio_fisico_la_linea_de_vision_es_optimista() -> void:
-	# Documenta el comportamiento degradado: sin espacio físico inyectado, el
-	# servicio no puede saber si hay pared, y lo dice siendo permisivo. Las
-	# pruebas de percepción no deben depender de esto.
+func test_sin_espacio_fisico_se_niega_la_vision_no_se_concede() -> void:
+	# `NavService` implementa `WorldQuery` entero, así que antes o después
+	# alguien lo inyecta como consulta del mundo de un bot — y este método es
+	# el test de oclusión de la percepción. Conceder visión por defecto da
+	# rayos X a cualquier bot creado antes de que el nivel enlace el espacio de
+	# física, sin error ni aviso. Es el bug del legacy, en su forma más
+	# silenciosa.
 	var world := NavTestUtil.fixture(
 		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
 	assert_null(world.nav.space(), "el escenario sintético no inyecta física")
-	assert_true(world.nav.has_line_of_sight(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)),
-		"sin espacio físico, línea de visión despejada por defecto")
+	assert_false(world.nav.has_line_of_sight(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)),
+		"sin espacio físico la visión se NIEGA: ante la duda, el bot no ve")
 	assert_false(world.nav.raycast(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)).is_finite(),
-		"sin espacio físico, ningún rayo impacta")
+		"sin espacio físico ningún rayo impacta")
 	world.dispose()
+
+
+func test_el_coste_de_camino_no_depende_del_presupuesto_del_frame() -> void:
+	# Si `path_cost` se encolara, devolvería INF al agotarse el presupuesto,
+	# INF es indistinguible de "no hay ruta", y el oído estimaría el mismo
+	# disparo cerca o lejos según el frame. La IA debe ser una función pura de
+	# (estado, pizarra, consulta del mundo): eso excluye depender del frame.
+	var world := NavTestUtil.fixture(
+		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
+	world.nav.budget_enforced = true
+	var costs: Array[float] = []
+	for i in 12:
+		var to := Vector3(-8.0 + float(i) * 1.4, 0.0, 8.0)
+		costs.append(world.nav.path_cost(Vector3(-8.0, 0.0, -8.0), to))
+	for i in costs.size():
+		assert_false(is_inf(costs[i]),
+			"la consulta %d devolvió INF por falta de presupuesto, no por falta"
+			% i + " de ruta: son indistinguibles y eso es el problema")
+	world.dispose()
+
+
+func test_sin_navmesh_el_coste_es_la_recta_y_no_infinito() -> void:
+	# INF AFIRMA que no hay paso. En un nivel sin hornear no se sabe, y decir
+	# "no hay paso" amortiguaría todos los ruidos del nivel. La recta dice "no
+	# sé, por lo menos esto". Coincide con lo que hace `WorldQueryPhysics`.
+	var service := NavService.new()
+	var from := Vector3(0.0, 0.0, 0.0)
+	var to := Vector3(3.0, 0.0, 4.0)
+	assert_false(service.is_ready(), "servicio sin horneado ni mapa")
+	assert_almost_eq(service.path_cost(from, to), 5.0, 0.001,
+		"sin mapa, el coste es la distancia en línea recta")
+	service.dispose()
 
 
 func test_vacia_las_caches_dependientes_al_cambiar_la_topologia() -> void:

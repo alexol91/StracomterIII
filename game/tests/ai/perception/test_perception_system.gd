@@ -310,3 +310,34 @@ func test_a_stats_without_profile_falls_back_to_defaults_instead_of_crashing() -
 	system.configure(bare)
 	assert_not_null(system.profile, "sin perfil en datos se usan los valores por defecto")
 	assert_gt(float(system.effective_profile().max_raycasts_per_tick), 0.0)
+
+
+func test_perception_degrades_to_blind_with_any_world_query_never_to_omniscient() -> void:
+	# `NavService` implementa el mismo contrato `WorldQuery` que mi adaptador, así
+	# que antes o después alguien inyectará ese en vez de este. La garantía de
+	# este módulo — nadie ve a través de geometría opaca — no puede depender de
+	# CUÁL implementación le toque, ni de que esté completamente construida.
+	#
+	# Se comprueba desde el lado del consumidor a propósito: el defecto que
+	# esto vigila (una consulta al mundo a medio montar que concede visión en
+	# lugar de negarla) es invisible en las pruebas del proveedor, porque allí
+	# parece una decisión razonable.
+	var half_built: NavService = NavService.new()
+	system.world = half_built
+	_add_target(Vector3(0.0, 0.0, -8.0))
+	for _i: int in 20:
+		system.tick_perception(0.1)
+	assert_false(state.has_line_of_sight, "sin mundo montado, el bot es ciego")
+	assert_eq(state.known_threat_count, 0, "y no se inventa amenazas")
+	assert_almost_eq(state.target_confidence, 0.0, 0.0001)
+
+
+func test_hearing_reads_an_unreachable_source_as_far_not_as_near() -> void:
+	# El contrato del que depende el oído: INF en `path_cost` significa "no hay
+	# paso", y entonces el ruido llega amortiguado. Si una implementación
+	# devolviera INF por "aún no lo he calculado", el mismo disparo sonaría
+	# distinto según el frame y la percepción dejaría de ser determinista.
+	var muffled := HearingSensor.effective_cost(INF, 10.0, system.effective_profile())
+	var direct := HearingSensor.effective_cost(10.0, 10.0, system.effective_profile())
+	assert_gt(muffled, direct, "sin ruta, el sonido cuesta más y por tanto se oye menos")
+	assert_false(is_inf(muffled), "pero se sigue oyendo: no hay paso, no es que no exista")
