@@ -7,6 +7,10 @@ extends RefCounted
 ## dura horas y un contador de tres dígitos rompería el layout del HUD.
 static func format_time(total_seconds: float) -> String:
 	var clamped := maxi(0, int(total_seconds))
+	# División entera deliberada: se quieren minutos completos. El proyecto
+	# trata el aviso como error precisamente para que las que sí son
+	# accidentales salten, así que las intencionadas se declaran.
+	@warning_ignore("integer_division")
 	var minutes := mini(59, clamped / 60)
 	var seconds := clamped % 60
 	return "%02d:%02d" % [minutes, seconds]

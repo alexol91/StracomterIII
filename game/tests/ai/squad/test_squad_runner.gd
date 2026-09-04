@@ -77,10 +77,18 @@ func test_deaths_shrink_the_squad_and_trigger_the_retreat() -> void:
 	for bot_id: int in [20, 30, 40]:
 		EventBus.character_died.emit(bot_id, int(Character.Team.ENEMY), 0, 0)
 	assert_eq(runner.size(), 2, "quedan dos de cinco")
-
 	runner.tick_decision(0.2)
-	assert_true(runner.last_assignment.retreating, "2 de 5 es el 40 %... por debajo del umbral")
-	assert_almost_eq(runner.last_assignment.rally_point.z, -20.0, 0.001)
+	# El umbral es ESTRICTO: 2 de 5 es exactamente el 40 %, y el 40 % todavía
+	# combate. Fijar el borde en una prueba evita que "por debajo del 40 %" se
+	# convierta en "al 40 %" la próxima vez que alguien toque la constante.
+	assert_false(runner.last_assignment.retreating, "el 40 % justo aún aguanta")
+
+	EventBus.character_died.emit(50, int(Character.Team.ENEMY), 0, 0)
+	assert_eq(runner.size(), 1, "queda uno de cinco")
+	runner.tick_decision(0.2)
+	assert_true(runner.last_assignment.retreating, "el 20 % se repliega")
+	assert_almost_eq(runner.last_assignment.rally_point.z, -20.0, 0.001,
+		"y se reagrupa en la sala anterior")
 	runner.unbind_event_bus()
 
 

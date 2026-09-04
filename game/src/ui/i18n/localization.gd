@@ -102,7 +102,10 @@ static func keys_for_locale(locale_code: StringName) -> Array[StringName]:
 ## en el código que un texto SIEMPRE pasa por aquí, nunca como literal.
 static func t(key: StringName) -> String:
 	ensure_loaded()
-	return tr(key)
+	# `tr()` es un método de Object y no se puede llamar desde un contexto
+	# estático. `TranslationServer.translate` es la vía equivalente y además
+	# deja esta función utilizable desde cualquier sitio, no solo desde un nodo.
+	return TranslationServer.translate(key)
 
 
 static func _read_csv(path: String) -> Array[PackedStringArray]:

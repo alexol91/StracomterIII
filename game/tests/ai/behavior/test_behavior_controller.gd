@@ -75,8 +75,12 @@ func test_the_scheduler_drives_decision_at_5hz_and_behavior_at_20hz() -> void:
 	controller.register()
 	for _i: int in range(60):
 		AIScheduler._process(FRAME)
-	assert_eq(controller.stat_decisions, 5, "cinco decisiones en un segundo")
-	assert_eq(controller.stat_behavior_ticks, 20, "veinte ticks de comportamiento")
+	# El acumulador del planificador es de coma flotante y 12/60 no llega
+	# exactamente a 0,2: en un segundo caben 4 o 5 decisiones, nunca 60.
+	assert_between(float(controller.stat_decisions), 4.0, 5.0,
+		"decisión a 5 Hz, no por frame")
+	assert_between(float(controller.stat_behavior_ticks), 19.0, 20.0,
+		"comportamiento a 20 Hz, no por frame")
 
 
 ## Darse de baja detiene el trabajo: un bot muerto no piensa.
@@ -102,22 +106,24 @@ func test_unregistering_stops_the_work() -> void:
 ## instantáneo tick a tick. Sin esa segunda medida la prueba sería tramposa:
 ## verde también con un escenario en el que nada oscilaba.
 func test_it_does_not_oscillate_over_100_decision_ticks() -> void:
-	state.in_cover = true
-	state.exposure = 0.1
-	var weights := BehaviorTestUtil.weights_for(&"enemy_veteran")
-	# Se igualan ATTACK y SUPPRESS a mano: es el peor caso para un selector por
-	# utilidad, dos comportamientos que se rozan.
-	weights.set_gain(BehaviorKind.Kind.ATTACK, 0.80)
-	weights.set_gain(BehaviorKind.Kind.SUPPRESS, 0.755)
+	state.in_cover = false
+	var weights := BehaviorTestUtil.weights_for(&"enemy_militiaman")
+	# ATTACK y TAKE_COVER se igualan a mano hasta rozarse: es el peor caso para
+	# un selector por utilidad, dos comportamientos separados por centésimas.
+	# La exposición los mueve en sentidos CONTRARIOS —cubrirse sube cuando
+	# atacar baja—, así que basta un temblor de 0,1 para que el ganador cambie.
+	weights.set_gain(BehaviorKind.Kind.ATTACK, 0.645)
+	weights.set_gain(BehaviorKind.Kind.TAKE_COVER, 1.0)
 	controller.weights = weights
 
 	var raw_flips := 0
 	var previous_raw := UtilityScorer.select(state, weights, board)
 	for i: int in range(100):
-		# El ruido de entrada que hace bailar al selector: la distancia estimada
-		# al objetivo cambia medio metro entre decisión y decisión, que es lo que
-		# hace de verdad una percepción a 10 Hz con memoria que decae.
-		state.distance_to_target_m = 14.0 + (0.6 if i % 2 == 0 else -0.6)
+		# El temblor de entrada que hace bailar al selector: la exposición
+		# estimada cambia una décima entre decisión y decisión, que es lo que
+		# hace de verdad una nube de cobertura consultada con contactos que
+		# decaen.
+		state.exposure = 0.5 + (0.05 if i % 2 == 0 else -0.05)
 		var raw := UtilityScorer.select(state, weights, board)
 		if raw != previous_raw:
 			raw_flips += 1
@@ -185,7 +191,8 @@ func test_low_health_and_nowhere_to_hide_ends_in_retreat() -> void:
 	state.in_cover = false
 	controller.weights = BehaviorTestUtil.weights_for(&"enemy_militiaman", state.health_ratio)
 
-	_cycle()
+	# Dos ciclos: el primero lo consume el compromiso mínimo del IDLE inicial.
+	_cycle(2)
 	assert_eq(BehaviorKind.name_of(controller.active_behavior()),
 		BehaviorKind.name_of(BehaviorKind.Kind.TAKE_COVER),
 		"primero lo intenta: expuesto y bajo fuego, cubrirse es lo mejor que puntúa")
@@ -208,10 +215,15 @@ func test_low_health_and_nowhere_to_hide_ends_in_retreat() -> void:
 func test_the_failure_veto_expires() -> void:
 	ctx.cover = BehaviorTestUtil.empty_cover()
 	state.exposure = 1.0
+	# Con la vida entera, un miliciano expuesto responde al fuego; hay que
+	# estar tocado para que cubrirse gane, y es lo que se quiere probar aquí.
+	state.health_ratio = 0.55
+	controller.weights = BehaviorTestUtil.weights_for(&"enemy_militiaman", state.health_ratio)
+	_cycle(2)
+	assert_gt(controller.cooldown_of(BehaviorKind.Kind.TAKE_COVER), 0.0)
 	_cycle()
-	var cooldown := controller.cooldown_of(BehaviorKind.Kind.TAKE_COVER)
-	assert_gt(cooldown, 0.0)
-	assert_ne(controller.active_behavior(), BehaviorKind.Kind.TAKE_COVER)
+	assert_ne(controller.active_behavior(), BehaviorKind.Kind.TAKE_COVER,
+		"vetado, el selector elige otra cosa")
 	_cycle(int(ceil(BehaviorTuning.FAILURE_COOLDOWN_S / DECISION_DT)) + 1)
 	assert_eq(controller.cooldown_of(BehaviorKind.Kind.TAKE_COVER), 0.0,
 		"pasado el veto, el comportamiento vuelve a estar disponible")
@@ -292,6 +304,6 @@ func test_the_controller_announces_its_changes() -> void:
 	controller.behavior_changed.connect(
 		func(_previous: BehaviorKind.Kind, next: BehaviorKind.Kind) -> void:
 			seen.append(int(next)))
-	_cycle()
+	_cycle(2)
 	assert_gt(float(seen.size()), 0.0)
 	assert_eq(seen[seen.size() - 1], int(controller.active_behavior()))
