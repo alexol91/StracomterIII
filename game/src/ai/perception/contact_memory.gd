@@ -14,8 +14,9 @@ extends RefCounted
 ## luego se congela. Va a buscarte donde CREE que estás y se equivoca de forma
 ## creíble. Eso es exactamente lo que hace que parezca vivo.
 ##
-## PUREZA: `decay()` y `extrapolate()` son `static` y deterministas; se prueban
-## en aislamiento sin instanciar nada.
+## PUREZA: `decay()` y `extrapolate()` son `static` y deterministas, y reciben
+## el `PerceptionProfile` por parámetro; se prueban en aislamiento sin
+## instanciar nada. Ningún número de balanceo vive aquí dentro (ADR-005).
 
 ## De dónde vino la última actualización de un contacto.
 enum Source {
@@ -25,29 +26,6 @@ enum Source {
 	DAMAGE,  ## Me han disparado desde ahí.
 	SQUAD,   ## Me lo ha contado un compañero por la pizarra.
 }
-
-# TODO(arquitecto): mover a datos (CharacterStats o un PerceptionProfile).
-
-## Ritmo de decaimiento por tiempo, en 1/s. Con 0,35 la confianza cae a la
-## mitad en ~2 s y a un 5 % en ~8,5 s.
-const TIME_DECAY_RATE: float = 0.35
-## Decaimiento adicional por cada m/s de movimiento estimado del objetivo: si
-## se movía deprisa, la posición envejece antes.
-const MOTION_DECAY_PER_MPS: float = 0.10
-## Segundos durante los que se sigue extrapolando la posición creída. Pasados,
-## el bot se queda con el último punto plausible en lugar de perseguir un
-## fantasma que se aleja para siempre.
-const MAX_EXTRAPOLATION_S: float = 1.5
-## La velocidad estimada se amortigua al extrapolar: nadie mantiene su rumbo.
-const EXTRAPOLATION_DAMPING: float = 0.6
-## Confianza por debajo de la cual el contacto se poda.
-const PRUNE_CONFIDENCE: float = 0.05
-## Confianza por encima de la cual el contacto cuenta como "amenaza conocida".
-const THREAT_CONFIDENCE: float = 0.25
-## Confianza que da un contacto reportado por un compañero de escuadra: la
-## información de segunda mano vale menos que la propia.
-const SQUAD_CONFIDENCE_FACTOR: float = 0.8
-
 
 ## Lo que el bot cree saber de un objetivo.
 class Entry:
@@ -86,7 +64,17 @@ class Entry:
 		return copy
 
 
+## Parámetros del arquetipo. Lo inyecta el `PerceptionSystem`.
+var profile: PerceptionProfile = null
+
 var _entries: Dictionary[int, Entry] = {}
+
+
+## Perfil en uso, con los valores por defecto del recurso si nadie inyectó uno.
+func effective_profile() -> PerceptionProfile:
+	if profile == null:
+		profile = PerceptionProfile.new()
+	return profile
 
 
 # ---- Modelo puro ----
@@ -96,22 +84,30 @@ var _entries: Dictionary[int, Entry] = {}
 ## Es estrictamente decreciente para `confidence > 0` y `dt > 0`: esa es la
 ## propiedad que garantiza que un bot sin contactos nuevos acabe dudando, y la
 ## que comprueba el test de monotonía.
-static func decay(confidence: float, dt: float, estimated_speed_mps: float = 0.0) -> float:
+static func decay(
+	confidence: float, dt: float, profile: PerceptionProfile, estimated_speed_mps: float = 0.0
+) -> float:
 	if dt <= 0.0:
 		return clampf(confidence, 0.0, 1.0)
-	var rate := TIME_DECAY_RATE + MOTION_DECAY_PER_MPS * maxf(estimated_speed_mps, 0.0)
+	var rate := (
+		profile.time_decay_rate
+		+ profile.motion_decay_per_mps * maxf(estimated_speed_mps, 0.0)
+	)
 	return clampf(confidence * exp(-rate * dt), 0.0, 1.0)
 
 
 ## Dónde estaría el objetivo si hubiera seguido su rumbo, con amortiguación y
 ## con un tope de tiempo. Determinista.
 static func extrapolate(
-	last_known_position: Vector3, velocity: Vector3, elapsed_s: float
+	last_known_position: Vector3,
+	velocity: Vector3,
+	elapsed_s: float,
+	profile: PerceptionProfile
 ) -> Vector3:
-	var t := clampf(elapsed_s, 0.0, MAX_EXTRAPOLATION_S)
+	var t := clampf(elapsed_s, 0.0, profile.max_extrapolation_s)
 	if t <= 0.0 or velocity.length_squared() < 0.000001:
 		return last_known_position
-	return last_known_position + velocity * t * EXTRAPOLATION_DAMPING
+	return last_known_position + velocity * t * profile.extrapolation_damping
 
 
 # ---- Estado ----
@@ -119,14 +115,17 @@ static func extrapolate(
 ## Envejece y decae TODOS los contactos. Debe llamarse una vez por tick, ANTES
 ## de los refuerzos de este tick.
 func update(dt: float) -> void:
+	var tuning := effective_profile()
 	for entry: Entry in _entries.values():
 		entry.seen_now = false
 		entry.age_s += dt
 		if not is_inf(entry.time_since_seen_s):
 			entry.time_since_seen_s += dt
-		entry.confidence = decay(entry.confidence, dt, entry.estimated_velocity.length())
+		entry.confidence = decay(
+			entry.confidence, dt, tuning, entry.estimated_velocity.length()
+		)
 		entry.believed_position = extrapolate(
-			entry.last_known_position, entry.estimated_velocity, entry.age_s
+			entry.last_known_position, entry.estimated_velocity, entry.age_s, tuning
 		)
 
 
@@ -179,18 +178,22 @@ func reinforce_damage(target_id: int, team: int, from_position: Vector3, confide
 func reinforce_from_squad(
 	target_id: int, team: int, position: Vector3, confidence: float
 ) -> Entry:
-	var entry := reinforce_sound(target_id, team, position, confidence * SQUAD_CONFIDENCE_FACTOR)
+	var entry := reinforce_sound(
+		target_id, team, position, confidence * effective_profile().squad_confidence_factor
+	)
 	if entry.source == Source.SOUND:
 		entry.source = Source.SQUAD
 	return entry
 
 
 ## Elimina los contactos por debajo del umbral. Devuelve cuántos se olvidaron.
-func prune(min_confidence: float = PRUNE_CONFIDENCE) -> int:
+## Umbral negativo = el que diga el perfil.
+func prune(min_confidence: float = -1.0) -> int:
+	var threshold := min_confidence if min_confidence >= 0.0 else effective_profile().prune_confidence
 	var removed := 0
 	for key: int in _entries.keys():
 		var entry: Entry = _entries[key]
-		if entry.confidence < min_confidence:
+		if entry.confidence < threshold:
 			_entries.erase(key)
 			removed += 1
 	return removed
@@ -239,10 +242,14 @@ func count() -> int:
 
 
 ## Contactos que cuentan como amenaza conocida (alimenta `BotState`).
-func threat_count(min_confidence: float = THREAT_CONFIDENCE) -> int:
+## Umbral negativo = el que diga el perfil.
+func threat_count(min_confidence: float = -1.0) -> int:
+	var threshold := (
+		min_confidence if min_confidence >= 0.0 else effective_profile().threat_confidence
+	)
 	var n := 0
 	for entry: Entry in _entries.values():
-		if entry.confidence >= min_confidence:
+		if entry.confidence >= threshold:
 			n += 1
 	return n
 

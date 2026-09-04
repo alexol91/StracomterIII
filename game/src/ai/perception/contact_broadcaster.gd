@@ -12,14 +12,9 @@ extends RefCounted
 ## La pizarra se inyecta como `Callable` (`report_sink`) en lugar de llamar al
 ## autoload: así esto se prueba en `--headless` sin `Blackboard` y se puede
 ## espiar lo que se publica y cuándo.
-
-# TODO(arquitecto): mover a datos (CharacterStats o un PerceptionProfile).
-
-## Mientras un objetivo siga difundido y visto hace menos de esto, las
-## actualizaciones no vuelven a pagar el retardo: ya estás reaccionando a él.
-const TRACKING_GRACE_S: float = 2.0
-## Retardo mínimo. Ni el arquetipo más rápido reacciona en 0 s.
-const MIN_REACTION_DELAY_S: float = 0.05
+##
+## El retardo sale de `CharacterStats.reaction_delay_s` y sus topes de
+## `PerceptionProfile`: ningún número de balanceo vive aquí dentro (ADR-005).
 
 
 ## Un contacto esperando a que venza el retardo de reacción.
@@ -34,7 +29,9 @@ class Pending:
 
 ## Retardo de reacción del arquetipo, en segundos. Lo fija el `PerceptionSystem`
 ## desde `CharacterStats.reaction_delay_s`.
-var reaction_delay_s: float = MIN_REACTION_DELAY_S
+var reaction_delay_s: float = 0.0
+## Parámetros del arquetipo. Lo inyecta el `PerceptionSystem`.
+var profile: PerceptionProfile = null
 ## Quién publica: `func(squad_id: int, contact: Blackboard.Contact) -> void`.
 ## Por defecto, la pizarra global.
 var report_sink: Callable = Callable()
@@ -81,16 +78,17 @@ func submit(
 	pending.squad_id = squad_id
 	pending.target_id = target_id
 	pending.contact = contact
-	pending.remaining_s = 0.0 if tracked else maxf(reaction_delay_s, MIN_REACTION_DELAY_S)
+	pending.remaining_s = 0.0 if tracked else effective_delay_s()
 	_pending[target_id] = pending
 
 
 ## Avanza los retardos y publica lo que ya ha vencido. Devuelve cuántos
 ## contactos se publicaron en este tick.
 func update(dt: float) -> int:
+	var grace := effective_profile().tracking_grace_s
 	for target_id: int in _since_published.keys():
 		var elapsed: float = _since_published[target_id] + dt
-		if elapsed > TRACKING_GRACE_S:
+		if elapsed > grace:
 			# Se ha perdido el hilo: el siguiente avistamiento vuelve a pagar
 			# el retardo de reacción completo.
 			_since_published.erase(target_id)
@@ -109,6 +107,19 @@ func update(dt: float) -> int:
 		published += 1
 	published_count += published
 	return published
+
+
+## Perfil en uso, con los valores por defecto del recurso si nadie inyectó uno.
+func effective_profile() -> PerceptionProfile:
+	if profile == null:
+		profile = PerceptionProfile.new()
+	return profile
+
+
+## Retardo que se aplicará a un contacto nuevo. Nunca por debajo del suelo del
+## perfil: ni el arquetipo más rápido tiene telepatía.
+func effective_delay_s() -> float:
+	return maxf(reaction_delay_s, effective_profile().min_reaction_delay_s)
 
 
 ## Contactos aún esperando el retardo.

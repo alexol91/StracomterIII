@@ -12,30 +12,9 @@ extends RefCounted
 ## lugar de en ruido: el bot que oye fuerte sabe que puede llegar, y va.
 ##
 ## PUREZA: la atenuación, el error de localización y la dispersión son
-## funciones `static` deterministas. La única consulta al mundo es
-## `WorldQuery.path_cost`, inyectable.
-
-# TODO(arquitecto): mover a datos (CharacterStats o un PerceptionProfile).
-
-## Sonoridad percibida por debajo de la cual el ruido no se registra.
-const HEARING_THRESHOLD: float = 0.08
-## Exponente de la caída de intensidad con el coste de camino. >1 = el sonido
-## se apaga deprisa al final del alcance.
-const ATTENUATION_EXPONENT: float = 1.5
-## Sin ruta de navmesh (sonido de otra planta, o zona sin hornear) el coste se
-## estima como distancia recta por este factor: se oye, pero muy amortiguado.
-const NO_ROUTE_COST_FACTOR: float = 2.5
-## Error de localización con un sonido apenas audible, en metros. Con un
-## sonido a bocajarro el error es 0.
-const MAX_LOCALIZATION_ERROR_M: float = 4.0
-## Confianza máxima que puede dar un contacto SOLO por oído. Oír no es ver.
-const MAX_SOUND_CONFIDENCE: float = 0.55
-## Eventos procesados como mucho en un tick: cada uno cuesta una consulta de
-## camino, y el presupuesto de la escuadra no es infinito (ADR-002).
-const MAX_EVENTS_PER_TICK: int = 6
-## Cola máxima de eventos pendientes. Una explosión en cadena no debe hacer
-## crecer la memoria sin límite.
-const MAX_QUEUE: int = 24
+## funciones `static` deterministas que reciben el `PerceptionProfile` por
+## parámetro. La única consulta al mundo es `WorldQuery.path_cost`, inyectable.
+## Ningún número de balanceo vive aquí dentro (ADR-005).
 
 
 ## Un ruido emitido en el mundo.
@@ -82,6 +61,8 @@ class Heard:
 ## Identificador del oyente. Entra en la semilla del error de localización para
 ## que dos bots no se equivoquen exactamente igual.
 var listener_id: int = 0
+## Parámetros del arquetipo. Lo inyecta el `PerceptionSystem`.
+var profile: PerceptionProfile = null
 
 var _queue: Array[NoiseEvent] = []
 
@@ -89,33 +70,39 @@ var _queue: Array[NoiseEvent] = []
 # ---- Modelo puro ----
 
 ## Atenuación 0..1 en función del coste de camino y del alcance del sonido.
-static func attenuation(path_cost_m: float, radius_m: float) -> float:
+static func attenuation(
+	path_cost_m: float, radius_m: float, profile: PerceptionProfile
+) -> float:
 	if radius_m <= 0.0:
 		return 0.0
 	if is_inf(path_cost_m) or path_cost_m >= radius_m:
 		return 0.0
 	var t := 1.0 - path_cost_m / radius_m
-	return pow(clampf(t, 0.0, 1.0), ATTENUATION_EXPONENT)
+	return pow(clampf(t, 0.0, 1.0), profile.attenuation_exponent)
 
 
 ## Sonoridad percibida 0..1.
-static func loudness_of(intensity: float, path_cost_m: float, radius_m: float) -> float:
-	return clampf(intensity, 0.0, 1.0) * attenuation(path_cost_m, radius_m)
+static func loudness_of(
+	intensity: float, path_cost_m: float, radius_m: float, profile: PerceptionProfile
+) -> float:
+	return clampf(intensity, 0.0, 1.0) * attenuation(path_cost_m, radius_m, profile)
 
 
 ## Coste de camino efectivo. Si no hay ruta de navmesh, el sonido llega
 ## atravesando geometría: se estima con la recta penalizada.
-static func effective_cost(path_cost_m: float, straight_distance_m: float) -> float:
+static func effective_cost(
+	path_cost_m: float, straight_distance_m: float, profile: PerceptionProfile
+) -> float:
 	if is_inf(path_cost_m) or path_cost_m < 0.0:
-		return straight_distance_m * NO_ROUTE_COST_FACTOR
+		return straight_distance_m * profile.no_route_cost_factor
 	# Un camino nunca puede ser más corto que la recta: si el navmesh lo dice,
 	# es que la malla está mal horneada. Se toma la recta como suelo.
 	return maxf(path_cost_m, straight_distance_m)
 
 
 ## Radio de incertidumbre de la localización, en metros.
-static func localization_error_m(loudness: float) -> float:
-	return lerpf(MAX_LOCALIZATION_ERROR_M, 0.0, clampf(loudness, 0.0, 1.0))
+static func localization_error_m(loudness: float, profile: PerceptionProfile) -> float:
+	return lerpf(profile.max_localization_error_m, 0.0, clampf(loudness, 0.0, 1.0))
 
 
 ## Desplaza un punto dentro de un disco horizontal de radio `error_m`, de forma
@@ -145,9 +132,16 @@ static func scatter_seed(listener: int, source_id: int, position: Vector3) -> in
 func push_noise(event: NoiseEvent) -> void:
 	if event == null or event.radius_m <= 0.0 or event.intensity <= 0.0:
 		return
-	if _queue.size() >= MAX_QUEUE:
+	if _queue.size() >= effective_profile().max_sound_queue:
 		_queue.pop_front()
 	_queue.append(event)
+
+
+## Perfil en uso, con los valores por defecto del recurso si nadie inyectó uno.
+func effective_profile() -> PerceptionProfile:
+	if profile == null:
+		profile = PerceptionProfile.new()
+	return profile
 
 
 func pending_count() -> int:
@@ -160,15 +154,17 @@ func clear() -> void:
 
 ## Procesa hasta `max_events` ruidos pendientes y devuelve los que se oyen.
 ## Consume la cola: lo que no cabe en este tick se procesa en el siguiente.
+## `max_events` negativo = el que diga el perfil.
 func process(
-	listener_position: Vector3, world: WorldQuery, max_events: int = MAX_EVENTS_PER_TICK
+	listener_position: Vector3, world: WorldQuery, max_events: int = -1
 ) -> Array[Heard]:
 	var out: Array[Heard] = []
 	if world == null:
 		_queue.clear()
 		return out
+	var budget := max_events if max_events >= 0 else effective_profile().max_sound_events_per_tick
 	var processed := 0
-	while not _queue.is_empty() and processed < max_events:
+	while not _queue.is_empty() and processed < budget:
 		var event: NoiseEvent = _queue.pop_front()
 		processed += 1
 		var heard := evaluate(listener_position, event, world)
@@ -187,10 +183,11 @@ func evaluate(listener_position: Vector3, event: NoiseEvent, world: WorldQuery) 
 	# imposible que se oiga.
 	if straight > event.radius_m:
 		return null
+	var tuning := effective_profile()
 	var raw_cost := world.path_cost(listener_position, event.position)
-	var cost := effective_cost(raw_cost, straight)
-	var loudness := loudness_of(event.intensity, cost, event.radius_m)
-	if loudness < HEARING_THRESHOLD:
+	var cost := effective_cost(raw_cost, straight, tuning)
+	var loudness := loudness_of(event.intensity, cost, event.radius_m, tuning)
+	if loudness < tuning.hearing_threshold:
 		return null
 	var heard := Heard.new()
 	heard.source_id = event.source_id
@@ -198,7 +195,7 @@ func evaluate(listener_position: Vector3, event: NoiseEvent, world: WorldQuery) 
 	heard.loudness = loudness
 	heard.path_cost_m = cost
 	heard.straight_distance_m = straight
-	var error := localization_error_m(loudness)
+	var error := localization_error_m(loudness, tuning)
 	var seed_value := scatter_seed(listener_id, event.source_id, event.position)
 	heard.estimated_position = scatter(event.position, error, seed_value)
 	return heard
@@ -206,5 +203,5 @@ func evaluate(listener_position: Vector3, event: NoiseEvent, world: WorldQuery) 
 
 ## Confianza que aporta un ruido a la memoria de contactos. Oír nunca da la
 ## certeza de ver: por eso está acotada.
-static func confidence_from(loudness: float) -> float:
-	return clampf(loudness, 0.0, 1.0) * MAX_SOUND_CONFIDENCE
+static func confidence_from(loudness: float, profile: PerceptionProfile) -> float:
+	return clampf(loudness, 0.0, 1.0) * profile.max_sound_confidence
