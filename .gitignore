@@ -19,3 +19,7 @@ game/probe_*.gd
 game/probe_*.gd.uid
 game/tests/_probe/
 game/tests/_bisect/
+
+# Python
+__pycache__/
+*.pyc
