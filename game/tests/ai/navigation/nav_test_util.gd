@@ -2,108 +2,22 @@ class_name NavTestUtil
 extends RefCounted
 ## Utilidades compartidas por las pruebas de `ai/navigation`.
 ##
-## Lleva `class_name` (y no se usa con `preload`) por un motivo concreto: un
-## script sin clase global, referenciado sólo desde el `const` de otro script,
-## no se descarga limpiamente al salir del motor y Godot lo denuncia como
-## "resources still in use at exit". Con clase global lo sostiene el
-## ScriptServer y se libera en orden. Verificado en 4.7.2.
+## Lleva `class_name` y no tiene clases internas por un motivo concreto: los
+## scripts que sólo se alcanzan por el `const preload` de otro, y las clases
+## internas que extienden clases globales, no se descargan limpiamente al
+## salir del motor; Godot lo denuncia al final como "ObjectDB instances were
+## leaked" / "resources still in use at exit". Verificado en 4.7.2.
 ##
 ## La geometría de prueba son cajas (`AABB`). De ahí salen las DOS cosas que
-## necesita el sistema y que deben describir el mismo mundo:
-##   * la geometría de origen del navmesh, que hornea Recast, y
-##   * un `WorldQuery` sintético que resuelve los rayos analíticamente.
-##
-## Que los rayos sean analíticos y no físicos es deliberado: el horneado de
-## cobertura se prueba sin `PhysicsServer3D`, sin escena y sin frames, que es
-## exactamente la costura que pide la arquitectura (`world_query.gd`).
-
-
-## Escenario de prueba: mundo sintético (intersección rayo-caja, sin motor de
-## físicas) + el `NavService` y el navmesh horneados de la MISMA geometría.
-##
-## Va todo en una sola clase interna a propósito: dos clases internas del
-## mismo script que se referencian entre sí impiden que Godot descargue el
-## script al salir, y eso se ve como "ObjectDB instances were leaked at exit".
-## Verificado en 4.7.2.
-class SyntheticWorld:
-	extends WorldQuery
-
-	var boxes: Array[AABB] = []
-	var nav: NavService = null
-	var mesh: NavigationMesh = null
-
-	func dispose() -> void:
-		if nav != null:
-			nav.dispose()
-			nav = null
-		mesh = null
-
-	func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
-		var delta := to - from
-		var length := delta.length()
-		if length < 0.000001:
-			return Vector3.INF
-		var dir := delta / length
-		var best := INF
-		for box: AABB in boxes:
-			# `hit_from_inside = false`, como la consulta física real: un rayo
-			# que nace dentro de un cuerpo no lo reporta.
-			if box.has_point(from):
-				continue
-			var t := _ray_box(from, dir, length, box)
-			if t >= 0.0 and t < best:
-				best = t
-		if is_inf(best):
-			return Vector3.INF
-		return from + dir * best
-
-	func has_line_of_sight(from: Vector3, to: Vector3,
-			collision_mask: int = 1) -> bool:
-		return not raycast(from, to, collision_mask).is_finite()
-
-	func snap_to_navmesh(point: Vector3) -> Vector3:
-		return Vector3.INF if nav == null else nav.snap_to_navmesh(point)
-
-	func path(from: Vector3, to: Vector3) -> PackedVector3Array:
-		return PackedVector3Array() if nav == null else nav.path(from, to)
-
-	func path_cost(from: Vector3, to: Vector3) -> float:
-		return INF if nav == null else nav.path_cost(from, to)
-
-	func disjoint_routes(from: Vector3, to: Vector3,
-			max_routes: int = 2) -> Array[PackedVector3Array]:
-		return [] if nav == null else nav.disjoint_routes(from, to, max_routes)
-
-	static func _ray_box(from: Vector3, dir: Vector3, length: float,
-			box: AABB) -> float:
-		var tmin := 0.0
-		var tmax := length
-		for axis in 3:
-			var origin := from[axis]
-			var d := dir[axis]
-			var lo := box.position[axis]
-			var hi := lo + box.size[axis]
-			if absf(d) < 0.000000001:
-				if origin < lo or origin > hi:
-					return -1.0
-				continue
-			var t1 := (lo - origin) / d
-			var t2 := (hi - origin) / d
-			if t1 > t2:
-				var swap := t1
-				t1 = t2
-				t2 = swap
-			tmin = maxf(tmin, t1)
-			tmax = minf(tmax, t2)
-			if tmin > tmax:
-				return -1.0
-		return tmin
+## necesita el sistema y que deben describir el mismo mundo: la geometría de
+## origen del navmesh, que hornea Recast, y el `WorldQuery` sintético
+## (`NavSyntheticWorld`) que resuelve los rayos analíticamente.
 
 
 ## Construye un escenario a partir de cajas. La primera caja suele ser el
 ## suelo; el resto, muros y mobiliario.
-static func fixture(boxes: Array[AABB]) -> SyntheticWorld:
-	var out := SyntheticWorld.new()
+static func fixture(boxes: Array[AABB]) -> NavSyntheticWorld:
+	var out := NavSyntheticWorld.new()
 	out.boxes = boxes
 	out.nav = NavService.new()
 	out.nav.setup()

@@ -88,9 +88,9 @@ func _apply_gravity(delta: float) -> void:
 func _apply_horizontal_velocity() -> void:
 	var speed := stats.speed_mps()
 	if intent_crouch:
-		speed *= CROUCH_SPEED_MULTIPLIER
+		speed *= stats.crouch_multiplier
 	elif intent_sprint:
-		speed *= SPRINT_SPEED_MULTIPLIER
+		speed *= stats.sprint_multiplier
 	var horizontal := intent_move * speed
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
@@ -109,7 +109,7 @@ func _apply_crouch_shape(crouched: bool) -> void:
 	var capsule := _collision_shape.shape as CapsuleShape3D
 	if capsule == null:
 		return
-	var target_height := _standing_capsule_height * (CROUCH_HEIGHT_SCALE if crouched else 1.0)
+	var target_height := _standing_capsule_height * (stats.crouch_height_scale if crouched else 1.0)
 	if is_equal_approx(capsule.height, target_height):
 		return
 	capsule.height = target_height

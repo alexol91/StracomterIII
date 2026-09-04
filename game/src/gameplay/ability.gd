@@ -16,9 +16,6 @@ extends Node
 const SETTER_PHYSICS_PRIORITY: int = -100
 
 @export var character_path: NodePath
-## Segundos de reutilización tras activarse. No existe en `CharacterStats`.
-## TODO(arquitecto): mover a datos (p. ej. `CharacterStats.ability_cooldown_s`).
-@export var cooldown_s: float = 8.0
 ## Si no está vacío, la habilidad se autodesactiva salvo que
 ## `character.archetype` coincida. Así `player.tscn`/`enemy.tscn` pueden
 ## llevar las cuatro habilidades de clase como hijos y solo se activa la que
@@ -57,7 +54,7 @@ func _physics_process(delta: float) -> void:
 		_cooldown_remaining_s = maxf(_cooldown_remaining_s - delta, 0.0)
 	_on_tick(delta)
 	if character.intent_ability and is_ready():
-		_cooldown_remaining_s = cooldown_s
+		_cooldown_remaining_s = cooldown_s()
 		_activate()
 
 
@@ -65,11 +62,19 @@ func is_ready() -> bool:
 	return _cooldown_remaining_s <= 0.0
 
 
+## Segundos de reutilización tras activarse. Es de `CharacterStats`, no un
+## dato de la habilidad: cada clase recarga su E-01 a su propio ritmo
+## (capitán 16 s, técnico 12 s, especialista 14 s, explosivo 30 s).
+func cooldown_s() -> float:
+	return character.stats.ability_cooldown_s if character != null and character.stats != null else 0.0
+
+
 ## 0 = recién usada, 1 = lista. Para que el HUD (`ui/`) pinte el cooldown.
 func cooldown_ratio() -> float:
-	if cooldown_s <= 0.0:
+	var total := cooldown_s()
+	if total <= 0.0:
 		return 1.0
-	return 1.0 - clampf(_cooldown_remaining_s / cooldown_s, 0.0, 1.0)
+	return 1.0 - clampf(_cooldown_remaining_s / total, 0.0, 1.0)
 
 
 ## Dirección de puntería común a varias habilidades: hacia `intent_look_at`

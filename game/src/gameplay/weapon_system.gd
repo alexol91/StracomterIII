@@ -9,40 +9,19 @@ extends Node
 ## quién los puso ahí — jugador o IA (regla de intenciones, ver cabecera de
 ## `character.gd`). NO importa nada de `src/ai/`.
 ##
-## DECISIÓN DE DISEÑO — de dónde sale cada número (ver informe al arquitecto):
-## el arma POR DEFECTO de cada arquetipo usa cadencia y daño de
+## DECISIÓN DE DISEÑO — de dónde sale cada número: el arma POR DEFECTO de
+## cada arquetipo (`CharacterStats.default_weapon_id`) usa cadencia y daño de
 ## `CharacterStats` (fidelidad exacta al legacy, donde esos campos son del
 ## PERSONAJE, no de un arma — imprescindible para los enemigos, que no tienen
-## un `WeaponStats` propio) y usa el `WeaponStats` mapeado solo para lo que el
-## legacy no tenía: dispersión, recarga, alcance, radio de explosión, fuego
-## amigo y ruido. Un arma RECOGIDA (p. ej. el pickup `sniper`) sustituye el
-## arma por completo: cadencia y daño pasan a ser los del propio `WeaponStats`,
-## porque en ese momento es literalmente "otra arma", no el arma de la clase.
+## un `WeaponStats` propio) y usa el `WeaponStats` señalado por
+## `default_weapon_id` solo para lo que el legacy no tenía: dispersión,
+## recarga, alcance, radio de explosión, fuego amigo y ruido. Un arma
+## RECOGIDA (p. ej. el pickup `sniper`, vía `Character.equipped_weapon_override`)
+## sustituye el arma por completo: cadencia y daño pasan a ser los del propio
+## `WeaponStats`, porque en ese momento es literalmente "otra arma", no el
+## arma de la clase.
 
 const MELEE_WEAPON_ID: StringName = &"knife"
-
-## Arma por defecto de cada arquetipo. Los valores de cadencia/daño de estas
-## armas coinciden deliberadamente con los de `CharacterStats` para las
-## cuatro clases jugables (mismo origen: f1.xml); los enemigos no tienen
-## `WeaponStats` propio y por eso su cadencia/daño real sale de
-## `CharacterStats`, no de esta arma (ver decisión de diseño arriba).
-##
-## TODO(arquitecto): mover esta tabla a datos — p. ej. un campo
-## `default_weapon_id: StringName` en `CharacterStats`/los `.tres` de
-## `src/data/characters/` — en vez de una tabla fija en `gameplay/`.
-const DEFAULT_WEAPON_ID: Dictionary[StringName, StringName] = {
-	&"captain": &"pistol",
-	&"technician": &"smg",
-	&"specialist": &"machinegun",
-	&"demolition": &"grenade_launcher",
-	&"enemy_thug": &"pistol",
-	&"enemy_militiaman": &"pistol",
-	&"enemy_veteran": &"smg",
-	# GDD §4: "Ataque explosivo en área, como el Explosivo".
-	&"miniboss": &"grenade_launcher",
-	# legacy-gameplay.md §3.4: "disparo normal con sonido de ametralladora".
-	&"megaboss": &"machinegun",
-}
 
 ## Máscara de físicas para hitscan y explosión: world | player | companion |
 ## enemy | door (ver `project.godot` → `[layer_names]`). Se excluyen
@@ -143,7 +122,7 @@ func _ensure_firearm_equipped() -> void:
 		return
 	var override_id := character.equipped_weapon_override
 	var desired_id: StringName = override_id if override_id != &"" \
-		else DEFAULT_WEAPON_ID.get(character.archetype, &"pistol")
+		else character.stats.default_weapon_id
 	if desired_id == _current_weapon_id and _firearm != null:
 		return
 	var w_stats := Balance.weapon(desired_id)
