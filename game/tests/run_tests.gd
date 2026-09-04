@@ -29,6 +29,21 @@ var _failure_lines: Array[String] = []
 
 
 func _ready() -> void:
+	# Las pruebas NO se ejecutan aquí. Durante el `_ready` inicial el árbol está
+	# dentro de `propagate_notification`, y un `add_child` sobre la raíz en ese
+	# momento no dispara el `_ready` del hijo: cualquier prueba que instancie
+	# una escena la vería vacía —controles sin construir, `@onready` sin
+	# resolver— y fallaría por un motivo que no tiene nada que ver con lo que
+	# mide. Se espera un frame para que el árbol esté asentado.
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	set_process(false)
+	_run_all()
+
+
+func _run_all() -> void:
 	var filter := _read_filter()
 	var files := _discover(TESTS_ROOT)
 	files.sort()

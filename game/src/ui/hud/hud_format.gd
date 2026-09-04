@@ -6,12 +6,16 @@ extends RefCounted
 ## "MM:SS", saturando en 59:59 en vez de desbordar a horas: una partida no
 ## dura horas y un contador de tres dígitos rompería el layout del HUD.
 static func format_time(total_seconds: float) -> String:
-	var clamped := maxi(0, int(total_seconds))
+	# Se satura el TOTAL en 59:59, no solo los minutos. Saturar únicamente los
+	# minutos daba "59:40" para 4000 s: un reloj que se queda quieto en los
+	# minutos pero sigue moviendo los segundos es peor que uno parado, porque
+	# parece que funciona.
+	var clamped := clampi(int(total_seconds), 0, 59 * 60 + 59)
 	# División entera deliberada: se quieren minutos completos. El proyecto
-	# trata el aviso como error precisamente para que las que sí son
-	# accidentales salten, así que las intencionadas se declaran.
+	# trata el aviso como error para que salten las accidentales, así que las
+	# intencionadas se declaran.
 	@warning_ignore("integer_division")
-	var minutes := mini(59, clamped / 60)
+	var minutes := clamped / 60
 	var seconds := clamped % 60
 	return "%02d:%02d" % [minutes, seconds]
 
