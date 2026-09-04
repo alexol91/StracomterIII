@@ -18,12 +18,25 @@ extends RefCounted
 ## exactamente la costura que pide la arquitectura (`world_query.gd`).
 
 
-## Mundo sintético: intersección rayo-caja, sin motor de físicas.
+## Escenario de prueba: mundo sintético (intersección rayo-caja, sin motor de
+## físicas) + el `NavService` y el navmesh horneados de la MISMA geometría.
+##
+## Va todo en una sola clase interna a propósito: dos clases internas del
+## mismo script que se referencian entre sí impiden que Godot descargue el
+## script al salir, y eso se ve como "ObjectDB instances were leaked at exit".
+## Verificado en 4.7.2.
 class SyntheticWorld:
 	extends WorldQuery
 
 	var boxes: Array[AABB] = []
 	var nav: NavService = null
+	var mesh: NavigationMesh = null
+
+	func dispose() -> void:
+		if nav != null:
+			nav.dispose()
+			nav = null
+		mesh = null
 
 	func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
 		var delta := to - from
@@ -87,35 +100,18 @@ class SyntheticWorld:
 		return tmin
 
 
-## Escenario completo: navmesh horneado + mundo sintético coherente con él.
-class Fixture:
-	extends RefCounted
-
-	var nav: NavService = null
-	var world: SyntheticWorld = null
-	var mesh: NavigationMesh = null
-
-	func dispose() -> void:
-		if nav != null:
-			nav.dispose()
-			nav = null
-
-
 ## Construye un escenario a partir de cajas. La primera caja suele ser el
 ## suelo; el resto, muros y mobiliario.
-static func fixture(boxes: Array[AABB]) -> Fixture:
-	var out := Fixture.new()
+static func fixture(boxes: Array[AABB]) -> SyntheticWorld:
+	var out := SyntheticWorld.new()
+	out.boxes = boxes
 	out.nav = NavService.new()
 	out.nav.setup()
-	# Las pruebas piden más de 4 rutas por frame a propósito: aquí se mide el
-	# resultado del pathfinding, no el reparto de presupuesto (que tiene su
-	# propia prueba).
+	# Las pruebas piden más de 4 rutas en el mismo frame a propósito: aquí se
+	# mide el resultado del pathfinding, no el reparto de presupuesto (que
+	# tiene su propia prueba).
 	out.nav.budget_enforced = false
 	out.mesh = out.nav.bake_region(&"main", source_from_boxes(boxes))
-	out.world = SyntheticWorld.new()
-	out.world.boxes = boxes
-	out.world.nav = out.nav
-	out.nav.set_space(null)
 	return out
 
 

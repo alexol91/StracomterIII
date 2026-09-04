@@ -20,15 +20,6 @@ extends Character
 ## propio `_physics_process` de este mismo tick las ve intactas, sea cual sea
 ## el orden de los hijos en el árbol de escena.
 
-## Multiplicador de velocidad al esprintar. No existe en `CharacterStats`.
-## TODO(arquitecto): mover a datos (p. ej. `CharacterStats.sprint_multiplier`).
-const SPRINT_SPEED_MULTIPLIER: float = 1.6
-## Multiplicador de velocidad agachado. No existe en `CharacterStats`.
-## TODO(arquitecto): mover a datos (p. ej. `CharacterStats.crouch_multiplier`).
-const CROUCH_SPEED_MULTIPLIER: float = 0.5
-## Fracción de la altura de cápsula en pie que ocupa agachado.
-## TODO(arquitecto): mover a datos si el bloqueo definitivo lo necesita.
-const CROUCH_HEIGHT_SCALE: float = 0.6
 ## Nombre de la forma de colisión principal en `character.tscn` (la que
 ## también hace de zona de impacto TORSO — ver `hit_zones.gd`). Es la que se
 ## comprime al agacharse; `HeadShape`/`LimbShape` no cambian de tamaño.
