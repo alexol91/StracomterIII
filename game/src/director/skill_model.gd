@@ -40,6 +40,9 @@ const REFERENCE_COVER_USAGE: float = 0.45
 ## Puntuación que corresponde a un jugador neutro; ahí el multiplicador vale
 ## exactamente 1.0 y la dificultad es la de la planta.
 const NEUTRAL_SCORE: float = 0.5
+## Efectivos de escuadra que se suponen si nadie los dice. El valor real lo
+## pasa el director desde `GameState.squad`; esto solo evita dividir por cero.
+const DEFAULT_SQUAD_SIZE: int = 3
 
 ## Una foto del rendimiento del jugador en un encuentro.
 class EncounterSample:
@@ -56,7 +59,7 @@ class EncounterSample:
 	## Compañeros caídos durante el encuentro.
 	var squad_losses: int = 0
 	## Efectivos de la escuadra al empezar. Nunca 0 al dividir.
-	var squad_size: int = 3
+	var squad_size: int = DEFAULT_SQUAD_SIZE
 	## Fracción de tiempo a cubierto, 0..1.
 	var cover_usage: float = 0.0
 
@@ -87,7 +90,7 @@ var _shots_fired: int = 0
 var _shots_hit: int = 0
 var _damage_taken: float = 0.0
 var _squad_losses: int = 0
-var _squad_size: int = 3
+var _squad_size: int = DEFAULT_SQUAD_SIZE
 var _cover_time_s: float = 0.0
 var _elapsed_s: float = 0.0
 var _expected_clear_time_s: float = EXPECTED_CLEAR_TIME_BASE_S
@@ -128,7 +131,7 @@ func disconnect_event_bus() -> void:
 # ---- Ciclo del encuentro ----
 
 ## Empieza a observar un encuentro de `enemy_count` enemigos.
-func begin_encounter(enemy_count: int, squad_size: int = 3) -> void:
+func begin_encounter(enemy_count: int, squad_size: int = DEFAULT_SQUAD_SIZE) -> void:
 	_shots_fired = 0
 	_shots_hit = 0
 	_damage_taken = 0.0

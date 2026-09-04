@@ -130,8 +130,11 @@ func test_same_seed_produces_the_same_zone_one_hundred_times() -> void:
 func test_seed_changes_placement_not_composition() -> void:
 	var first := _run_zone(1)
 	var second := _run_zone(2)
+	# La semilla solo entra en la composición para deshacer empates exactos
+	# de puntuación; con contextos normales no los hay y la composición la
+	# decide el contexto.
 	assert_eq(first["counts"], second["counts"],
-		"la composición no depende de la semilla, sino del contexto")
+		"la composición la decide el contexto, no la semilla")
 	assert_ne(first["spawned"], second["spawned"], "las apariciones sí")
 
 

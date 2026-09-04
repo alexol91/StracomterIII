@@ -14,6 +14,19 @@ extends RefCounted
 ## (`NavSyntheticWorld`) que resuelve los rayos analíticamente.
 
 
+## AVISO PARA QUIEN AÑADA PRUEBAS AQUÍ: los constructores de escenario viven
+## en esta clase y no en los ficheros `test_*.gd` por un motivo medido, no por
+## estilo. Un método declarado en un `TestCase` cuyo tipo de RETORNO es una
+## clase de GDScript (`-> CoverPointCloud`, `-> NavSyntheticWorld`) impide que
+## Godot descargue ese script al cerrar, y la ejecución termina con "ObjectDB
+## instances were leaked at exit" / "resources still in use at exit" aunque
+## todas las pruebas pasen. Ocurre con métodos normales y estáticos por igual;
+## los PARÁMETROS de ese tipo no dan problema. Verificado en 4.7.2.
+##
+## Regla práctica: en un `test_*.gd`, tipos de clase sólo en variables locales
+## y en parámetros. Todo lo que devuelva un objeto del proyecto, aquí.
+
+
 ## Construye un escenario a partir de cajas. La primera caja suele ser el
 ## suelo; el resto, muros y mobiliario.
 static func fixture(boxes: Array[AABB]) -> NavSyntheticWorld:
@@ -110,3 +123,100 @@ static func nearest_point_index(cloud: CoverPointCloud, target: Vector3,
 	return best
 
 
+
+
+## Escenario canónico de cobertura: explanada con una losa vertical a `x`.
+## Con 3 m de alto es un muro; con 1,2 m, una mesa.
+static func cover_scenario(obstacle_x: float, obstacle_height_m: float,
+		floor_half_extent_m: float = 10.0) -> NavSyntheticWorld:
+	var boxes: Array[AABB] = [
+		floor_box(floor_half_extent_m),
+		slab_x(obstacle_x, 0.4, obstacle_height_m, -3.0, 3.0),
+	]
+	return fixture(boxes)
+
+
+## Hornea la nube de cobertura de un escenario con los ajustes por defecto.
+static func bake_cover(world: NavSyntheticWorld,
+		map_id: StringName = &"test") -> CoverPointCloud:
+	var baker := CoverBaker.new()
+	var options := CoverBaker.Options.new()
+	options.map_id = map_id
+	return baker.bake(world.mesh, world, options)
+
+
+## Explanada con DOS muros enfrentados: uno al este (+X) y otro al oeste (−X).
+## Sirve para comprobar que la consulta elige el punto que cubre frente a la
+## amenaza REAL y no frente a cualquier otra.
+static func two_wall_scenario(wall_x: float = 6.0,
+		floor_half_extent_m: float = 15.0) -> NavSyntheticWorld:
+	var boxes: Array[AABB] = [
+		floor_box(floor_half_extent_m),
+		slab_x(wall_x, 0.4, 3.0, -3.0, 3.0),
+		slab_x(-wall_x, 0.4, 3.0, -3.0, 3.0),
+	]
+	return fixture(boxes)
+
+
+## Anillo: explanada con un bloque macizo en el centro. Deja dos corredores
+## entre cualquier par de puntos opuestos, que es lo mínimo que hace falta
+## para que exista un flanqueo de verdad.
+static func ring_scenario(outer_half_extent_m: float = 16.0,
+		block_half_extent_m: float = 10.0,
+		block_height_m: float = 3.0) -> NavSyntheticWorld:
+	var boxes: Array[AABB] = [
+		floor_box(outer_half_extent_m),
+		AABB(Vector3(-block_half_extent_m, 0.0, -block_half_extent_m),
+			Vector3(block_half_extent_m * 2.0, block_height_m,
+				block_half_extent_m * 2.0)),
+	]
+	return fixture(boxes)
+
+
+## Nube sintética de `count` puntos en rejilla, con densidad FIJA y cobertura
+## alta en todas las direcciones.
+##
+## La densidad es fija a propósito: al medir el índice espacial lo que debe
+## cambiar entre dos nubes es el TAMAÑO del mapa, no cuántos puntos hay por
+## metro cuadrado. Comparar 1 000 puntos apretados con 10 000 apretados en la
+## misma superficie mediría otra cosa.
+static func synthetic_cloud(count: int, spacing_m: float) -> CoverPointCloud:
+	var cloud := CoverPointCloud.new()
+	var side := int(ceilf(sqrt(float(count))))
+	var chest := PackedByteArray()
+	var head := PackedByteArray()
+	for _s in NavTuning.DIRECTION_COUNT:
+		chest.append(int(CoverProvider.Quality.HIGH))
+		head.append(int(CoverProvider.Quality.HIGH))
+	var offset := float(side) * spacing_m * 0.5
+	var added := 0
+	for gx in side:
+		for gz in side:
+			if added >= count:
+				break
+			cloud.append_point(
+				Vector3(float(gx) * spacing_m - offset, 0.0,
+					float(gz) * spacing_m - offset),
+				chest, head, 0)
+			added += 1
+	cloud.rebuild_index()
+	return cloud
+
+
+## Nube de un solo punto con las calidades que se le pasen, para probar la
+## puntuación sin depender del horneado.
+static func single_point_cloud(position: Vector3,
+		qualities: PackedByteArray) -> CoverPointCloud:
+	var cloud := CoverPointCloud.new()
+	cloud.append_point(position, qualities, qualities, 0)
+	cloud.rebuild_index()
+	return cloud
+
+
+## 8 calidades con `quality` en `sector` y NONE en el resto.
+static func quality_in_sector(sector: int,
+		quality: CoverProvider.Quality) -> PackedByteArray:
+	var out := PackedByteArray()
+	for s in NavTuning.DIRECTION_COUNT:
+		out.append(int(quality) if s == sector else int(CoverProvider.Quality.NONE))
+	return out

@@ -61,10 +61,12 @@ class Request:
 	var upper: Array[int] = [0, 0, 0]
 	## Presupuestos de daño, vida y velocidad.
 	var budgets: Array[float] = [0.0, 0.0, 0.0]
-	## Coeficientes del original, por fila.
-	var damage_coefficients: Array[float] = [60.0, 100.0, 120.0]
-	var health_coefficients: Array[float] = [45.0, 50.0, 65.0]
-	var speed_coefficients: Array[float] = [60.0, 45.0, 35.0]
+	## Coeficientes de coste por arquetipo, una fila por presupuesto. Los
+	## rellena `EncounterComposer` desde `DirectorProfile` (ADR-005): aquí no
+	## hay valores por defecto de balanceo, solo ceros inertes.
+	var damage_coefficients: Array[float] = [0.0, 0.0, 0.0]
+	var health_coefficients: Array[float] = [0.0, 0.0, 0.0]
+	var speed_coefficients: Array[float] = [0.0, 0.0, 0.0]
 	## Composición objetivo de la planta, en enemigos.
 	var target_counts: Array[float] = [0.0, 0.0, 0.0]
 	## Reparto que pide la forma del mapa, 0..1 y sumando 1.
@@ -392,7 +394,7 @@ static func _rank(score: float) -> int:
 
 
 ## Puntúa una composición y devuelve su desglose. Se usa para materializar
-## las ganadoras y en los tests; el bucle caliente usa `score_of`.
+## las ganadoras y en los tests; el bucle caliente la lleva en línea.
 static func evaluate(counts: Array[int], request: Request) -> Candidate:
 	var candidate := Candidate.new()
 	candidate.counts = counts.duplicate()

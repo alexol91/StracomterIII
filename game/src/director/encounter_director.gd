@@ -116,6 +116,12 @@ func begin_zone(context: EncounterContext) -> EncounterComposer.Composition:
 	_context = context
 	if context.skill_multiplier <= 0.0:
 		context.skill_multiplier = skill_model.skill_multiplier()
+	# La semilla se resuelve ANTES de componer: el desempate de la búsqueda
+	# también depende de ella, así que una zona sin semilla propia debe heredar
+	# la de la partida y no un cero.
+	if context.seed == 0:
+		context.seed = GameState.run_seed
+	_rng.seed = context.seed
 	_composition = composer.compose(context)
 	curve.plan(_composition)
 	curve.begin()
@@ -124,7 +130,6 @@ func begin_zone(context: EncounterContext) -> EncounterComposer.Composition:
 	_hostiles_alive = 0
 	_accumulator = 0.0
 	_active = true
-	_rng.seed = context.seed if context.seed != 0 else GameState.run_seed
 	composition_ready.emit(_composition)
 	return _composition
 

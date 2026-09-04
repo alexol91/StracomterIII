@@ -31,6 +31,10 @@ const PATH_DISTANCE_FALLOFF_M: float = 25.0
 ## Cuánto más probable es un acceso real (puerta, escalera, ascensor) que un
 ## punto en mitad de una sala.
 const ENTRY_POINT_WEIGHT_BONUS: float = 2.0
+## Distancia mínima de reserva, solo por si alguien construye una petición a
+## mano. La de verdad es `DirectorProfile.min_spawn_distance_m` y la pone el
+## director en cada petición.
+const FALLBACK_MIN_DISTANCE_M: float = 12.0
 
 ## Lo que el director pide.
 class SpawnRequest:
@@ -41,7 +45,7 @@ class SpawnRequest:
 	var player_forward: Vector3 = Vector3.FORWARD
 	var player_fov_half_angle_deg: float = DEFAULT_PLAYER_FOV_HALF_ANGLE_DEG
 	## Distancia mínima al jugador, en metros (`min_spawn_distance_m`).
-	var min_distance_m: float = 12.0
+	var min_distance_m: float = FALLBACK_MIN_DISTANCE_M
 	## Cuántos puntos se necesitan.
 	var count: int = 1
 	## Zona de la que se piden puntos.
