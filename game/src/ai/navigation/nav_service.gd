@@ -291,15 +291,22 @@ func _install_region(region_id: StringName, mesh: NavigationMesh) -> void:
 # WorldQuery
 # ---------------------------------------------------------------------------
 
-## `NavService` NO responde preguntas de física, y estas dos existen SÓLO para
-## que el valor heredado de `WorldQuery` no llegue a un bot por la puerta de
-## atrás: el del contrato concede visión, y eso son rayos X.
+## `NavService` NO responde preguntas de física. Estas dos son DELIBERADAS y
+## no código muerto: declaran la negativa en la clase donde alguien podría
+## equivocarse, porque ésta es la que más se parece a "el servicio del mundo" y
+## por tanto la que más tienta a inyectar como `WorldQuery` de un bot.
 ##
 ## No hay aquí ningún rayo. Quien contesta a la oclusión es el backend de
-## física a través de `WorldQueryComposite`. El rayo estaba duplicado entre
-## este servicio y `WorldQueryPhysics`, las dos copias divergieron y una acabó
+## física a través de `WorldQueryComposite`. El rayo estuvo duplicado entre
+## este servicio y `WorldQueryPhysics`, las dos copias divergieron y ésta acabó
 ## concediendo visión sin espacio físico enlazado — el bug del legacy
-## resucitado por duplicación. Se quita la copia, no se arregla.
+## resucitado por duplicación. Se quitó la copia; no se arregló.
+##
+## `WorldQuery` ya devuelve `false` por defecto, así que heredar sería
+## igualmente seguro. Se conservan como tercera capa de una defensa en
+## profundidad —contrato, compositor y aquí, las tres probadas— frente a un
+## fallo que no da error cuando ocurre: te enteras porque un enemigo te dispara
+## a través de una pared.
 func has_line_of_sight(_from: Vector3, _to: Vector3,
 		_collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> bool:
 	return false

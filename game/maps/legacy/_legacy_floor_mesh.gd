@@ -13,7 +13,29 @@ extends StaticBody3D
 ##
 ## `floor_indices` ya viene triangulado (ear-clipping) y con el orden de
 ## índices corregido en origen para que la normal de cada triángulo mire
-## hacia +Y (ver convert.py:_ensure_ccw_up).
+## hacia +Y (ver convert.py:_ensure_ccw_up) — correcto para el `MeshInstance3D`
+## visual (si no, Godot hace back-face culling y el suelo no se ve desde la
+## cámara cenital).
+##
+## BUG REAL encontrado por ai-navegacion (componentes del navmesh horneado
+## desconectadas, finalMap con solo el 46% de área alcanzable): el
+## `ConcavePolygonShape3D` de colisión NO puede reusar ese mismo orden.
+## `NavigationServer3D.bake_from_source_geometry_data` con
+## `PARSED_GEOMETRY_STATIC_COLLIDERS` exige exactamente lo CONTRARIO —
+## triángulos horarios vistos desde +Y, es decir, normal apuntando hacia -Y—
+## y si no, el horneador descarta esos triángulos EN SILENCIO (0 polígonos
+## para ese trozo de suelo, sin ningún error ni aviso). Comprobado
+## empíricamente contra Godot 4.7.2 con un cuadrado plano aislado: con normal
+## +Y el horneado da 0 polígonos; con normal -Y (mismos vértices, orden
+## invertido) da 2. `ai_navegacion/src/ai/navigation/nav_service.gd` deja
+## constancia exacta de la misma exigencia de bobinado en
+## `NavService.bake_region`. Por eso aquí se construye un segundo array de
+## índices, `_collision_indices`, con cada triángulo invertido (se cambian de
+## sitio el 2º y 3er vértice) SOLO para la forma de colisión — el mesh visual
+## sigue usando `floor_indices` tal cual. `backface_collision` en la forma NO
+## sustituye a esto: se comprobó que con `backface_collision = true` y normal
+## +Y el horneado sigue dando 0 polígonos (ese flag afecta a qué lado
+## responde a la física, no a qué bobinado acepta el horneador).
 
 @export var floor_vertices: PackedVector3Array = PackedVector3Array()
 @export var floor_uvs: PackedVector2Array = PackedVector2Array()
@@ -58,13 +80,25 @@ func _build() -> void:
 	add_child(mesh_instance)
 
 	var shape := ConcavePolygonShape3D.new()
-	var faces := PackedVector3Array()
-	faces.resize(floor_indices.size())
-	for i in floor_indices.size():
-		faces[i] = floor_vertices[floor_indices[i]]
-	shape.set_faces(faces)
+	shape.set_faces(_collision_faces())
 
 	var collision := CollisionShape3D.new()
 	collision.name = "FloorCollision"
 	collision.shape = shape
 	add_child(collision)
+
+
+## Caras para la forma de colisión: mismos triángulos que `floor_indices`
+## pero con cada uno invertido (2º y 3er índice intercambiados), para que su
+## normal apunte a -Y en vez de +Y. Ver la nota grande de arriba del porqué.
+func _collision_faces() -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	var n := floor_indices.size()
+	faces.resize(n)
+	var t := 0
+	while t < n:
+		faces[t] = floor_vertices[floor_indices[t]]
+		faces[t + 1] = floor_vertices[floor_indices[t + 2]]
+		faces[t + 2] = floor_vertices[floor_indices[t + 1]]
+		t += 3
+	return faces

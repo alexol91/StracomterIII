@@ -45,8 +45,8 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 2.5 | Selector por utilidad + histéresis | — | `ai-comportamiento` | 🟨 |
 | 2.6 | Árboles de comportamiento y ejecución | — | `ai-comportamiento` | 🟨 |
 | 2.7 | Arquetipos como tablas de pesos | P02 | `ai-comportamiento` | 🟨 |
-| 2.8 | Horneado y puntuación de puntos de cobertura | P09 | `ai-navegacion` | 🟨 |
-| 2.9 | Rutas alternativas disjuntas para flanqueo | — | `ai-navegacion` | 🟨 |
+| 2.8 | Horneado y puntuación de puntos de cobertura | P09 | `ai-navegacion` | ✅ |
+| 2.9 | Rutas alternativas disjuntas para flanqueo | — | `ai-navegacion` | ✅ |
 | 2.10 | `SquadDirector`, roles, supresión, repliegue | — | `ai-escuadra` | 🟨 |
 | 2.11 | Compañeros + moral + órdenes del jugador | P05 | `ai-escuadra` | 🟨 |
 | 2.12 | Escenarios de comportamiento con aserciones (GDD §12) | — | `qa-tests` | 🟨 |
@@ -91,6 +91,16 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 5.8 | Generador procedural de plantas | E-02 | `level-procedural` | ⬜ |
 | 5.9 | Habilidades de clase | E-01 | `godot-gameplay` | ⬜ |
 | 5.10 | Revisión adversarial de rutas críticas | — | `revisor-critico` | ⬜ |
+
+## Deuda técnica conocida
+
+| # | Asunto | Dueño | Estado |
+|---|---|---|---|
+| D.1 | `finalMap` tabicado al 46 % y otros 5 mapas parcialmente desconectados: la geometría de colisión del conversor sella zonas | `level-conversor` | 🟨 |
+| D.2 | El validador del conversor usa una rejilla propia y no el navmesh que usa el juego, así que su visto bueno no garantiza nada | `level-conversor` | ⬜ |
+| D.3 | Los obstáculos de los mapas son marcadores sin colisión, así que el horneado de cobertura solo ve muros y ninguna mesa produce cobertura baja | pendiente de asignar | ⬜ |
+| D.4 | `NavTuning` sigue en código. La mayoría son presupuestos de ingeniería y no balanceo, pero las de geometría de cobertura sí lo son | `godot-arquitecto` | ⬜ |
+| D.5 | El criterio de CI (`grep -iE "error"`) marca falsos positivos: casa con nombres de test que contienen la palabra | `devops-ci` | ⬜ |
 
 ## Hito 6 — Publicable
 
