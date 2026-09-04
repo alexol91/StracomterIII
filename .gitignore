@@ -13,3 +13,8 @@ export/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Ficheros de sondeo temporales de los agentes durante el desarrollo
+game/probe_*.gd
+game/probe_*.gd.uid
+game/tests/_probe/
