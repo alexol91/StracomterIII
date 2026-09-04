@@ -72,6 +72,20 @@ manifiestan como un enemigo que dispara a través de una pared o como un balance
 nunca como un mensaje en consola. Por eso la defensa tiene que estar en el valor por
 defecto y no en acordarse de comprobarlo.
 
+Trampa concreta de GDScript, por si ahorra una tarde: **las lambdas capturan por
+valor**. Un contador escrito así siempre da cero, y el test parece correcto:
+
+```gdscript
+var received := 0
+var cb := func() -> void: received += 1   # incrementa la COPIA de la lambda
+signal_x.connect(cb); signal_x.emit()
+assert_eq(received, 1)                     # falla: received sigue a 0
+```
+
+Con `var received: Array[int] = [0]` y `received[0] += 1` se captura la referencia y la
+mutación se ve. Es el fallo silencioso perfecto: no da error, y el test acusa al código
+en vez de a sí mismo.
+
 Corolario para los dobles de prueba: **un doble más amable que la realidad hace que las
 pruebas mientan.** Ya ha pasado tres veces —una máscara de colisión ignorada, rutas que
 siempre llegan al destino exacto, un mundo de cajas que dejó de parecerse al mapa—. Si

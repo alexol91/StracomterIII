@@ -34,12 +34,17 @@ func after_each() -> void:
 
 func test_title_screen_new_game_emits_navigation_intent() -> void:
 	_node = UiTestSceneBuilders.instantiate_in_tree(UiTestSceneBuilders.TITLE_SCENE)
-	var received := 0
-	var callable := func() -> void: received += 1
+	# El contador va en un Array y no en un int: las lambdas de GDScript
+	# capturan por VALOR, así que `received += 1` sobre un entero incrementaría
+	# la copia de la lambda y el de fuera se quedaría a cero. Con un Array se
+	# captura la referencia y la mutación se ve. Es el fallo silencioso
+	# perfecto: el test queda escrito, parece correcto y siempre da cero.
+	var received: Array[int] = [0]
+	var callable := func() -> void: received[0] += 1
 	UIIntents.get_singleton().navigate_to_class_select_requested.connect(callable)
 	(_node.get_node("%NewGameButton") as Button).pressed.emit()
 	UIIntents.get_singleton().navigate_to_class_select_requested.disconnect(callable)
-	assert_eq(received, 1)
+	assert_eq(received[0], 1)
 
 
 func test_title_screen_continue_disabled_without_save() -> void:
