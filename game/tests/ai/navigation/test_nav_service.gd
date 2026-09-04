@@ -165,20 +165,28 @@ func test_request_path_no_consume_presupuesto_y_deja_la_ruta_en_cache() -> void:
 	world.dispose()
 
 
-func test_sin_espacio_fisico_se_niega_la_vision_no_se_concede() -> void:
-	# `NavService` implementa `WorldQuery` entero, así que antes o después
-	# alguien lo inyecta como consulta del mundo de un bot — y este método es
-	# el test de oclusión de la percepción. Conceder visión por defecto da
-	# rayos X a cualquier bot creado antes de que el nivel enlace el espacio de
-	# física, sin error ni aviso. Es el bug del legacy, en su forma más
-	# silenciosa.
+func test_no_contesta_preguntas_de_fisica() -> void:
+	# El rayo estaba duplicado entre este servicio y `WorldQueryPhysics`, las
+	# dos copias divergieron y la de aquí concedía visión sin espacio físico
+	# enlazado: rayos X para cualquier bot creado antes de que el nivel
+	# enlazara la física. Ahora el rayo vive en un solo sitio y `NavService`
+	# sólo se asegura de que el valor HEREDADO de `WorldQuery` —que concede
+	# visión— no llegue a un bot por la puerta de atrás.
 	var world := NavTestUtil.fixture(
 		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
-	assert_null(world.nav.space(), "el escenario sintético no inyecta física")
 	assert_false(world.nav.has_line_of_sight(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)),
-		"sin espacio físico la visión se NIEGA: ante la duda, el bot no ve")
+		"NavService no mide oclusión, y ante la duda no se concede visión")
 	assert_false(world.nav.raycast(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)).is_finite(),
-		"sin espacio físico ningún rayo impacta")
+		"NavService no lanza rayos")
+	# Compuesto con un backend de física de verdad, la respuesta es la del
+	# backend: es así como lo consume un bot.
+	var composite := WorldQueryComposite.new(world, world.nav)
+	assert_true(composite.is_complete(), "el compositor tiene los dos lados")
+	assert_false(composite.has_line_of_sight(
+			Vector3(0.0, 1.0, 0.0), Vector3(0.0, -2.0, 0.0)),
+		"con física real, el suelo corta la visión")
+	assert_true(composite.snap_to_navmesh(Vector3(1.0, 0.0, 1.0)).is_finite(),
+		"y la navegación la sigue contestando este servicio")
 	world.dispose()
 
 
@@ -215,26 +223,29 @@ func test_sin_navmesh_el_coste_es_la_recta_y_no_infinito() -> void:
 
 
 func test_vacia_las_caches_dependientes_al_cambiar_la_topologia() -> void:
-	# `WorldQueryPhysics` (percepción) cachea el coste de camino por celda y el
-	# oído lo usa. Si una puerta se cierra y esa caché no se vacía, los bots
-	# siguen oyendo como si estuviera abierta: un disparo al otro lado de una
-	# puerta cerrada se oiría al lado.
+	# Una puerta que se cierra cambia lo que es alcanzable. Cualquier caché de
+	# topología que sobreviva a ese instante está mintiendo, y el síntoma es
+	# silencioso: bots que siguen oyendo o rutando como si la puerta estuviera
+	# abierta. Se acepta cualquier objeto con `clear_cache()`; aquí el
+	# dependiente es otro `NavService` porque implementa ese mismo método.
 	var world := NavTestUtil.fixture(
 		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
-	var perception := WorldQueryPhysics.new()
-	perception.navigation_map = world.nav.map_rid()
-	world.nav.add_cache_dependent(perception)
+	var other := NavTestUtil.fixture(
+		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
+	world.nav.add_cache_dependent(other.nav)
 	assert_eq(world.nav.cache_dependent_count(), 1, "el dependiente se registra")
 
-	perception.path_cost(Vector3(-8.0, 0.0, 0.0), Vector3(8.0, 0.0, 0.0))
-	assert_gt(float(perception.cache_size()), 0.0,
-		"la caché de percepción debería tener algo")
+	world.nav.path(Vector3(-8.0, 0.0, 0.0), Vector3(8.0, 0.0, 0.0))
+	other.nav.path(Vector3(-8.0, 0.0, 0.0), Vector3(8.0, 0.0, 0.0))
+	assert_gt(float(other.nav.cache_size()), 0.0,
+		"el dependiente debería tener algo cacheado")
 
 	var tree := Engine.get_main_loop() as SceneTree
 	var bus: Node = tree.root.get_node_or_null(^"/root/EventBus")
 	assert_not_null(bus, "hace falta el EventBus para esta prueba")
 	if bus != null:
 		bus.emit_signal(&"door_state_changed", 11, false)
-		assert_eq(perception.cache_size(), 0,
-			"al cambiar una puerta se vacía también la caché del oído")
+		assert_eq(other.nav.cache_size(), 0,
+			"al cambiar una puerta se vacía también la caché del dependiente")
+	other.dispose()
 	world.dispose()

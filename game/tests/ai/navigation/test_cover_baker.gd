@@ -138,3 +138,20 @@ func _count_in(cloud: CoverPointCloud, area: AABB) -> int:
 		if area.has_point(cloud.position_at(i)):
 			count += 1
 	return count
+
+
+func test_el_mundo_sintetico_respeta_la_mascara_de_colision() -> void:
+	# El doble tiene que saber FALLAR como el motor. Si ignora la máscara,
+	# pasar la equivocada es invisible para todas las pruebas que lo usen —
+	# exactamente la clase de costura verde sobre sistema roto que hay que
+	# evitar en un doble.
+	var world := NavTestUtil.cover_scenario(OBSTACLE_X, WALL_HEIGHT_M, FLOOR_HALF_EXTENT_M)
+	var from := Vector3(0.0, 1.5, 0.0)
+	var to := Vector3(5.0, 1.5, 0.0)
+	assert_true(world.raycast(from, to, NavTuning.WORLD_COLLISION_MASK).is_finite(),
+		"con la máscara del mundo el muro se ve")
+	assert_false(world.raycast(from, to, 1 << 4).is_finite(),
+		"con una máscara que no incluye la capa del muro, el rayo no lo ve")
+	assert_true(world.has_line_of_sight(from, to, 1 << 4),
+		"y por tanto hay línea de visión para esa máscara")
+	world.dispose()

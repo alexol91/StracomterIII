@@ -96,10 +96,47 @@ static func resolve_profile(p_stats: CharacterStats) -> PerceptionProfile:
 
 # ---- Registro en el scheduler (ADR-002) ----
 
+## Problemas del montaje, en texto legible. Vacío = la percepción puede
+## trabajar de verdad.
+##
+## Existe porque un `WorldQuery` a medio enlazar no falla: degrada. Un bot con
+## el lado de física sin conectar es un bot ciego que patrulla tan tranquilo, y
+## uno sin el lado de navegación es un bot sordo que oye todos los disparos
+## igual de lejos. Ninguna de las dos cosas da un error por sí sola, así que se
+## pregunta explícitamente al arrancar.
+func world_problems() -> Array[String]:
+	var problems: Array[String] = []
+	if stats == null:
+		problems.append("sin CharacterStats: no hay alcance, conos ni retardo de reacción")
+	if state == null:
+		problems.append("sin BotState: no hay dónde escribir lo percibido")
+	if world == null:
+		problems.append("sin WorldQuery: el bot sería ciego y sordo")
+		return problems
+	var composite := world as WorldQueryComposite
+	if composite != null and not composite.is_complete():
+		if composite.physics == null:
+			problems.append("WorldQueryComposite sin backend de física: el bot sería ciego")
+		if composite.navigation == null:
+			problems.append(
+				"WorldQueryComposite sin backend de navegación: el oído atenuaría por"
+				+ " distancia recta y el sonido dejaría de ser información táctica"
+			)
+	return problems
+
+
 ## Se registra en el `AIScheduler`. NINGÚN bot debe llamar a
 ## `tick_perception()` por su cuenta desde `_process`.
+##
+## Un montaje incompleto se denuncia aquí y no se registra: es preferible un
+## bot que no piensa y lo dice a uno que piensa mal en silencio.
 func register() -> void:
 	if _registered:
+		return
+	var problems := world_problems()
+	if not problems.is_empty():
+		for problem: String in problems:
+			push_error("PerceptionSystem (bot %d): %s" % [bot_id, problem])
 		return
 	AIScheduler.register(self)
 	_registered = true

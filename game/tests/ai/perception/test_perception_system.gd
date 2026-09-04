@@ -313,16 +313,15 @@ func test_a_stats_without_profile_falls_back_to_defaults_instead_of_crashing() -
 
 
 func test_perception_degrades_to_blind_with_any_world_query_never_to_omniscient() -> void:
-	# `NavService` implementa el mismo contrato `WorldQuery` que mi adaptador, así
-	# que antes o después alguien inyectará ese en vez de este. La garantía de
-	# este módulo — nadie ve a través de geometría opaca — no puede depender de
-	# CUÁL implementación le toque, ni de que esté completamente construida.
+	# El mundo llega compuesto (física + navegación) y puede llegar a medias.
+	# La garantía de este módulo — nadie ve a través de geometría opaca — no
+	# puede depender de que el montaje esté completo.
 	#
 	# Se comprueba desde el lado del consumidor a propósito: el defecto que
 	# esto vigila (una consulta al mundo a medio montar que concede visión en
 	# lugar de negarla) es invisible en las pruebas del proveedor, porque allí
 	# parece una decisión razonable.
-	var half_built: NavService = NavService.new()
+	var half_built: WorldQueryComposite = WorldQueryComposite.new(null, NavService.new())
 	system.world = half_built
 	_add_target(Vector3(0.0, 0.0, -8.0))
 	for _i: int in 20:
@@ -341,3 +340,29 @@ func test_hearing_reads_an_unreachable_source_as_far_not_as_near() -> void:
 	var direct := HearingSensor.effective_cost(10.0, 10.0, system.effective_profile())
 	assert_gt(muffled, direct, "sin ruta, el sonido cuesta más y por tanto se oye menos")
 	assert_false(is_inf(muffled), "pero se sigue oyendo: no hay paso, no es que no exista")
+
+
+func test_an_incomplete_world_is_denounced_at_startup_not_discovered_by_behaviour() -> void:
+	# Un mundo a medio enlazar no falla: degrada. Un bot sin física es ciego y
+	# patrulla tan tranquilo; uno sin navegación oye todos los disparos igual
+	# de lejos. Ninguna de las dos cosas da un error por sí sola.
+	system.world = WorldQueryComposite.new(null, WorldQueryFake.new())
+	var blind := system.world_problems()
+	assert_size(blind, 1, "falta la física y se dice")
+	assert_true(blind[0].contains("ciego"), "con el síntoma, no solo el nombre del campo")
+
+	system.world = WorldQueryComposite.new(WorldQueryPhysics.new(), null)
+	assert_size(system.world_problems(), 1, "falta la navegación y también se dice")
+
+	system.world = WorldQueryComposite.new(WorldQueryPhysics.new(), WorldQueryFake.new())
+	assert_size(system.world_problems(), 0, "montaje completo: sin quejas")
+
+	system.world = null
+	assert_size(system.world_problems(), 1, "y sin mundo, la queja más obvia")
+
+
+func test_a_plain_world_query_is_not_reported_as_incomplete() -> void:
+	# El doble sintético responde a las dos familias de preguntas por sí solo:
+	# la comprobación es sobre el compositor, no una exigencia de usarlo.
+	system.world = WorldQueryFake.new()
+	assert_size(system.world_problems(), 0, "un WorldQuery entero no necesita compositor")

@@ -46,9 +46,15 @@ var stat_last_measured: int = 0
 var stat_last_skipped_near: int = 0
 
 
+## `world` debe responder a la FÍSICA (`WorldQueryPhysics` o el compositor):
+## es quien mide la línea de visión al jugador. Antes caía por defecto en el
+## propio `NavService`, y desde que éste dejó de tener rayo eso habría
+## significado "ningún candidato es visible" — es decir, apariciones a la vista
+## del jugador dadas por buenas. Sin backend de física el muestreador se
+## declara NO listo, que es la respuesta honesta.
 func setup(nav: NavService, world: WorldQuery = null) -> void:
 	_nav = nav
-	_world = world if world != null else nav
+	_world = world
 
 
 ## Semilla del barajado de candidatos. Fijarla hace reproducible el muestreo,
@@ -84,7 +90,8 @@ func access_point_count() -> int:
 # ---------------------------------------------------------------------------
 
 func is_ready() -> bool:
-	return _nav != null and _nav.is_ready() and not _candidates.is_empty()
+	return _nav != null and _nav.is_ready() and _world != null \
+		and not _candidates.is_empty()
 
 
 ## Accesos de una zona. El muestreador no distingue zonas todavía: los mapas
@@ -188,7 +195,10 @@ func _is_access(position: Vector3) -> bool:
 func _has_line_of_sight_to_player(position: Vector3,
 		player_position: Vector3) -> bool:
 	if _world == null:
-		return false
+		# No debería ocurrir: `is_ready` lo impide. Se conserva porque decir
+		# "hay visión" ante la duda descarta el candidato, y descartar de más
+		# es el fallo barato; el caro es aparecer a la vista del jugador.
+		return true
 	var eye := player_position + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M
 	var target := position + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M
 	return _world.has_line_of_sight(eye, target, NavTuning.WORLD_COLLISION_MASK)

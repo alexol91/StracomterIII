@@ -14,13 +14,36 @@ extends WorldQuery
 ## extiende una clase global y que sostiene referencias a otras clases del
 ## proyecto impide que Godot descargue el script al salir, y eso aparece como
 ## "ObjectDB instances were leaked at exit". Verificado en 4.7.2.
+##
+## QUÉ MODOS DE FALLO DEL MOTOR REAL REPRODUCE, y es la parte que importa: un
+## doble que sólo sabe acertar deja costuras verdes sobre sistemas rotos.
+##   * `hit_from_inside = false`: un rayo que nace DENTRO de un cuerpo no lo
+##     reporta, igual que `PhysicsDirectSpaceState3D`.
+##   * `collision_mask`: cada caja tiene su capa y una máscara que no la
+##     incluye NO la ve. Sin esto, pasar la máscara equivocada era invisible
+##     para las pruebas.
+##   * Fallo sin impacto: `Vector3.INF`, no el extremo del rayo.
+##   * Navegación: `path`, `path_cost`, `snap_to_navmesh` y `disjoint_routes`
+##     NO se simulan — se delegan en el `NavService` real. Es deliberado: es
+##     justo donde el motor tiene asimetrías que un doble no reproduce (p. ej.
+##     `map_get_path` devuelve el camino al punto alcanzable más cercano y no
+##     vacío cuando el destino está en otra isla, y un doble que devuelve el
+##     destino exacto esconde ese caso para siempre).
+##
+## Lo que NO reproduce, y conviene saberlo antes de fiarse: formas que no sean
+## cajas, cuerpos en movimiento y el orden de impactos entre cuerpos que se
+## solapan.
 
 var boxes: Array[AABB] = []
+## Capa de colisión de cada caja de `boxes`. Lo que falte se toma como la capa
+## del mundo, que es lo que usan todos los escenarios.
+var box_layers: PackedInt32Array = PackedInt32Array()
 ## Cajas con rotación (los muros de los mapas convertidos no están alineados
 ## con los ejes). Se guardan la transformada y el tamaño; el rayo se lleva al
 ## espacio local de la caja y se resuelve ahí con el mismo test de rodajas.
 var oriented_transforms: Array[Transform3D] = []
 var oriented_sizes: PackedVector3Array = PackedVector3Array()
+var oriented_layers: PackedInt32Array = PackedInt32Array()
 ## AABB envolvente de cada caja orientada, para descartarlas a coste cero.
 var _oriented_bounds: Array[AABB] = []
 
@@ -30,9 +53,11 @@ var mesh: NavigationMesh = null
 
 ## Añade una caja orientada (transformada + tamaño local centrado en el
 ## origen), que es como vienen los `BoxShape3D` de las escenas de mapa.
-func add_oriented_box(transform: Transform3D, size: Vector3) -> void:
+func add_oriented_box(transform: Transform3D, size: Vector3,
+		layer: int = NavTuning.WORLD_COLLISION_MASK) -> void:
 	oriented_transforms.append(transform)
 	oriented_sizes.append(size)
+	oriented_layers.append(layer)
 	var local := AABB(-size * 0.5, size)
 	var bounds := AABB(transform * local.position, Vector3.ZERO)
 	for i in 8:
@@ -51,14 +76,18 @@ func dispose() -> void:
 	mesh = null
 
 
-func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
+func raycast(from: Vector3, to: Vector3,
+		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> Vector3:
 	var delta := to - from
 	var length := delta.length()
 	if length < 0.000001:
 		return Vector3.INF
 	var dir := delta / length
 	var best := INF
-	for box: AABB in boxes:
+	for i in boxes.size():
+		var box := boxes[i]
+		if not _matches(_layer_of(box_layers, i), collision_mask):
+			continue
 		# `hit_from_inside = false`, como la consulta física real: un rayo que
 		# nace dentro de un cuerpo no lo reporta.
 		if box.has_point(from):
@@ -71,6 +100,8 @@ func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
 		# muros del mapa antes de hacer una sola cuenta.
 		var ray_bounds := AABB(from, Vector3.ZERO).expand(to)
 		for i in oriented_transforms.size():
+			if not _matches(_layer_of(oriented_layers, i), collision_mask):
+				continue
 			if not _oriented_bounds[i].intersects(ray_bounds):
 				continue
 			var inverse := oriented_transforms[i].affine_inverse()
@@ -89,7 +120,7 @@ func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
 
 
 func has_line_of_sight(from: Vector3, to: Vector3,
-		collision_mask: int = 1) -> bool:
+		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> bool:
 	return not raycast(from, to, collision_mask).is_finite()
 
 
@@ -108,6 +139,14 @@ func path_cost(from: Vector3, to: Vector3) -> float:
 func disjoint_routes(from: Vector3, to: Vector3,
 		max_routes: int = 2) -> Array[PackedVector3Array]:
 	return [] if nav == null else nav.disjoint_routes(from, to, max_routes)
+
+
+static func _layer_of(layers: PackedInt32Array, index: int) -> int:
+	return layers[index] if index < layers.size() else NavTuning.WORLD_COLLISION_MASK
+
+
+static func _matches(layer: int, mask: int) -> bool:
+	return (layer & mask) != 0
 
 
 static func _ray_box(from: Vector3, dir: Vector3, length: float,

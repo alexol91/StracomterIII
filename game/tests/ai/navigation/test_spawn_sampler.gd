@@ -229,3 +229,23 @@ func test_sin_navmesh_horneado_el_proveedor_se_declara_no_listo() -> void:
 	assert_false(sampler.is_ready(), "sin mapa de navegación, deja de estarlo")
 	assert_size(sampler.sample_candidates(request), 0,
 		"y no propone nada en lugar de proponer cualquier cosa")
+
+
+func test_sin_backend_de_fisica_el_proveedor_no_esta_listo() -> void:
+	# Medir la línea de visión al jugador es física, y `NavService` dejó de
+	# contestar preguntas de física. Sin backend de física el muestreador NO
+	# puede saber qué se ve; declararse no listo es la respuesta honesta.
+	# Contestar "no se ve nada" daría por buenas apariciones a la vista.
+	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
+	var sampler := SpawnSampler.new()
+	sampler.setup(world.nav, null)
+	sampler.build_candidates(world.mesh)
+	assert_gt(float(sampler.candidate_count()), 0.0, "hay candidatos de sobra")
+	assert_false(sampler.is_ready(),
+		"sin quien mida la oclusión, el proveedor no está listo")
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	assert_size(sampler.sample_candidates(request), 0,
+		"y no propone nada en lugar de proponer sin medir")
+	world.dispose()

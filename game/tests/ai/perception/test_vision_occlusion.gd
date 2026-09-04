@@ -198,3 +198,24 @@ func test_the_profile_is_what_separates_a_thug_from_a_veteran() -> void:
 		float(sloppy_ticks),
 		"el veterano debe adquirir antes que el sicario, y sin tocar una línea de código"
 	)
+
+
+func test_only_world_geometry_blocks_vision_not_other_bodies() -> void:
+	# El motor solo detiene un rayo si la capa del cuerpo está en la máscara de
+	# la consulta. La visión pregunta por la capa "world" (1), así que el cuerpo
+	# de un compañero —capa 3, "companion"— no debe tapar a nadie: si tapara,
+	# una escuadra en fila india se cegaría a sí misma.
+	var companion_body := AABB(Vector3(-0.5, 0.0, -4.2), Vector3(1.0, 2.0, 0.4))
+	world.add_box(companion_body, 4)  # capa 3 -> bit 4
+	var targets: Array[VisionSensor.Target] = [_target_at(Vector3(0.0, 0.0, -8.0))]
+	assert_true(_run_ticks(targets, 10).sightings[0].detected, "un cuerpo aliado no es una pared")
+
+	# La misma caja en la capa del mundo sí tapa.
+	sensor.reset()
+	world.clear_geometry()
+	world.add_box(companion_body, 1)
+	assert_false(
+		_run_ticks(targets, 10).sightings[0].detected,
+		"y la misma geometría en la capa 'world' sí"
+	)
+	assert_eq(sensor.occluder_mask, VisionSensor.OCCLUDER_MASK, "la máscara es la del mundo")

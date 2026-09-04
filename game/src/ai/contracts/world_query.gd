@@ -13,8 +13,20 @@ extends RefCounted
 
 ## ¿Hay línea de visión despejada entre dos puntos?
 ## `collision_mask` por defecto: capa 1 ("world").
+##
+## El valor por defecto es **false**, y no es un detalle. Devolver `true` aquí
+## convierte este contrato en una trampa: cualquier implementación que herede y
+## no sobrescriba —o que decida dejar de responder preguntas de física— concede
+## visión a través de las paredes, sin error y sin aviso. Es el fallo del legacy
+## que este subsistema existe para matar (`Bot.cc` comprobaba inclusión en un
+## triángulo sin mirar si había pared en medio), y ya se coló una vez por esta
+## puerta.
+##
+## Regla general del contrato: el valor por defecto de una consulta de la que
+## depende una decisión de justicia nunca puede ser el permisivo. Ante la duda,
+## no se ve.
 func has_line_of_sight(_from: Vector3, _to: Vector3, _collision_mask: int = 1) -> bool:
-	return true
+	return false
 
 
 ## Primer punto de impacto de un rayo, o `Vector3.INF` si no impacta.

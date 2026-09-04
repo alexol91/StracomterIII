@@ -6,12 +6,28 @@ extends WorldQuery
 ## cajas. No hay escena, ni física, ni navmesh horneado, ni GPU: por eso toda
 ## la suite de percepción corre en milisegundos en `--headless`.
 ##
-## Es la contrapartida de `WorldQueryPhysics`: misma interfaz, mismo contrato,
-## implementación sintética. Esa costura es la razón por la que la IA de este
-## proyecto se puede probar de verdad.
+## Es la contrapartida de `WorldQueryPhysics` + `NavService`: misma interfaz,
+## mismo contrato, implementación sintética. Esa costura es la razón por la que
+## la IA de este proyecto se puede probar de verdad.
+##
+## REGLA DE ESTE DOBLE: no puede ser más amable que el motor. Un doble que no
+## reproduce los modos de fallo del original deja costuras verdes sobre
+## sistemas rotos — ya pasó una vez en este proyecto: la versión anterior
+## devolvía el destino EXACTO como último punto de la ruta, cosa que
+## `NavigationServer3D` no hace nunca, y por eso ninguna prueba pudo ver que
+## todo disparo por encima del suelo se estaba tratando como "sin ruta". Cada
+## aspereza del motor que se imita lleva abajo el comentario de qué imita.
 
 ## Cajas que bloquean la visión Y el paso.
 var blockers: Array[AABB] = []
+## Capa de física de cada caja, en paralelo a `blockers`. El motor solo detiene
+## un rayo si la capa del cuerpo está en la máscara de la consulta; un doble que
+## ignore la máscara aprobaría código que pregunta con la capa equivocada.
+var blocker_layers: Array[int] = []
+## Radio máximo al que se puede proyectar un punto sobre el navmesh. El motor
+## no proyecta a cualquier distancia: `map_get_closest_point` da el punto más
+## cercano y hay que decidir si está lo bastante cerca.
+var snap_tolerance_m: float = 1.5
 ## Región navegable de la rejilla de A*.
 var bounds: AABB = AABB(Vector3(-20.0, -1.0, -20.0), Vector3(40.0, 4.0, 40.0))
 ## Lado de celda de la rejilla, en metros.
@@ -31,9 +47,10 @@ var _depth: int = 0
 
 # ---- Construcción de la escena de prueba ----
 
-## Añade una caja opaca.
-func add_box(box: AABB) -> void:
+## Añade una caja opaca. `layer` por defecto: 1 ("world").
+func add_box(box: AABB, layer: int = 1) -> void:
 	blockers.append(box)
+	blocker_layers.append(layer)
 	_grid_dirty = true
 
 
@@ -51,6 +68,7 @@ func add_wall(from: Vector3, to: Vector3, thickness_m: float = 0.4, height_m: fl
 
 func clear_geometry() -> void:
 	blockers.clear()
+	blocker_layers.clear()
 	_grid_dirty = true
 
 
@@ -61,20 +79,24 @@ func reset_counters() -> void:
 
 # ---- WorldQuery ----
 
-func has_line_of_sight(from: Vector3, to: Vector3, _collision_mask: int = 1) -> bool:
+func has_line_of_sight(from: Vector3, to: Vector3, collision_mask: int = 1) -> bool:
 	raycast_count += 1
-	for box: AABB in blockers:
-		if box.intersects_segment(from, to) != null:
+	for i: int in blockers.size():
+		if not _matches_mask(i, collision_mask):
+			continue
+		if blockers[i].intersects_segment(from, to) != null:
 			return false
 	return true
 
 
-func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
+func raycast(from: Vector3, to: Vector3, collision_mask: int = 1) -> Vector3:
 	raycast_count += 1
 	var best := Vector3.INF
 	var best_distance := INF
-	for box: AABB in blockers:
-		var hit: Variant = box.intersects_segment(from, to)
+	for i: int in blockers.size():
+		if not _matches_mask(i, collision_mask):
+			continue
+		var hit: Variant = blockers[i].intersects_segment(from, to)
 		if hit == null:
 			continue
 		var point: Vector3 = hit
@@ -85,8 +107,20 @@ func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
 	return best
 
 
+## Proyecta al "navmesh". Como el motor: devuelve el punto NAVEGABLE más
+## cercano, que casi nunca es el que se pidió, y falla si no hay ninguno
+## lo bastante cerca.
 func snap_to_navmesh(point: Vector3) -> Vector3:
 	_rebuild_grid()
+	var projected := _nearest_free_center(point)
+	if is_inf(projected.x):
+		return Vector3.INF
+	if Vector2(projected.x - point.x, projected.z - point.z).length() > snap_tolerance_m:
+		return Vector3.INF
+	return projected
+
+
+func _nearest_free_center(point: Vector3) -> Vector3:
 	var cell := _cell_of(point)
 	if _is_free(cell.x, cell.y):
 		return _center_of(cell.x, cell.y)
@@ -122,8 +156,8 @@ func path(from: Vector3, to: Vector3) -> PackedVector3Array:
 		return PackedVector3Array()
 	if start == goal:
 		var direct := PackedVector3Array()
-		direct.append(from)
-		direct.append(to)
+		direct.append(_center_of(start.x, start.y))
+		direct.append(_center_of(goal.x, goal.y))
 		return direct
 
 	var came_from: Dictionary[Vector2i, Vector2i] = {}
@@ -158,12 +192,16 @@ func path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	if not found:
 		return PackedVector3Array()
 
-	var reversed_points: Array[Vector3] = [to]
+	# El último punto es el centro de celda alcanzado, NO el destino pedido:
+	# `NavigationServer3D.map_get_path` devuelve puntos sobre el navmesh, y un
+	# foco de ruido casi nunca está sobre él (un disparo suena a la altura del
+	# pecho). Devolver `to` aquí es lo que ocultó ese fallo la primera vez.
+	var reversed_points: Array[Vector3] = []
 	var node := goal
 	while node != start:
 		reversed_points.append(_center_of(node.x, node.y))
 		node = came_from[node]
-	reversed_points.append(from)
+	reversed_points.append(_center_of(start.x, start.y))
 	var out := PackedVector3Array()
 	for i: int in range(reversed_points.size() - 1, -1, -1):
 		out.append(reversed_points[i])
@@ -214,6 +252,13 @@ func _center_of(x: int, z: int) -> Vector3:
 		bounds.position.y,
 		bounds.position.z + (float(z) + 0.5) * cell_m
 	)
+
+
+## ¿Detiene esta caja un rayo lanzado con `collision_mask`? El motor compara
+## la capa del cuerpo con la máscara de la consulta; aquí igual.
+func _matches_mask(index: int, collision_mask: int) -> bool:
+	var layer := blocker_layers[index] if index < blocker_layers.size() else 1
+	return (layer & collision_mask) != 0
 
 
 func _is_free(x: int, z: int) -> bool:

@@ -443,14 +443,15 @@ func pump() -> int:
 
 ## Otras cachés que dependen de la topología y hay que vaciar con ella.
 ##
-## El caso concreto es `WorldQueryPhysics`, que el oído usa para estimar la
-## propagación del sonido por coste de camino: si una puerta se cierra y esa
-## caché no se vacía, los bots siguen oyendo como si estuviera abierta. Quien
-## escucha `door_state_changed` y `level_topology_changed` es este servicio,
-## así que la invalidación se coordina aquí y no en cinco sitios.
+## Quien escucha `door_state_changed` y `level_topology_changed` es este
+## servicio, así que la invalidación se coordina aquí y no en cinco sitios:
+## una puerta que se cierra cambia lo que es alcanzable, y cualquier cosa que
+## haya memorizado una respuesta anterior está mintiendo desde ese instante.
 ##
 ## Se acepta cualquier objeto con `clear_cache()`, sin depender del tipo: la
-## navegación no tiene por qué conocer a la percepción.
+## navegación no tiene por qué conocer a quien la consulta. Un `NavService`
+## vale como dependiente de otro (planta multi-nivel), porque implementa ese
+## mismo método.
 var _cache_dependents: Array[Object] = []
 
 
@@ -465,6 +466,12 @@ func remove_cache_dependent(dependent: Object) -> void:
 
 func cache_dependent_count() -> int:
 	return _cache_dependents.size()
+
+
+## Alias de `invalidate_cache` con el nombre del contrato de dependientes, para
+## que un `NavService` pueda registrarse como dependiente de otro.
+func clear_cache() -> void:
+	invalidate_cache()
 
 
 func invalidate_cache() -> void:
