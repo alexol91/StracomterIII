@@ -196,3 +196,49 @@ func test_result_carries_diagnostics() -> void:
 	assert_eq(result.count_for(&"no_existe"), 0, "arquetipo desconocido")
 	assert_size(result.to_archetype_list(), result.total(), "lista plana de arquetipos")
 	assert_true(result.describe().contains("enemigos"), "descripción legible")
+
+
+## Las referencias de la forma del mapa son DATO: cambiar
+## `reference_line_of_sight_m` cambia qué se considera una zona diáfana, y con
+## ello la composición. Si alguien vuelve a meter el 30 en código, esto salta.
+func test_shape_references_come_from_the_profile() -> void:
+	var context := _context(892.7, 1.0, _all())
+	context.mean_line_of_sight_m = 30.0
+
+	var strict := _profile()
+	strict.reference_line_of_sight_m = 30.0
+	var affinity_strict := EncounterComposer.new(strict).shape_affinities(context)
+
+	var lax := _profile()
+	lax.reference_line_of_sight_m = 120.0  # ahora 30 m es una zona cerrada
+	var affinity_lax := EncounterComposer.new(lax).shape_affinities(context)
+
+	assert_gt(affinity_strict[2], affinity_lax[2],
+		"con la referencia estricta, 30 m es diáfano y el Veterano encaja")
+	assert_gt(affinity_lax[0], affinity_strict[0],
+		"con la referencia laxa, 30 m es cerrado y encaja el Sicario")
+
+
+## Los pesos de afinidad también son dato: intercambiarlos invierte a qué
+## geometría responde cada arquetipo.
+func test_affinity_weights_come_from_the_profile() -> void:
+	var hall := _context(892.7, 1.0, _all())
+	hall.mean_line_of_sight_m = 40.0
+	hall.cover_points_per_100m2 = 8.0
+	hall.entry_count = 1
+
+	var normal := EncounterComposer.new(_profile()).compose(hall)
+
+	var swapped := _profile()
+	# Se le da al Sicario la afinidad por espacios abiertos y al Veterano la
+	# contraria: la nave diáfana debería pasar a pedir Sicarios.
+	swapped.thug_tightness_weight = 0.0
+	swapped.thug_entry_weight = 0.0
+	swapped.veteran_openness_weight = 0.0
+	swapped.veteran_cover_weight = 0.0
+	var inverted := EncounterComposer.new(swapped).compose(hall)
+
+	assert_gt(float(normal.counts[2]), float(inverted.counts[2]),
+		"sin afinidad por lo abierto, el Veterano deja de dominar la nave")
+	assert_gt(inverted.share(0), normal.share(0),
+		"y el Sicario gana peso relativo")

@@ -81,26 +81,6 @@ enum Mode {
 	GOAL_SIMPLEX,
 }
 
-# ---- Constantes de forma del mapa ----
-# TODO(arquitecto): estas nueve siguen en código porque no tienen sitio en
-# DirectorProfile todavía. Son las referencias con las que se normaliza la
-# geometría de una zona y los pesos con los que cada arquetipo se lleva bien
-# con ella. Propuesta: un grupo "Afinidad con la geometría".
-
-## Referencias de normalización de la forma del mapa. Una zona con líneas de
-## tiro de 30 m o más se considera completamente diáfana; una con 6 puntos de
-## cobertura por 100 m², completamente parapetada.
-const REFERENCE_LINE_OF_SIGHT_M: float = 30.0
-const REFERENCE_COVER_PER_100M2: float = 6.0
-const REFERENCE_ENTRY_COUNT: float = 4.0
-## Pesos de afinidad de cada arquetipo con la geometría.
-const THUG_TIGHTNESS_WEIGHT: float = 0.5
-const THUG_ENTRY_WEIGHT: float = 0.5
-const MILITIA_COVER_WEIGHT: float = 0.5
-const MILITIA_MIDRANGE_WEIGHT: float = 0.5
-const VETERAN_OPENNESS_WEIGHT: float = 0.7
-const VETERAN_COVER_WEIGHT: float = 0.3
-
 ## Peso del desempate "más enemigos" del objetivo lineal. NO es balanceo: es
 ## el epsilon que garantiza que el desempate nunca domina a la desviación.
 const COUNT_TIE_BREAK_NUMERATOR: int = 1
@@ -354,15 +334,41 @@ func target_shares(context: EncounterContext) -> Array[float]:
 ## * Miliciano: cobertura y distancias medias. Es el que flanquea.
 ## * Veterano: líneas de tiro largas y cobertura desde la que suprimir.
 func shape_affinities(context: EncounterContext) -> Array[float]:
-	var openness := clampf(context.mean_line_of_sight_m / REFERENCE_LINE_OF_SIGHT_M, 0.0, 1.0)
-	var cover := clampf(context.cover_points_per_100m2 / REFERENCE_COVER_PER_100M2, 0.0, 1.0)
-	var entries := clampf(float(context.entry_count) / REFERENCE_ENTRY_COUNT, 0.0, 1.0)
+	var openness := _openness(context)
+	var cover := _cover(context)
+	var entries := _entries(context)
+	# Distancias medias: máximo en una zona ni cerrada ni diáfana. Es donde el
+	# Miliciano, que flanquea y usa cobertura, tiene algo que hacer.
 	var midrange := 1.0 - absf(openness - 0.5) * 2.0
 	return [
-		clampf(THUG_TIGHTNESS_WEIGHT * (1.0 - openness) + THUG_ENTRY_WEIGHT * entries, 0.0, 1.0),
-		clampf(MILITIA_COVER_WEIGHT * cover + MILITIA_MIDRANGE_WEIGHT * midrange, 0.0, 1.0),
-		clampf(VETERAN_OPENNESS_WEIGHT * openness + VETERAN_COVER_WEIGHT * cover, 0.0, 1.0),
+		clampf(
+			_profile.thug_tightness_weight * (1.0 - openness)
+			+ _profile.thug_entry_weight * entries, 0.0, 1.0),
+		clampf(
+			_profile.militia_cover_weight * cover
+			+ _profile.militia_midrange_weight * midrange, 0.0, 1.0),
+		clampf(
+			_profile.veteran_openness_weight * openness
+			+ _profile.veteran_cover_weight * cover, 0.0, 1.0),
 	]
+
+
+## Normalizaciones de la forma de la zona, 0..1. Por encima de la referencia
+## del perfil, la zona cuenta como completamente abierta / cubierta /
+## accesible.
+func _openness(context: EncounterContext) -> float:
+	return clampf(
+		context.mean_line_of_sight_m / maxf(_profile.reference_line_of_sight_m, 0.0001), 0.0, 1.0)
+
+
+func _cover(context: EncounterContext) -> float:
+	return clampf(
+		context.cover_points_per_100m2 / maxf(_profile.reference_cover_per_100m2, 0.0001), 0.0, 1.0)
+
+
+func _entries(context: EncounterContext) -> float:
+	return clampf(
+		float(context.entry_count) / maxf(_profile.reference_entry_count, 0.0001), 0.0, 1.0)
 
 
 ## Reparto que pide la geometría, normalizado a 1 sobre los arquetipos
@@ -493,9 +499,9 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 	# * Más cobertura -> el jugador tiene dónde parapetarse -> cabe más daño.
 	# * Líneas de tiro largas -> puede batir a distancia -> cabe más vida.
 	# * Más accesos -> más rutas que cubrir -> caben enemigos más móviles.
-	var openness := clampf(context.mean_line_of_sight_m / REFERENCE_LINE_OF_SIGHT_M, 0.0, 1.0)
-	var cover := clampf(context.cover_points_per_100m2 / REFERENCE_COVER_PER_100M2, 0.0, 1.0)
-	var entries := clampf(float(context.entry_count) / REFERENCE_ENTRY_COUNT, 0.0, 1.0)
+	var openness := _openness(context)
+	var cover := _cover(context)
+	var entries := _entries(context)
 	var gain := _profile.budget_shape_gain
 	var modulation: Array[float] = [
 		1.0 + gain * (cover - 0.5) * 2.0,
