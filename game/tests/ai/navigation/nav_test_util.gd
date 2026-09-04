@@ -200,28 +200,3 @@ static func nearest_point_index(cloud: CoverPointCloud, target: Vector3,
 	return best
 
 
-## Nube sintética de `count` puntos en rejilla, con densidad FIJA. Sirve para
-## medir el índice espacial: lo que cambia entre dos nubes es el tamaño total,
-## no la densidad, que es la comparación que tiene sentido.
-static func synthetic_cloud(count: int, spacing_m: float) -> CoverPointCloud:
-	var cloud := CoverPointCloud.new()
-	cloud.grid_cell_m = NavTuning.COVER_GRID_CELL_M
-	var side := int(ceilf(sqrt(float(count))))
-	var chest := PackedByteArray()
-	var head := PackedByteArray()
-	for _s in NavTuning.DIRECTION_COUNT:
-		chest.append(int(CoverProvider.Quality.HIGH))
-		head.append(int(CoverProvider.Quality.HIGH))
-	var added := 0
-	for gx in side:
-		for gz in side:
-			if added >= count:
-				break
-			var offset := float(side) * spacing_m * 0.5
-			cloud.append_point(
-				Vector3(float(gx) * spacing_m - offset, 0.0,
-					float(gz) * spacing_m - offset),
-				chest, head, 0)
-			added += 1
-	cloud.rebuild_index()
-	return cloud

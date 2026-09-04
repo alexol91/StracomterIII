@@ -25,13 +25,13 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 |---|---|---|---|---|
 | 1.1 | `project.godot`, estructura, autoloads, contratos base | — | `godot-arquitecto` | ✅ |
 | 1.2 | Recursos `.tres` de balanceo con los valores canónicos del legacy | P01 P02 | `godot-arquitecto` | ✅ |
-| 1.3 | `Character` + `CharacterBody3D` + intenciones | P01 | `godot-gameplay` | 🟨 |
-| 1.4 | Controlador del jugador + cámara TPS + mando | P17 | `godot-gameplay` | 🟨 |
-| 1.5 | Armas: fuego, cuchillo, explosivo, munición, recarga | P06 | `godot-gameplay` | 🟨 |
-| 1.6 | Salud, daño localizado, muerte, puntuación, XP | P06 P12 | `godot-gameplay` | 🟨 |
+| 1.3 | `Character` + `CharacterBody3D` + intenciones | P01 | `godot-gameplay` | ✅ |
+| 1.4 | Controlador del jugador + cámara TPS + mando | P17 | `godot-gameplay` | ✅ |
+| 1.5 | Armas: fuego, cuchillo, explosivo, munición, recarga | P06 | `godot-gameplay` | ✅ |
+| 1.6 | Salud, daño localizado, muerte, puntuación, XP | P06 P12 | `godot-gameplay` | ✅ |
 | 1.7 | `AIScheduler` con presupuesto de CPU (ADR-002) | — | `godot-arquitecto` | ✅ |
-| 1.8 | Conversor de mapas legacy + validador | P16 | `level-conversor` | 🟨 |
-| 1.9 | Navmesh, enlaces de puerta, muestreo de spawns | P08 P10 | `ai-navegacion` | 🟨 |
+| 1.8 | Conversor de mapas legacy + validador | P16 | `level-conversor` | ✅ |
+| 1.9 | Navmesh, enlaces de puerta, muestreo de spawns | P08 P10 | `ai-navegacion` | ✅ |
 | 1.10 | CI: gdlint + tests headless + 3 exports | — | `devops-ci` | 🟨 |
 
 ## Hito 2 — La IA que justifica el remake
@@ -55,11 +55,11 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 
 | # | Tarea | Paridad | Agente | Estado |
 |---|---|---|---|---|
-| 3.1 | Simplex de dos fases con racionales exactos + entero | P11 | `director-encuentros` | 🟨 |
-| 3.2 | Modelo vivo de habilidad del jugador (DDA) | E-03 | `director-encuentros` | 🟨 |
-| 3.3 | Restricciones sensibles a la forma del mapa | E-03 | `director-encuentros` | 🟨 |
-| 3.4 | Curva de tensión y oleadas | E-03 | `director-encuentros` | 🟨 |
-| 3.5 | Reglas justas de aparición | — | `director-encuentros` | 🟨 |
+| 3.1 | Simplex de dos fases con racionales exactos + entero | P11 | `director-encuentros` | ✅ |
+| 3.2 | Modelo vivo de habilidad del jugador (DDA) | E-03 | `director-encuentros` | ✅ |
+| 3.3 | Restricciones sensibles a la forma del mapa | E-03 | `director-encuentros` | ✅ |
+| 3.4 | Curva de tensión y oleadas | E-03 | `director-encuentros` | ✅ |
+| 3.5 | Reglas justas de aparición | — | `director-encuentros` | ✅ |
 | 3.6 | Tests del director (determinismo, monotonía, justicia) | — | `qa-tests` | ⬜ |
 
 ## Hito 4 — Progresión, torre y UI
