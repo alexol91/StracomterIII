@@ -106,21 +106,54 @@ frecuencia.
 `(estado del bot, pizarra, consulta del mundo)`, lo cual es exactamente lo que lo hace
 testeable en `--headless` sin escena.
 
-## 5. ADR-003 — El Simplex se conserva, con aritmética exacta
+## 5. ADR-003 — Enumeración con puntuación, no programación lineal
 
-El original implementaba Simplex con `Rational` (aritmética exacta) y una variante
-entera. **Se porta esa decisión, no se sustituye por floats.** Motivos:
+**Revisada.** La primera versión de este ADR decidía conservar el Simplex del original
+como mecanismo de composición enemiga. Al implementarlo quedó claro que la herramienta no
+encaja con el problema, y se cambió.
 
-1. Los presupuestos del director son enteros pequeños; los floats introducirían
-   degeneración y ciclos en el pivote justo en los casos límite.
-2. Un solucionador determinista es un solucionador testeable: las mismas entradas dan la
-   misma composición enemiga siempre, y eso hace que un bug de balanceo sea reproducible.
-3. Es el corazón académico del proyecto original. Reescribirlo con una heurística
-   cualquiera sería tirar lo que hacía especial a este juego.
+### Por qué el Simplex no sirve aquí
 
-`director/simplex.gd` implementa Simplex de dos fases con racionales enteros
-(`num/den` en `int64`) más ramificación y acotación para la solución entera, con reserva
-a distribución uniforme si el problema resulta infactible (igual que el legacy).
+1. **Es un problema de reparto, no de programación lineal.** Son 3-5 variables enteras y
+   3 restricciones. El Simplex es maquinaria para cientos de variables: unas 900 líneas
+   —racionales exactos, dos fases, regla de Bland, ramificación y acotación— para elegir
+   tres números pequeños.
+2. **Lo que hay que optimizar no es lineal.** Un director de encuentros que merezca el
+   nombre persigue *variedad* en la composición y *novedad* frente a la oleada anterior.
+   Eso es entropía y distancia, y **la programación lineal no puede expresarlo**: solo
+   admite objetivos lineales. En cuanto se quiere lo interesante, la herramienta se queda
+   fuera.
+3. **El original lo demuestra.** Su óptimo entero daba ~26 enemigos del mismo tipo planta
+   tras planta. No fue mala suerte: fue forzar `max x1+x2+x3` —contar cabezas— sobre un
+   problema que no es contar cabezas.
+4. **El rendimiento nunca fue el argumento.** Esto se ejecuta una vez por zona, cada ocho
+   minutos. Ni el Simplex ni nada tiene aquí un problema de velocidad.
+
+### Qué se usa
+
+**Enumeración exhaustiva con función de puntuación.** Se enumeran las combinaciones de
+conteos por arquetipo dentro de las cotas de la planta que respetan los tres presupuestos
+(daño, vida, velocidad) —unos pocos miles de candidatos, microsegundos— y se puntúa cada
+una con términos **separados, con peso y nombrados**: desviación respecto a la composición
+objetivo, variedad, novedad frente a la oleada anterior, aprovechamiento del presupuesto y
+ajuste a la forma del mapa.
+
+Ventajas sobre la LP en todos los ejes que importan aquí: da el óptimo exacto para
+**cualquier** objetivo, lineal o no; ocupa unas 40 líneas en lugar de 900; y es
+**explicable**, que es lo decisivo para balancear — la consola lista las diez mejores
+composiciones con el desglose de puntuación por término.
+
+### Qué pasa con el Simplex
+
+**Se conserva, degradado a alternativa seleccionable** (`director.composer legacy`), con
+su aritmética racional exacta y sus pruebas. Dos razones, ninguna de ellas técnica:
+es el corazón académico del proyecto de 2012, y es la **evidencia** de por qué se
+sustituyó — hay un test que compara las dos vías sobre los mismos presupuestos y muestra
+con números que la enumeración produce composiciones variadas donde la formulación
+original colapsa en un solo arquetipo.
+
+Conservar una implementación correcta de algo que decidiste no usar, con el test que
+explica la decisión, vale más que borrarla y que seguir usándola.
 
 ## 6. ADR-004 — Navegación: navmesh, no grafo triangulado a mano
 

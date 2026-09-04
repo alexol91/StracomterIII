@@ -244,6 +244,24 @@ objetivo** por planta, con cotas mínimas y máximas por arquetipo, para que la 
 sea variada por construcción y no por casualidad. Los coeficientes originales se
 conservan como datos en `DirectorProfile` para poder comparar ambas formulaciones.
 
+**Y el algoritmo se sustituye, por buenas razones.** Al implementarlo se vio que la
+programación lineal no encaja: son 3-5 variables enteras con 3 restricciones —reparto, no
+LP— y sobre todo, lo que un director de encuentros necesita optimizar (**variedad** de la
+composición, **novedad** frente a la oleada anterior) **no es lineal**, y el Simplex solo
+admite objetivos lineales. La degeneración de arriba no fue mala suerte: fue forzar
+`max x1+x2+x3` sobre un problema que no es contar cabezas.
+
+En su lugar se enumeran las combinaciones válidas dentro de las cotas de la planta —unos
+miles, microsegundos— y se puntúa cada una por desviación respecto a la composición
+objetivo, variedad, novedad, aprovechamiento del presupuesto y ajuste a la forma del mapa.
+Cuarenta líneas en lugar de novecientas, óptimo exacto para cualquier objetivo, y
+explicable: la consola lista las diez mejores con el desglose de su puntuación.
+
+El Simplex **se conserva** como alternativa seleccionable y como la evidencia de por qué
+se sustituyó (ver `docs/02-arquitectura.md`, ADR-003). Lo que sigue vivo del original no
+es su solucionador, sino su idea: **que la composición enemiga se calcule, no se escriba
+a mano**. Eso es lo que se moderniza abajo.
+
 **Se conserva el algoritmo. Se cambia de dónde vienen los números.**
 
 En 2012, `dificultad` era una constante por planta y `área` un dato geométrico: el
