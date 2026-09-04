@@ -109,13 +109,21 @@ Los únicos enteros "sueltos" en los datos son el atributo `subtype` de
 
 ## Qué es geometría real y qué es un marcador
 
-- **`perimeter` y `wall`** se extruyen a malla 3D real con colisión: un
-  `StaticBody3D` por tramo (una arista del perímetro o un `wall`), con
-  `BoxMesh`/`BoxShape3D` — **siempre convexo por tramo**, nunca un trimesh
-  gigante para todos los muros. Para el `wall` no rectangular de
+- **`wall`** se extruye a malla 3D real con colisión: un `StaticBody3D` por
+  tramo, con `BoxMesh`/`BoxShape3D` — **siempre convexo por tramo**, nunca un
+  trimesh gigante para todos los muros. Para el `wall` no rectangular de
   `map_03.xml` (el único de los 300) se usa una caja orientada a la
   diagonal más larga del cuadrilátero: una aproximación razonable, no una
   extrusión exacta del cuadrilátero irregular.
+- **`perimeter`** también se extruye a malla 3D (visualmente, cada arista
+  sigue siendo un `StaticBody3D` con su propio `BoxMesh`), pero su colisión
+  **no** vive en esas cajas: por un bug real de Recast/`NavigationServer3D`
+  documentado más abajo ("Bug real: la colisión del perímetro rompía el
+  navmesh de verdad"), una `BoxShape3D` suelta por arista del perímetro
+  puede sellar el navmesh en un punto totalmente ajeno del mapa. La colisión
+  del perímetro se funde como más triángulos del trimesh de `Floor`
+  (`skirt_vertices`/`skirt_indices`); `Walls/PerimeterWall_i` es puramente
+  visual (`collision_layer = 0`, sin `CollisionShape3D`).
 - **`door`, `obstacle`, `objects`, `player`, `miniBoss`, `megaBoss`** son
   **nodos `Marker3D` con metadatos** (`metadata/type`, tamaño, `subtype`,
   ángulo original…), sin geometría ni colisión propias. Decisión explícita
@@ -194,13 +202,96 @@ Limitaciones documentadas, no escondidas:
   colisión real (`Floor` + `Walls`) en el propio editor es la vía natural
   — la geometría de colisión que genera este conversor es apta para ello.
 
-## Validación (`validate.py`)
+## Bug real: la colisión del perímetro rompía el navmesh de verdad (Recast)
+
+Esta sección documenta un hallazgo posterior a la primera versión de este
+conversor, para que quien vuelva a tocar `convert.py` no lo repita. `ai-navegacion`
+midió con `NavigationServer3D` (el horneado que usa el juego de verdad, no la
+rejilla de `validate.py` de más abajo) que `finalMap` — la planta 8,
+obligatoria — solo tenía el **46 %** de su navmesh horneado en una única
+componente conexa, y en menor medida `map1`, `mapM2`, `mapM4`, `mapP1`,
+`map_03`, `mapaMolon`. El validador propio de este conversor daba los 27
+mapas al 100 %: dos navmeshes distintos, y el que manda es el de Recast
+porque es el que usa el juego.
+
+Dos bugs reales, distintos, encontrados en cadena:
+
+1. **Bobinado de la colisión del suelo.** `NavigationServer3D.bake_from_source_geometry_data`
+   con `PARSED_GEOMETRY_STATIC_COLLIDERS` exige los triángulos con la normal
+   apuntando a **-Y** (horario visto desde arriba); el mesh visual necesita
+   justo lo contrario (+Y, si no Godot le hace back-face culling y el suelo
+   no se ve). Con el suelo usando el mismo orden para colisión y para
+   render, el horneado descartaba el suelo entero **en silencio** (0
+   polígonos, sin ningún aviso). Arreglo: `_legacy_floor_mesh.gd` construye
+   la forma de colisión con los triángulos invertidos respecto al mesh
+   visual (ver la nota grande de ese fichero).
+2. **Una `BoxShape3D` suelta por arista del perímetro.** Con el bobinado ya
+   arreglado, `finalMap` seguía al 46 %. Por bisección (quitar geometría de
+   una en una hasta que la conexión vuelve) la causa resultó ser la caja de
+   colisión de **una sola arista** de `Walls/PerimeterWall_i` — una caja 3D
+   normal y corriente, sin solapar nada — que rompía la conectividad del
+   navmesh en un punto **a más de 4 metros de distancia**, en una puerta con
+   la geometría perfecta (comprobada vértice a vértice). No es un problema
+   del tipo de forma (una `ConvexPolygonShape3D` equivalente falla igual) ni
+   exclusivo de aristas diagonales (`map1.xml`/`mapP1.xml` tienen perímetro
+   rectilíneo y mostraban el mismo fallo en aristas alineadas a ejes): es que
+   una caja suelta, como cuerpo rígido aparte, confunde el reparto en
+   regiones del horneador de Recast/Godot 4.7.2. Un trimesh no tiene ese
+   problema — el propio suelo, con esas mismas aristas, hornea siempre bien.
+
+   **Arreglo**: el perímetro ya no tiene ninguna `BoxShape3D` de colisión
+   propia. Su zócalo vertical (de altura `WALL_HEIGHT_M`) se funde como más
+   triángulos del MISMO trimesh del suelo (`_build_perimeter_skirt` en
+   `convert.py`, exportado como `skirt_vertices`/`skirt_indices` y fundido en
+   `_legacy_floor_mesh.gd`). `Walls/PerimeterWall_i` se queda solo con su
+   `MeshInstance3D` (aspecto visual) y `collision_layer = 0`.
+
+   **Efecto secundario documentado, no un fallo de este conversor**:
+   `pruebasMov.xml` (perímetro + spawn, sin ningún `wall` interior) se queda
+   sin ninguna `BoxShape3D` en toda la escena. El detector de puntos de
+   cobertura de `ai/navigation` (`NavTestUtil.collect_map_boxes`) solo sabe
+   buscar `BoxShape3D`, no el trimesh de `Floor`, así que ese mapa concreto
+   se queda sin puntos de cobertura. `pruebasMov.xml` no es un mapa de
+   `floor_config` ni de `GameAction::selectionMap`: es un banco de pruebas de
+   movimiento de 2012 sin mobiliario. La decisión de tratarlo como los demás
+   prototipos sin sala jugable (`map_03.xml` ya tiene ese trato en
+   `TINY_PROTOTYPES`) es de `ai/navigation`, no de este conversor.
+
+Verificado tras el arreglo con `game/tests/maps/test_legacy_maps.gd`
+(hornea con `NavTestUtil` + `NavigationServer3D`, la misma geometría de
+origen que usa `game/tests/ai/navigation/test_legacy_maps_navigation.gd`):
+los 25 mapas sin fallo de carga quedan con el **100 %** de su navmesh
+horneado en una sola componente, salvo `mapaMolon.xml` (72 %) y `map_03.xml`
+(55 %) — ninguno de los dos es un mapa de `floor_config`, y su causa es
+distinta y mucho más pequeña: bolsillos de un par de m² alrededor de
+obstáculos con forma de caja pegados casi al perímetro, no zonas enteras
+tabicadas. Documentado como excepción conocida en ambos ficheros de test.
+
+## Validación: la rejilla propia es una comprobación rápida, no la definitiva
 
 No es un extra: el encargo es explícito en que un mapa que convierte pero no
-es navegable es peor que uno que falla. `validate.py` recibe el mismo
-`LegacyMap` que alimenta a `convert.py` (no relee el `.tscn`: la geometría de
-navegación se deriva de forma determinista de esos mismos datos, así que
-validar el modelo de datos es validar la escena resultante) y comprueba:
+es navegable es peor que uno que falla. Pero, como demuestra el bug de arriba,
+**la rejilla de `validate.py` no es el navmesh que usa el juego** — es una
+comprobación rápida en tiempo de conversión (geometría degenerada, spawn
+dentro del perímetro, orden de vértices…), útil para pillar errores obvios
+sin necesidad de abrir Godot, pero no una garantía de navegabilidad real. La
+comprobación que manda corre en Godot, con `NavigationServer3D`, sobre la
+geometría de colisión de verdad:
+
+- `game/tests/maps/test_legacy_maps.gd` — hornea cada mapa con
+  `NavTestUtil.source_from_map()` (lee `Floor.floor_vertices/floor_indices` y
+  toda `BoxShape3D` de la escena directamente de las propiedades exportadas,
+  sin necesitar árbol de escena) y comprueba que el navmesh resultante no
+  está vacío y que ≥90 % de su área es una sola componente conexa (60 % para
+  las dos excepciones documentadas arriba).
+- `game/tests/ai/navigation/test_legacy_maps_navigation.gd` — la prueba de
+  integración de `ai-navegacion`, con el mismo criterio y su propia lista de
+  cuarentena (que debería poder vaciarse ahora que el bug del perímetro está
+  arreglado — es su fichero, no el de este conversor).
+
+`validate.py` recibe el mismo `LegacyMap` que alimenta a `convert.py` (no
+relee el `.tscn`: la geometría de la rejilla se deriva de forma determinista
+de esos mismos datos) y comprueba:
 
 1. **Carga**: el XML no abortó (`status >= 0` como en `Map::loadData`).
 2. **Geometría no degenerada**: perímetro con área > 0 y sin vértices
@@ -244,5 +335,14 @@ conversor no lanzó una excepción):
 
 Sale con código 1 si algún mapa no carga, le falta `NavigationRegion3D`,
 le falta la estructura de nodos acordada (`Walls`/`Doors`/`Obstacles`/
-`Pickups`/`Spawns`) o (para los 12 mapas exigidos por `floor_config`) no
-tiene `Spawns/PlayerSpawn`.
+`Pickups`/`Spawns`), (para los 12 mapas exigidos por `floor_config`) no tiene
+`Spawns/PlayerSpawn`, o su navmesh horneado con `NavigationServer3D` (no la
+rejilla propia) queda partido en zonas sin conexión — ver la sección de
+arriba sobre el bug del perímetro.
+
+Para la prueba de integración equivalente de `ai-navegacion` (misma
+geometría, más la comprobación de puntos de cobertura por sala):
+
+```bash
+<godot> --headless --path game res://tests/run_tests.tscn -- --filter=navigation
+```

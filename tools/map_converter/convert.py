@@ -180,6 +180,75 @@ def _ensure_ccw_up(tri_indices: Tuple[int, int, int], verts3d: List[Tuple[float,
     return a, b, c
 
 
+def _build_perimeter_skirt(perimeter: List[Tuple[float, float]]
+                            ) -> Tuple[List[Tuple[float, float, float]], List[int]]:
+    """Zócalo vertical de TODAS las aristas del perímetro (de y=0 a
+    y=WALL_HEIGHT_M), como triángulos del MISMO tipo de malla que el suelo —
+    no como cajas independientes. Ver la nota grande en
+    _legacy_floor_mesh.gd: una `BoxShape3D` suelta y girada por arista del
+    perímetro rompe el horneado de NavigationServer3D en zonas alejadas de la
+    propia caja (confirmado en finalMap.xml, en la única arista diagonal más
+    cercana a una puerta). Un trimesh no tiene ese problema (el propio suelo,
+    con esas mismas aristas diagonales, hornea sin fallos).
+
+    Se probó una versión más quirúrgica —quedarse con la `BoxShape3D` en las
+    aristas alineadas a ejes y fundir solo las diagonales— confiando en que
+    el problema fuera específico de la rotación. **No lo es**: en `map1.xml`
+    y `mapP1.xml` (perímetros rectilíneos SIN ninguna arista diagonal) el
+    mismo problema apareció en aristas alineadas a ejes, y esa versión
+    quirúrgica los dejaba tan rotos como antes del arreglo (74 % y 89 % de
+    componente mayor en vez del 100 %). Por eso aquí se funden TODAS las
+    aristas sin excepción; `Walls/PerimeterWall_i` se queda sin colisión
+    propia (ver más abajo)."""
+    n = len(perimeter)
+    if n < 3:
+        return [], []
+    centroid_x = sum(p[0] for p in perimeter) / n
+    centroid_y = sum(p[1] for p in perimeter) / n
+    verts: List[Tuple[float, float, float]] = []
+    indices: List[int] = []
+
+    def vid(v: Tuple[float, float, float]) -> int:
+        verts.append(v)
+        return len(verts) - 1
+
+    for i in range(n):
+        p0 = perimeter[i]
+        p1 = perimeter[(i + 1) % n]
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        if math.hypot(dx, dy) < 1e-6:
+            continue
+        b0 = _legacy_xy_to_godot(p0[0], p0[1], 0.0)
+        t0 = _legacy_xy_to_godot(p0[0], p0[1], lm.WALL_HEIGHT_M)
+        b1 = _legacy_xy_to_godot(p1[0], p1[1], 0.0)
+        t1 = _legacy_xy_to_godot(p1[0], p1[1], lm.WALL_HEIGHT_M)
+        i_b0, i_t0, i_b1, i_t1 = vid(b0), vid(t0), vid(b1), vid(t1)
+
+        mid_out_x, _mh, mid_out_z = _legacy_xy_to_godot(
+            (p0[0] + p1[0]) / 2.0 - centroid_x, (p0[1] + p1[1]) / 2.0 - centroid_y, 0.0
+        )
+
+        for tri in ((i_b0, i_b1, i_t1), (i_b0, i_t1, i_t0)):
+            a, b, c = tri
+            ax, ay, az = verts[a]
+            bx, by, bz = verts[b]
+            cx, cy, cz = verts[c]
+            ux, uy, uz = bx - ax, by - ay, bz - az
+            vx, vy, vz = cx - ax, cy - ay, cz - az
+            nx = uy * vz - uz * vy
+            nz = ux * vy - uy * vx
+            # se orienta hacia FUERA del centroide; el sentido exacto no
+            # afecta a la clasificación de Recast (una cara casi vertical no
+            # es "suelo" mires desde el lado que la mires) pero mantiene la
+            # malla coherente para depurar y para una futura colisión de dos
+            # caras si hiciera falta.
+            if (nx * mid_out_x + nz * mid_out_z) < 0:
+                tri = (a, c, b)
+            indices.extend(tri)
+
+    return verts, indices
+
+
 def _quad_ccw_up(quad: Tuple[int, int, int, int], verts3d: List[Tuple[float, float, float]]
                   ) -> Tuple[int, int, int, int]:
     a, b, c, d = quad
@@ -243,6 +312,8 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
             indices.extend([a, b, c])
         uvs = [(x / 200.0, y / 200.0) for x, y in m.perimeter]
 
+        skirt_verts3d, skirt_indices = _build_perimeter_skirt(m.perimeter)
+
         floor_props = [
             "transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)",
             "collision_layer = 1",
@@ -251,12 +322,22 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
             f"floor_vertices = {_packed_vector3_array(verts3d)}",
             f"floor_uvs = {_packed_vector2_array(uvs)}",
             f"floor_indices = {_packed_int32_array(indices)}",
+            f"skirt_vertices = {_packed_vector3_array(skirt_verts3d)}",
+            f"skirt_indices = {_packed_int32_array(skirt_indices)}",
         ]
         sw.node("Floor", "StaticBody3D", parent=".", properties=floor_props)
     else:
         tris = []
 
-    # ---- muros de perímetro (extrusión del contorno) ------------------
+    # ---- muros de perímetro: SOLO aspecto visual --------------------------
+    # La colisión del perímetro NO vive aquí para NINGUNA arista, alineada a
+    # ejes o diagonal: ver _build_perimeter_skirt() y su nota grande sobre por
+    # qué una BoxShape3D suelta y girada por arista del perímetro rompe el
+    # horneado de NavigationServer3D en zonas alejadas de la propia caja —
+    # comprobado tanto en la arista diagonal de finalMap.xml como en aristas
+    # alineadas a ejes de map1.xml/mapP1.xml. Estos nodos son puramente
+    # cosméticos: StaticBody3D sin ninguna CollisionShape3D (no participan en
+    # física ni en el horneado; la colisión real vive en Floor).
     sw.node("Walls", "Node3D", parent=".")
     perim_n = len(m.perimeter)
     for i in range(perim_n):
@@ -271,21 +352,18 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
         gx, gh, gz = _legacy_xy_to_godot(mid_x, mid_y, lm.WALL_HEIGHT_M / 2.0)
         size = _vec3(lm.u_to_m(length_u), lm.WALL_HEIGHT_M, lm.u_to_m(lm.WALL_THICKNESS_U))
         box_mesh_id = sw.sub_resource("BoxMesh", [f"size = {size}"], hint="perim")
-        box_shape_id = sw.sub_resource("BoxShape3D", [f"size = {size}"], hint="perim")
         node_name = f"PerimeterWall_{i}"
         parent = "Walls"
         transform = _transform3d(rot_y, (gx, gh, gz))
         sw.node(node_name, "StaticBody3D", parent=parent, properties=[
             f"transform = {transform}",
-            "collision_layer = 1",
+            "collision_layer = 0",
             "collision_mask = 0",
             f'metadata/legacy_edge = "{i}-{(i + 1) % perim_n}"',
+            'metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"',
         ])
         sw.node("Mesh", "MeshInstance3D", parent=f"{parent}/{node_name}", properties=[
             f'mesh = SubResource("{box_mesh_id}")',
-        ])
-        sw.node("Collision", "CollisionShape3D", parent=f"{parent}/{node_name}", properties=[
-            f'shape = SubResource("{box_shape_id}")',
         ])
 
     # ---- muros interiores (wall) ---------------------------------------

@@ -6,7 +6,7 @@
 ;   (cámara cenital rotation_degrees.x=-90; ver tools/map_converter/README.md).
 ; Perímetro legacy: horario (Polygon::isClockwise, Math/lib/Polygon.cc:179-192).
 
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://maps/legacy/_legacy_floor_mesh.gd" id="Script_1"]
 [ext_resource type="Script" path="res://maps/legacy/_legacy_navmesh.gd" id="Script_2"]
@@ -14,55 +14,34 @@
 [sub_resource type="BoxMesh" id="BoxMesh_perim1"]
 size = Vector3(5.493333, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim2"]
-size = Vector3(5.493333, 3, 0.333333)
+[sub_resource type="BoxMesh" id="BoxMesh_perim2"]
+size = Vector3(7.453333, 3, 0.333333)
 
 [sub_resource type="BoxMesh" id="BoxMesh_perim3"]
-size = Vector3(7.453333, 3, 0.333333)
+size = Vector3(4.32, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim4"]
-size = Vector3(7.453333, 3, 0.333333)
+[sub_resource type="BoxMesh" id="BoxMesh_perim4"]
+size = Vector3(2.826667, 3, 0.333333)
 
 [sub_resource type="BoxMesh" id="BoxMesh_perim5"]
-size = Vector3(4.32, 3, 0.333333)
+size = Vector3(4.586667, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim6"]
-size = Vector3(4.32, 3, 0.333333)
+[sub_resource type="BoxMesh" id="BoxMesh_perim6"]
+size = Vector3(1.653333, 3, 0.333333)
 
 [sub_resource type="BoxMesh" id="BoxMesh_perim7"]
-size = Vector3(2.826667, 3, 0.333333)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim8"]
-size = Vector3(2.826667, 3, 0.333333)
-
-[sub_resource type="BoxMesh" id="BoxMesh_perim9"]
-size = Vector3(4.586667, 3, 0.333333)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim10"]
-size = Vector3(4.586667, 3, 0.333333)
-
-[sub_resource type="BoxMesh" id="BoxMesh_perim11"]
-size = Vector3(1.653333, 3, 0.333333)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim12"]
-size = Vector3(1.653333, 3, 0.333333)
-
-[sub_resource type="BoxMesh" id="BoxMesh_perim13"]
 size = Vector3(2.866667, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_perim14"]
-size = Vector3(2.866667, 3, 0.333333)
-
-[sub_resource type="BoxMesh" id="BoxMesh_wall15"]
+[sub_resource type="BoxMesh" id="BoxMesh_wall8"]
 size = Vector3(4.666667, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_wall16"]
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall9"]
 size = Vector3(4.666667, 3, 0.333333)
 
-[sub_resource type="BoxMesh" id="BoxMesh_wall17"]
+[sub_resource type="BoxMesh" id="BoxMesh_wall10"]
 size = Vector3(1.666667, 3, 0.333333)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_wall18"]
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall11"]
 size = Vector3(1.666667, 3, 0.333333)
 
 [node name="mapRuben" type="Node3D"]
@@ -88,92 +67,80 @@ script = ExtResource("Script_1")
 floor_vertices = PackedVector3Array(-2.266667, 0, 1.44, -2.266667, 0, -4.053333, 5.186667, 0, -4.053333, 5.186667, 0, 0.266667, 5.186667, 0, 3.093333, 0.6, 0, 3.093333, 0.6, 0, 1.44)
 floor_uvs = PackedVector2Array(-0.85, 0.54, -0.85, -1.52, 1.945, -1.52, 1.945, 0.1, 1.945, 1.16, 0.225, 1.16, 0.225, 0.54)
 floor_indices = PackedInt32Array(6, 1, 0, 6, 2, 1, 6, 3, 2, 6, 4, 3, 4, 6, 5)
+skirt_vertices = PackedVector3Array(-2.266667, 0, 1.44, -2.266667, 3, 1.44, -2.266667, 0, -4.053333, -2.266667, 3, -4.053333, -2.266667, 0, -4.053333, -2.266667, 3, -4.053333, 5.186667, 0, -4.053333, 5.186667, 3, -4.053333, 5.186667, 0, -4.053333, 5.186667, 3, -4.053333, 5.186667, 0, 0.266667, 5.186667, 3, 0.266667, 5.186667, 0, 0.266667, 5.186667, 3, 0.266667, 5.186667, 0, 3.093333, 5.186667, 3, 3.093333, 5.186667, 0, 3.093333, 5.186667, 3, 3.093333, 0.6, 0, 3.093333, 0.6, 3, 3.093333, 0.6, 0, 3.093333, 0.6, 3, 3.093333, 0.6, 0, 1.44, 0.6, 3, 1.44, 0.6, 0, 1.44, 0.6, 3, 1.44, -2.266667, 0, 1.44, -2.266667, 3, 1.44)
+skirt_indices = PackedInt32Array(0, 3, 2, 0, 1, 3, 4, 7, 6, 4, 5, 7, 8, 11, 10, 8, 9, 11, 12, 15, 14, 12, 13, 15, 16, 19, 18, 16, 17, 19, 20, 23, 22, 20, 21, 23, 24, 27, 26, 24, 25, 27)
 
 [node name="Walls" type="Node3D" parent="."]
 
 [node name="PerimeterWall_0" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -2.266667, 1.5, -1.306667)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "0-1"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_0"]
 mesh = SubResource("BoxMesh_perim1")
 
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_0"]
-shape = SubResource("BoxShape3D_perim2")
-
 [node name="PerimeterWall_1" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.46, 1.5, -4.053333)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "1-2"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_1"]
-mesh = SubResource("BoxMesh_perim3")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_1"]
-shape = SubResource("BoxShape3D_perim4")
+mesh = SubResource("BoxMesh_perim2")
 
 [node name="PerimeterWall_2" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 5.186667, 1.5, -1.893333)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "2-3"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_2"]
-mesh = SubResource("BoxMesh_perim5")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_2"]
-shape = SubResource("BoxShape3D_perim6")
+mesh = SubResource("BoxMesh_perim3")
 
 [node name="PerimeterWall_3" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 5.186667, 1.5, 1.68)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "3-4"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_3"]
-mesh = SubResource("BoxMesh_perim7")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_3"]
-shape = SubResource("BoxShape3D_perim8")
+mesh = SubResource("BoxMesh_perim4")
 
 [node name="PerimeterWall_4" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, -0, 0, -1, 2.893333, 1.5, 3.093333)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "4-5"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_4"]
-mesh = SubResource("BoxMesh_perim9")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_4"]
-shape = SubResource("BoxShape3D_perim10")
+mesh = SubResource("BoxMesh_perim5")
 
 [node name="PerimeterWall_5" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 0.6, 1.5, 2.266667)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "5-6"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_5"]
-mesh = SubResource("BoxMesh_perim11")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_5"]
-shape = SubResource("BoxShape3D_perim12")
+mesh = SubResource("BoxMesh_perim6")
 
 [node name="PerimeterWall_6" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, -0, 0, -1, -0.833333, 1.5, 1.44)
-collision_layer = 1
+collision_layer = 0
 collision_mask = 0
 metadata/legacy_edge = "6-0"
+metadata/collision_note = "puramente visual: la colisión vive en Floor (ver _legacy_floor_mesh.gd)"
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_6"]
-mesh = SubResource("BoxMesh_perim13")
-
-[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_6"]
-shape = SubResource("BoxShape3D_perim14")
+mesh = SubResource("BoxMesh_perim7")
 
 [node name="Wall_0" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 1.5, -1.833333)
@@ -181,10 +148,10 @@ collision_layer = 1
 collision_mask = 0
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_0"]
-mesh = SubResource("BoxMesh_wall15")
+mesh = SubResource("BoxMesh_wall8")
 
 [node name="Collision" type="CollisionShape3D" parent="Walls/Wall_0"]
-shape = SubResource("BoxShape3D_wall16")
+shape = SubResource("BoxShape3D_wall9")
 
 [node name="Wall_1" type="StaticBody3D" parent="Walls"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 1.5, -1.833333)
@@ -192,10 +159,10 @@ collision_layer = 1
 collision_mask = 0
 
 [node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_1"]
-mesh = SubResource("BoxMesh_wall17")
+mesh = SubResource("BoxMesh_wall10")
 
 [node name="Collision" type="CollisionShape3D" parent="Walls/Wall_1"]
-shape = SubResource("BoxShape3D_wall18")
+shape = SubResource("BoxShape3D_wall11")
 
 [node name="Doors" type="Node3D" parent="."]
 

@@ -146,6 +146,138 @@ func test_map_without_player_is_the_documented_exception() -> void:
 	instance.free()
 
 
+## Umbral de conectividad: el mismo 90 % que usa
+## tools/map_converter/validate.py (REACHABILITY_MIN_RATIO) para su rejilla
+## propia y que game/tests/ai/navigation/test_legacy_maps_navigation.gd
+## (MIN_CONNECTED_FRACTION) usa para el navmesh REAL horneado con Recast.
+const NAVMESH_CONNECTIVITY_MIN_RATIO := 0.90
+
+## Mapas con una componente pequeña y aislada conocida y documentada que NO
+## viene del bug de geometría de PerimeterWall (ya arreglado): huecos de
+## pocos centímetros alrededor de obstáculos con forma de caja, y la parte de
+## arriba de esas mismas cajas, que Recast considera "suelo" aislado porque
+## nada conecta con ella. No forman parte de floor_config ni de
+## GameAction::selectionMap. Ver game/maps/legacy/CONVERSION.md.
+const KNOWN_PARTIAL_CONNECTIVITY_EXCEPTIONS := ["mapaMolon", "map_03"]
+
+
+## Hornea el navmesh con la MISMA geometría de origen que usa
+## game/tests/ai/navigation/test_legacy_maps_navigation.gd
+## (`NavTestUtil.source_from_map`, ya existente en el proyecto: lee
+## `Floor.floor_vertices/floor_indices` y todas las `BoxShape3D` de la escena
+## directamente de las propiedades exportadas, sin instanciar en el árbol —
+## `NavigationServer3D.parse_source_geometry_data` exige que el nodo raíz esté
+## en el árbol y `add_child` sobre la raíz falla dentro del `_ready` del
+## runner de pruebas) y los mismos parámetros que `NavTuning.configure_navigation_mesh`
+## (game/src/ai/navigation/nav_tuning.gd). Es el navmesh que el juego usa de
+## verdad — no la rejilla propia de tools/map_converter/validate.py, que solo
+## sirve de comprobación rápida en tiempo de conversión (ver la nota grande de
+## cabecera de este fichero: dos navmeshes distintos pueden discrepar, y el
+## que manda es este).
+func _bake_like_the_game(instance: Node) -> NavigationMesh:
+	var mesh := NavigationMesh.new()
+	NavTuning.configure_navigation_mesh(mesh)
+	var source: NavigationMeshSourceGeometryData3D = NavTestUtil.source_from_map(instance)
+	NavigationServer3D.bake_from_source_geometry_data(mesh, source)
+	return mesh
+
+
+## Área (proyectada en XZ) de un polígono del navmesh horneado.
+func _navmesh_polygon_area(verts: PackedVector3Array, idxs: PackedInt32Array) -> float:
+	var area := 0.0
+	var n := idxs.size()
+	for i in n:
+		var a: Vector3 = verts[idxs[i]]
+		var b: Vector3 = verts[idxs[(i + 1) % n]]
+		area += a.x * b.z - b.x * a.z
+	return absf(area) * 0.5
+
+
+## Fracción de área que cae en la mayor componente conexa del navmesh
+## horneado (adyacencia por arista compartida entre polígonos). 1.0 si todo
+## el navmesh es una sola pieza.
+func _largest_component_ratio(mesh: NavigationMesh) -> float:
+	var verts := mesh.get_vertices()
+	var poly_count := mesh.get_polygon_count()
+	if poly_count == 0:
+		return 0.0
+
+	var parent: PackedInt32Array = PackedInt32Array()
+	parent.resize(poly_count)
+	for i in poly_count:
+		parent[i] = i
+	var find := func(x: int) -> int:
+		while parent[x] != x:
+			parent[x] = parent[parent[x]]
+			x = parent[x]
+		return x
+
+	var edge_owner: Dictionary = {}
+	var areas: PackedFloat64Array = PackedFloat64Array()
+	areas.resize(poly_count)
+	for p in poly_count:
+		var idxs: PackedInt32Array = mesh.get_polygon(p)
+		areas[p] = _navmesh_polygon_area(verts, idxs)
+		var n := idxs.size()
+		for i in n:
+			var a: int = idxs[i]
+			var b: int = idxs[(i + 1) % n]
+			var key: String = "%d_%d" % [mini(a, b), maxi(a, b)]
+			if edge_owner.has(key):
+				var other: int = edge_owner[key]
+				var ra: int = int(find.call(other))
+				var rb: int = int(find.call(p))
+				if ra != rb:
+					parent[ra] = rb
+			else:
+				edge_owner[key] = p
+
+	var comp_area: Dictionary = {}
+	var total := 0.0
+	for p in poly_count:
+		var root_id: int = int(find.call(p))
+		comp_area[root_id] = comp_area.get(root_id, 0.0) + areas[p]
+		total += areas[p]
+	if total <= 0.0:
+		return 0.0
+	var best := 0.0
+	for a: float in comp_area.values():
+		best = maxf(best, a)
+	return best / total
+
+
+func test_all_legacy_maps_navmesh_is_fully_connected_when_baked() -> void:
+	for scene_name: String in _list_scene_names():
+		if scene_name in ["map_01", "map_02"]:
+			# Prototipos de 2011 ya documentados como defectuosos en origen
+			# (spawn del jugador pegado al propio muro/entrante del XML
+			# original): ver game/maps/legacy/CONVERSION.md.
+			continue
+		var instance := _instantiate(scene_name)
+		if instance == null:
+			fail("%s no se pudo instanciar" % scene_name)
+			continue
+
+		var mesh := _bake_like_the_game(instance)
+		var poly_count := mesh.get_polygon_count()
+		assert_gt(float(poly_count), 0.0,
+			"%s: horneado real (NavTestUtil + NavigationServer3D) da 0 polígonos "
+			% scene_name + "(navmesh vacío de verdad, no solo en la rejilla propia de validate.py)")
+
+		if poly_count > 0:
+			var ratio := _largest_component_ratio(mesh)
+			var min_ratio: float = NAVMESH_CONNECTIVITY_MIN_RATIO
+			if scene_name in KNOWN_PARTIAL_CONNECTIVITY_EXCEPTIONS:
+				min_ratio = 0.60  # documentado: huecos de obstáculo, no una planta jugable
+			assert_gt(ratio, min_ratio - 0.0001,
+				("%s: solo el %.1f%% del navmesh horneado por NavigationServer3D está en una sola "
+					+ "componente (mínimo %.0f%%) — zonas tabicadas de verdad, no un artefacto de "
+					+ "la rejilla de validate.py")
+				% [scene_name, ratio * 100.0, min_ratio * 100.0])
+
+		instance.free()
+
+
 func test_all_legacy_maps_source_xml_metadata_is_present() -> void:
 	for scene_name: String in _list_scene_names():
 		var instance := _instantiate(scene_name)

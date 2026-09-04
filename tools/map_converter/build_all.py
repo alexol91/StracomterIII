@@ -202,16 +202,23 @@ def _write_report(rows: List[dict]) -> None:
                  f"{total - ok_count} con fallos.")
     lines.append("")
     lines.append(
-        "Notas generales: el navmesh se hornea con una rejilla regular propia "
-        "(no con `NavigationServer3D.bake`), documentada en "
-        "`tools/map_converter/README.md`. Las puertas, obstáculos, pickups y "
+        "Notas generales: \"Navmesh (libres / alcanzable)\" viene de la "
+        "**rejilla propia** de `validate.py` (flood-fill sobre muros y huella "
+        "de obstáculos) — es una comprobación rápida en tiempo de conversión, "
+        "NO el navmesh que usa el juego. La comprobación que manda hornea de "
+        "verdad con `NavigationServer3D` en "
+        "`game/tests/maps/test_legacy_maps.gd` y "
+        "`game/tests/ai/navigation/test_legacy_maps_navigation.gd`: ahí se "
+        "encontraron y arreglaron dos bugs reales de horneado (bobinado de la "
+        "colisión del suelo, y una `BoxShape3D` suelta por arista del "
+        "perímetro que rompía la conectividad en zonas ajenas — ver "
+        "`tools/map_converter/README.md` §\"Bug real\"), y con ambos "
+        "arreglados los 25 mapas sin fallo de carga quedan al 100% salvo "
+        "`mapaMolon` y `map_03` (bolsillos pequeños alrededor de obstáculos, "
+        "no zonas enteras tabicadas). Las puertas, obstáculos, pickups y "
         "spawns se generan como nodos `Marker3D` con metadatos (`tipo`, "
         "posición, ángulo) — no llevan geometría ni colisión: otro agente "
-        "instanciará las escenas de gameplay reales sobre estos marcadores. "
-        "\"Navmesh (libres / alcanzable)\" es el número de celdas navegables "
-        "de la rejilla y el porcentaje alcanzable desde el spawn del "
-        "jugador (100% cuando no hay zonas aisladas; el umbral de fallo del "
-        f"validador es {vd.REACHABILITY_MIN_RATIO*100:.0f}%)."
+        "instanciará las escenas de gameplay reales sobre estos marcadores."
     )
     lines.append("")
 
