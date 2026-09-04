@@ -244,27 +244,50 @@ static func quality_in_sector(sector: int,
 ##
 ## `NavigationServer3D.parse_source_geometry_data` exige que el nodo raíz esté
 ## dentro del árbol, y las pruebas corren dentro del `_ready` del ejecutor,
-## donde `add_child` está prohibido. Como el conversor exporta la geometría en
-## propiedades de texto (`floor_vertices`/`floor_indices` y los `BoxShape3D` de
-## cada muro), se puede leer directamente: menos cómodo, pero determinista y
-## sin depender del ciclo de vida de los nodos.
+## donde `add_child` está prohibido. Así que se leen las FORMAS DE COLISIÓN
+## REALES —las mismas que parsearía el motor— tras construir las que la escena
+## crea en su `_ready`.
+##
+## Se leen las formas y no las propiedades exportadas (`floor_vertices`) por lo
+## mismo que el mundo de rayos usa física real: en cuanto el conversor movió el
+## zócalo del perímetro al trimesh del suelo, cualquier lectura que sólo mirase
+## cajas dejó de describir el mapa. Un origen de geometría que no es el del
+## juego produce un navmesh que no es el del juego.
 static func source_from_map(root: Node) -> NavigationMeshSourceGeometryData3D:
 	var source := NavigationMeshSourceGeometryData3D.new()
-	var floor_node := root.get_node_or_null(^"Floor")
-	if floor_node != null:
-		var vertices: PackedVector3Array = floor_node.get(&"floor_vertices")
-		var indices: PackedInt32Array = floor_node.get(&"floor_indices")
-		var faces := PackedVector3Array()
-		for i in range(0, indices.size() - 2, 3):
-			_emit_upward(faces, vertices[indices[i]], vertices[indices[i + 1]],
-				vertices[indices[i + 2]])
-		if not faces.is_empty():
-			source.add_faces(faces, Transform3D.IDENTITY)
-	for entry: Array in collect_map_boxes(root):
+	ensure_colliders_built(root)
+	for entry: Array in collect_collision_shapes(root):
 		var transform: Transform3D = entry[0]
-		var size: Vector3 = entry[1]
-		source.add_faces(box_faces(AABB(-size * 0.5, size)), transform)
+		var shape: Shape3D = entry[1]
+		var trimesh := shape as ConcavePolygonShape3D
+		if trimesh != null:
+			var faces := PackedVector3Array()
+			var raw := trimesh.get_faces()
+			for i in range(0, raw.size() - 2, 3):
+				_emit_face(faces, raw[i], raw[i + 1], raw[i + 2])
+			if not faces.is_empty():
+				source.add_faces(faces, transform)
+			continue
+		var box := shape as BoxShape3D
+		if box != null:
+			source.add_faces(box_faces(AABB(-box.size * 0.5, box.size)), transform)
 	return source
+
+
+## Emite un triángulo sin suponer nada del bobinado de origen.
+##
+## Recast descarta EN SILENCIO las caras cuya normal no mira hacia arriba, así
+## que las caras casi horizontales se fuerzan hacia +Y. Las verticales —el
+## zócalo del perímetro, los laterales de un muro— se dejan como vienen: ahí la
+## normal no decide si es caminable, y forzarlas hacia arriba sería inventar.
+static func _emit_face(out: PackedVector3Array, a: Vector3, b: Vector3,
+		c: Vector3) -> void:
+	var normal := (a - c).cross(a - b)
+	var horizontal := absf(normal.y) > 0.5 * normal.length()
+	if horizontal and normal.y < 0.0:
+		out.append_array(PackedVector3Array([a, c, b]))
+	else:
+		out.append_array(PackedVector3Array([a, b, c]))
 
 
 ## Emite un triángulo con la normal hacia ARRIBA. El conversor ya orienta el
@@ -277,47 +300,6 @@ static func _emit_upward(out: PackedVector3Array, a: Vector3, b: Vector3,
 	else:
 		out.append_array(PackedVector3Array([a, c, b]))
 
-
-## Todos los `BoxShape3D` de la escena, con su transformada acumulada.
-##
-## OJO: esto NO es toda la colisión de un mapa convertido — el suelo y el
-## zócalo del perímetro son un `ConcavePolygonShape3D`. Sirve para el horneado
-## del navmesh, donde el suelo entra aparte, y NO para simular el mundo: para
-## eso está `NavPhysicsWorld`. Ver la frontera en la cabecera.
-static func collect_map_boxes(root: Node) -> Array[Array]:
-	var out: Array[Array] = []
-	_collect_boxes_into(out, root, Transform3D.IDENTITY)
-	return out
-
-
-static func _collect_boxes_into(out: Array[Array], node: Node,
-		parent_transform: Transform3D) -> void:
-	var transform := parent_transform
-	var spatial := node as Node3D
-	if spatial != null:
-		transform = parent_transform * spatial.transform
-	var collision := node as CollisionShape3D
-	if collision != null:
-		var box := collision.shape as BoxShape3D
-		if box != null:
-			out.append([transform, box.size])
-	for child: Node in node.get_children():
-		_collect_boxes_into(out, child, transform)
-
-
-## Mundo sintético equivalente a una escena de mapa: los muros como cajas
-## orientadas y una losa de suelo bajo el navmesh, para que la sonda vertical
-## del horneado de cobertura encuentre el suelo real.
-static func world_from_map(root: Node, mesh: NavigationMesh) -> NavSyntheticWorld:
-	var world := NavSyntheticWorld.new()
-	world.mesh = mesh
-	var bounds := NavmeshSampler.bounds_of(mesh).grow(2.0)
-	world.boxes = [AABB(
-		Vector3(bounds.position.x, -0.5, bounds.position.z),
-		Vector3(bounds.size.x, 0.5, bounds.size.z))] as Array[AABB]
-	for entry: Array in collect_map_boxes(root):
-		world.add_oriented_box(entry[0] as Transform3D, entry[1] as Vector3)
-	return world
 
 
 ## Petición de aparición ya configurada. Los valores son de la prueba, no de

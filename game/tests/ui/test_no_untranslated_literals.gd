@@ -18,8 +18,11 @@ extends TestCase
 const UI_SRC_DIR: String = "res://src/ui/"
 const UI_SCENES_DIR: String = "res://scenes/ui/"
 
+## Ancla el final (`$`, aplicado línea a línea) para no confundir un literal
+## de verdad con algo como `button.text = "\n".join(lines)`, donde la
+## comilla que cierra "\n" no es el final de la asignación.
 var _text_property_regex: RegEx = RegEx.create_from_string(
-	"\\.(text|placeholder_text|tooltip_text)\\s*=\\s*\"([^\"]*)\"")
+	"\\.(text|placeholder_text|tooltip_text)\\s*=\\s*\"([^\"]*)\"\\s*(#.*)?$")
 var _tscn_text_regex: RegEx = RegEx.create_from_string(
 	"^(text|placeholder_text)\\s*=\\s*\"([^\"]*)\"")
 ## El `&` es obligatorio a propósito: distingue una clave de traducción real
