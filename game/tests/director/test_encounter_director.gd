@@ -40,9 +40,7 @@ func _context(seed_value: int) -> EncounterContext:
 	context.navigable_area_m2 = 2000.0
 	context.floor_difficulty = 2.1
 	context.skill_multiplier = 1.0
-	context.mean_line_of_sight_m = 18.0
-	context.cover_points_per_100m2 = 4.0
-	context.entry_count = 3
+	context.set_map_shape(4.0, 18.0, 3)
 	context.allowed_archetypes = [&"enemy_thug", &"enemy_militiaman", &"enemy_veteran"]
 	context.seed = seed_value
 	return context

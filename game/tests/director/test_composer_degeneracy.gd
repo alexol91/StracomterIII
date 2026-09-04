@@ -38,9 +38,7 @@ func _context(area_m2: float, los_m: float, cover: float, entries: int) -> Encou
 	context.navigable_area_m2 = area_m2
 	context.floor_difficulty = 1.0
 	context.skill_multiplier = 1.0
-	context.mean_line_of_sight_m = los_m
-	context.cover_points_per_100m2 = cover
-	context.entry_count = entries
+	context.set_map_shape(cover, los_m, entries)
 	context.allowed_archetypes = [&"enemy_thug", &"enemy_militiaman", &"enemy_veteran"]
 	return context
 

@@ -208,9 +208,7 @@ func test_search_space_stays_small() -> void:
 	context.navigable_area_m2 = 12000.0
 	context.floor_difficulty = 5.2
 	context.skill_multiplier = 1.75
-	context.mean_line_of_sight_m = 15.0
-	context.cover_points_per_100m2 = 3.0
-	context.entry_count = 2
+	context.set_map_shape(3.0, 15.0, 2)
 	context.allowed_archetypes = [&"enemy_thug", &"enemy_militiaman", &"enemy_veteran"]
 	context.seed = 20120611
 

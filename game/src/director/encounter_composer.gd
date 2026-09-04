@@ -308,6 +308,9 @@ func target_shares(context: EncounterContext) -> Array[float]:
 	if allowed_count == 0:
 		return shares
 
+	if not _has_shape(context):
+		# Sin forma medida, la geometría no inclina el objetivo.
+		return base_target_shares(context)
 	var affinities := shape_affinities(context)
 	var raw: Array[float] = [0.0, 0.0, 0.0]
 	var total: float = 0.0
@@ -361,6 +364,13 @@ func _openness(context: EncounterContext) -> float:
 		context.mean_line_of_sight_m / maxf(_profile.reference_line_of_sight_m, 0.0001), 0.0, 1.0)
 
 
+## ¿Se puede confiar en la forma de esta zona? Si nadie la midió, la geometría
+## se abstiene: presupuestos sin modular y reparto objetivo sin inclinar. Es
+## preferible a leer los ceros sin rellenar como "descampado sin parapetos".
+func _has_shape(context: EncounterContext) -> bool:
+	return context.shape_measured
+
+
 func _cover(context: EncounterContext) -> float:
 	return clampf(
 		context.cover_points_per_100m2 / maxf(_profile.reference_cover_per_100m2, 0.0001), 0.0, 1.0)
@@ -374,6 +384,8 @@ func _entries(context: EncounterContext) -> float:
 ## Reparto que pide la geometría, normalizado a 1 sobre los arquetipos
 ## permitidos. Es el objetivo del término `forma` de la búsqueda.
 func affinity_shares(context: EncounterContext) -> Array[float]:
+	if not _has_shape(context):
+		return base_target_shares(context)
 	var allowed := _allowed_flags(context)
 	var affinities := shape_affinities(context)
 	var shares: Array[float] = [0.0, 0.0, 0.0]
@@ -499,6 +511,14 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 	# * Más cobertura -> el jugador tiene dónde parapetarse -> cabe más daño.
 	# * Líneas de tiro largas -> puede batir a distancia -> cabe más vida.
 	# * Más accesos -> más rutas que cubrir -> caben enemigos más móviles.
+	if not _has_shape(context):
+		# Sin forma medida no se modula: los presupuestos se quedan en su
+		# valor nominal en vez de irse al extremo por unos ceros que nadie
+		# escribió.
+		var plain: Array[Rational] = []
+		for index: int in base.size():
+			plain.append(Rational.from_float(base[index] * float(enemy_total)))
+		return plain
 	var openness := _openness(context)
 	var cover := _cover(context)
 	var entries := _entries(context)

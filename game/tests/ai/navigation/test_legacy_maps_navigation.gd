@@ -30,45 +30,50 @@ const MAPS_DIR: String = "res://maps/legacy/"
 ## roto de verdad.
 const BROKEN_PROTOTYPES: Array[String] = ["map_01.tscn", "map_02.tscn"]
 
-## Prototipos que convierten bien pero no son plantas jugables: tras retraer
-## el navmesh el radio del personaje les quedan 11 m² navegables en total y no
-## traen spawn de jugador. Se les exige navmesh y región —eso sí lo cumplen—
-## pero no cobertura: en 11 m² repartidos en seis retales no hay sala que
-## cubrir. Medido, no supuesto.
-const TINY_PROTOTYPES: Array[String] = ["map_03.tscn"]
+## Mapas donde NO puede existir cobertura, con el motivo medido de cada uno.
+## Se les sigue exigiendo navmesh y región —eso sí lo cumplen—, pero no puntos
+## de cobertura. Es una exención nombrada y justificada caso a caso, no un
+## umbral relajado: bajar el listón para todos convertiría una excepción
+## concreta en una regla laxa que escondería el próximo mapa roto de verdad.
+const NO_COVER_POSSIBLE: Dictionary[String, String] = {
+	# 17 m² navegables repartidos en retales y sin spawn de jugador: no hay
+	# sala que cubrir.
+	"map_03.tscn": "prototipo degenerado",
+	# Banco de pruebas de movimiento de 2012: 198 m² de explanada, cero muros
+	# interiores. Sin geometría no hay nada de lo que cubrirse, y no está en la
+	# tabla de plantas.
+	"pruebasMov.tscn": "sin muros interiores: no existe cobertura posible",
+}
 
 ## CUARENTENA DE CONECTIVIDAD. Mapas cuyo navmesh horneado con Recast queda
 ## partido en zonas entre las que `NavigationServer3D` no encuentra ruta.
 ##
-## Diagnóstico (medido sobre `finalMap`, que es la planta 8 y por tanto
-## obligatoria):
-##   * NO es un problema de parámetros de horneado: con `cell_size` 0,2 -> 0,1
-##     y `agent_radius` 0,4 -> 0,25 salen las MISMAS áreas por componente
-##     (218 / 102 / 68 / 62 / 16 m²). Si fuese resolución o radio, cambiarían.
-##   * NO son las puertas: 13 de las 14 se cruzan de verdad en el navmesh
-##     horneado (recorrido ~1,8 m para una recta de 1,8 m). Sólo `Door_13`
-##     está sellada.
-##   * NO es el grafo de polígonos de `RoutePlanner`:
-##     `NavigationServer3D.map_get_path` tampoco encuentra ruta entre las
-##     componentes.
-##   * Las costuras entre componentes miden 1,20-1,44 m, que es exactamente
-##     grosor de muro (0,333 m) + 2 × radio de agente (0,4 m). Es decir: las
-##     zonas están separadas por muro CONTINUO, sin hueco.
+## HISTORIA, porque costó encontrarla y conviene no repetirla. Esta lista tuvo
+## cuatro entradas, con `finalMap` —la planta 8— al 46 %. El diagnóstico
+## descartó lo obvio: no era resolución ni radio (con `cell_size` 0,2 -> 0,1 y
+## `agent_radius` 0,4 -> 0,25 salían las MISMAS áreas por componente), no eran
+## las puertas (13 de 14 se cruzaban), y no era el grafo de polígonos de
+## `RoutePlanner` (`map_get_path` tampoco encontraba ruta). Las costuras medían
+## grosor de muro + 2 × radio de agente: muro continuo, sin hueco. Era
+## geometría, y el conversor encontró dos fallos encadenados:
+##   1. Recast quiere los triángulos del suelo con la normal hacia -Y al
+##      parsear colisionadores, y el `ConcavePolygonShape3D` reusaba el
+##      bobinado del mesh visual (+Y). Recast DESCARTABA EL SUELO ENTERO en
+##      silencio. Misma trampa que en `NavService.bake_region`: bobinado mal =
+##      navmesh vacío sin un solo mensaje de error.
+##   2. Una sola `BoxShape3D` del perímetro rompía la conectividad a más de 4 m
+##      de distancia. El perímetro ya no lleva colisión propia.
 ##
-## Conclusión: la geometría convertida sella zonas que la rejilla propia del
-## conversor da por alcanzables (validó los 27 mapas al 100 %). Las dos cosas
-## no pueden ser ciertas y la que importa es la de Recast, porque es con la
-## que navega el juego. Es un asunto de `tools/map_converter/**`, que no es
-## ámbito de `ai/navigation`.
+## Hoy los 24 mapas jugables están al 100 %. Queda una entrada, y es un
+## prototipo no jugable: en `map_03` el 12 % suelto son 2 m² sobre 17 m²
+## navegables totales.
 ##
-## Esta lista NO es una excepción cómoda: la prueba sigue fallando para
-## cualquier mapa que se desconecte y no esté aquí. Debe vaciarse.
+## La lista tiene que vaciarse, no crecer: la prueba sigue fallando para
+## cualquier mapa que se desconecte y no esté aquí.
 const DISCONNECTED_QUARANTINE: Dictionary[String, int] = {
-	"finalMap.tscn": 46,
-	"map1.tscn": 74,
-	"mapP1.tscn": 88,
-	"map_03.tscn": 81,
+	"map_03.tscn": 88,
 }
+
 ## El conversor produce 26 mapas de `testFiles/maps/` más `editorMap`.
 const EXPECTED_MAP_COUNT: int = 26
 ## Área mínima (m²) para que una componente conexa cuente como "sala" y no
@@ -185,7 +190,7 @@ func test_cada_sala_tiene_al_menos_un_punto_de_cobertura() -> void:
 		options.lateral_offsets_m = [0.0] as Array[float]
 		var cloud := baker.bake(mesh, world, options)
 
-		if TINY_PROTOTYPES.has(path.get_file()):
+		if NO_COVER_POSSIBLE.has(path.get_file()):
 			pass
 		elif cloud.is_empty():
 			failures.append("%s: 0 puntos de cobertura en todo el mapa"

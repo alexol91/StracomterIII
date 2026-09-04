@@ -121,6 +121,23 @@ static func report_contact(
 	board.report_contact(squad_id, contact)
 
 
+## Acción de guion: devuelve los estados de `results` en orden (repitiendo el
+## último) y apunta su nombre en `recorder` cada vez que se ejecuta. Es lo que
+## permite comprobar QUÉ hijos ejecuta un compuesto y en qué orden.
+static func scripted_action(
+	name: StringName,
+	results: Array[int],
+	recorder: Array[StringName]
+) -> BehaviorTree.Action:
+	var cursor: Array[int] = [0]
+	var routine := func(_c: BehaviorContext, _d: float) -> BehaviorTree.Status:
+		recorder.append(name)
+		var index: int = mini(cursor[0], results.size() - 1)
+		cursor[0] += 1
+		return results[index] as BehaviorTree.Status
+	return BehaviorTree.Action.new(name, routine)
+
+
 ## Ejecuta un árbol `ticks` veces integrando el movimiento del actuador entre
 ## tick y tick, y devuelve el último estado como entero. Devolver `int` y no
 ## `BehaviorTree.Status` es deliberado: ver el aviso de la cabecera.

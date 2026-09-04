@@ -38,6 +38,17 @@ var mean_line_of_sight_m: float = 0.0
 ## Número de accesos reales a la zona: puertas, huecos de escalera,
 ## ascensores. Es también el número de sitios por donde es JUSTO aparecer.
 var entry_count: int = 0
+## ¿Se han MEDIDO los tres campos de arriba, o están sin rellenar?
+##
+## No es lo mismo "esta zona no tiene cobertura" que "nadie me ha dicho
+## cuánta cobertura tiene", y en punto flotante las dos cosas son 0.0. Sin
+## esta bandera, una zona cuyos datos no llegaron se leería como un descampado
+## sin un solo parapeto, y el director respondería con menos Veteranos y más
+## Sicarios: un balanceo raro que nadie diagnosticaría como lo que es, un dato
+## que faltaba. Con ella, la geometría simplemente SE ABSTIENE.
+##
+## Se pone sola al llamar a `set_map_shape`, que es la única vía correcta.
+var shape_measured: bool = false
 
 ## Arquetipos que esta planta admite (`FloorConfig.enemy_pool`). Un arquetipo
 ## fuera de esta lista tiene cota superior 0 en el problema.
@@ -46,6 +57,20 @@ var allowed_archetypes: Array[StringName] = []
 ## Semilla del encuentro. Se deriva de `GameState.run_seed` y de la zona, de
 ## forma que la misma partida reproduzca las mismas oleadas.
 var seed: int = 0
+
+
+## Rellena la forma de la zona y la marca como medida. Lo llama quien tenga
+## acceso al mundo: la nube de coberturas horneada, el navmesh y los accesos
+## reales del nivel.
+func set_map_shape(
+	cover_per_100m2: float,
+	line_of_sight_m: float,
+	entries: int
+) -> void:
+	cover_points_per_100m2 = maxf(cover_per_100m2, 0.0)
+	mean_line_of_sight_m = maxf(line_of_sight_m, 0.0)
+	entry_count = maxi(entries, 0)
+	shape_measured = true
 
 
 ## Dificultad que ve el Simplex: planta × jugador. Es la línea que convierte
@@ -64,6 +89,7 @@ func duplicate_context() -> EncounterContext:
 	copy.cover_points_per_100m2 = cover_points_per_100m2
 	copy.mean_line_of_sight_m = mean_line_of_sight_m
 	copy.entry_count = entry_count
+	copy.shape_measured = shape_measured
 	copy.allowed_archetypes = allowed_archetypes.duplicate()
 	copy.seed = seed
 	return copy
@@ -76,4 +102,5 @@ func _to_string() -> String:
 	) % [
 		floor_number, zone, navigable_area_m2, floor_difficulty, skill_multiplier,
 		cover_points_per_100m2, mean_line_of_sight_m, entry_count,
+		"" if shape_measured else ", FORMA SIN MEDIR",
 	]

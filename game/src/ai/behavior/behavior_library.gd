@@ -12,9 +12,6 @@ extends RefCounted
 ## un comportamiento no sabe cuál viene después, y no puede saberlo. Eso lo
 ## decide `BehaviorController` con la utilidad y la histéresis.
 
-const Actions := BehaviorActions
-
-
 ## Construye el árbol de un comportamiento. Se llama una vez por bot y
 ## comportamiento; los árboles no se reconstruyen por tick.
 static func build(kind: BehaviorKind.Kind) -> BehaviorTree.BTNode:
@@ -47,7 +44,7 @@ static func build(kind: BehaviorKind.Kind) -> BehaviorTree.BTNode:
 
 
 static func _idle() -> BehaviorTree.BTNode:
-	return BehaviorTree.Action.new(&"idle", Actions.idle)
+	return BehaviorTree.Action.new(&"idle", BehaviorActions.idle)
 
 
 ## El legacy patrullaba entre los 3 vértices del triángulo de la triangulación
@@ -56,9 +53,9 @@ static func _idle() -> BehaviorTree.BTNode:
 ## bot y el camino lo da el navmesh.
 static func _patrol() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"patrol")
-	root.add(BehaviorTree.Condition.new(&"tiene_ruta", Actions.has_patrol_route))
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Action.new(&"recorrer", Actions.patrol_step, Actions.stop_moving))
+	root.add(BehaviorTree.Condition.new(&"tiene_ruta", BehaviorActions.has_patrol_route))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Action.new(&"recorrer", BehaviorActions.patrol_step, BehaviorActions.stop_moving))
 	return root
 
 
@@ -67,11 +64,11 @@ static func _patrol() -> BehaviorTree.BTNode:
 ## durante 360 frames (`Enemy.cc:158-167`).
 static func _investigate() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"investigate")
-	root.add(BehaviorTree.Condition.new(&"hay_pista", Actions.has_investigation_point))
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
+	root.add(BehaviorTree.Condition.new(&"hay_pista", BehaviorActions.has_investigation_point))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
 	root.add(BehaviorTree.Action.new(&"ir_a_la_pista",
-		Actions.move_to_investigation, Actions.stop_moving))
-	root.add(BehaviorTree.Action.new(&"barrer", Actions.scan_area))
+		BehaviorActions.move_to_investigation, BehaviorActions.stop_moving))
+	root.add(BehaviorTree.Action.new(&"barrer", BehaviorActions.scan_area))
 	return root
 
 
@@ -80,10 +77,10 @@ static func _investigate() -> BehaviorTree.BTNode:
 ## cuatro ticks, y en cuatro ticks el objetivo se mete detrás de una pared.
 static func _attack() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"attack")
-	root.add(BehaviorTree.Condition.new(&"hay_objetivo", Actions.has_target))
-	root.add(BehaviorTree.Condition.new(&"hay_munición", Actions.has_ammo))
-	root.add(BehaviorTree.Condition.new(&"hay_visión", Actions.has_line_of_sight))
-	root.add(BehaviorTree.Action.new(&"disparar", Actions.fire_at_target))
+	root.add(BehaviorTree.Condition.new(&"hay_objetivo", BehaviorActions.has_target))
+	root.add(BehaviorTree.Condition.new(&"hay_munición", BehaviorActions.has_ammo))
+	root.add(BehaviorTree.Condition.new(&"hay_visión", BehaviorActions.has_line_of_sight))
+	root.add(BehaviorTree.Action.new(&"disparar", BehaviorActions.fire_at_target))
 	return root
 
 
@@ -95,12 +92,12 @@ static func _attack() -> BehaviorTree.BTNode:
 ## retiro" sin una sola regla escrita a mano.
 static func _take_cover() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"take_cover")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Action.new(&"elegir_cobertura", Actions.pick_cover))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Action.new(&"elegir_cobertura", BehaviorActions.pick_cover))
 	root.add(BehaviorTree.Action.new(&"ir_a_cobertura",
-		Actions.move_along_path, Actions.stop_moving))
-	root.add(BehaviorTree.Action.new(&"agacharse", Actions.crouch_if_in_cover))
-	root.add(BehaviorTree.Action.new(&"aguantar", Actions.hold_position))
+		BehaviorActions.move_along_path, BehaviorActions.stop_moving))
+	root.add(BehaviorTree.Action.new(&"agacharse", BehaviorActions.crouch_if_in_cover))
+	root.add(BehaviorTree.Action.new(&"aguantar", BehaviorActions.hold_position))
 	return root
 
 
@@ -108,9 +105,9 @@ static func _take_cover() -> BehaviorTree.BTNode:
 ## asalto de los compañeros.
 static func _suppress() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"suppress")
-	root.add(BehaviorTree.Condition.new(&"hay_objetivo", Actions.has_target))
-	root.add(BehaviorTree.Condition.new(&"hay_visión", Actions.has_line_of_sight))
-	root.add(BehaviorTree.Action.new(&"ráfaga", Actions.suppress_burst))
+	root.add(BehaviorTree.Condition.new(&"hay_objetivo", BehaviorActions.has_target))
+	root.add(BehaviorTree.Condition.new(&"hay_visión", BehaviorActions.has_line_of_sight))
+	root.add(BehaviorTree.Action.new(&"ráfaga", BehaviorActions.suppress_burst))
 	return root
 
 
@@ -118,13 +115,13 @@ static func _suppress() -> BehaviorTree.BTNode:
 ## para que no vayan dos por la misma.
 static func _flank() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"flank")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Condition.new(&"hay_objetivo", Actions.has_target))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Condition.new(&"hay_objetivo", BehaviorActions.has_target))
 	root.add(BehaviorTree.Action.new(&"reclamar_ruta",
-		Actions.claim_flank_route, Actions.release_flank_route))
+		BehaviorActions.claim_flank_route, BehaviorActions.release_flank_route))
 	root.add(BehaviorTree.Action.new(&"recorrer_ruta",
-		Actions.move_along_path, Actions.release_flank_route))
-	root.add(BehaviorTree.Action.new(&"encarar", Actions.face_target))
+		BehaviorActions.move_along_path, BehaviorActions.release_flank_route))
+	root.add(BehaviorTree.Action.new(&"encarar", BehaviorActions.face_target))
 	return root
 
 
@@ -133,17 +130,17 @@ static func _flank() -> BehaviorTree.BTNode:
 ## supresión activa de un compañero (GDD §8.4).
 static func _assault() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"assault")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Condition.new(&"hay_supresión", Actions.squad_has_suppression))
-	root.add(BehaviorTree.Condition.new(&"hay_objetivo", Actions.has_target))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Condition.new(&"hay_supresión", BehaviorActions.squad_has_suppression))
+	root.add(BehaviorTree.Condition.new(&"hay_objetivo", BehaviorActions.has_target))
 	var advance := BehaviorTree.Parallel.new(&"avanzar_disparando")
 	# Basta con que el avance termine: el fuego de acompañamiento nunca
 	# "termina", sólo acompaña.
 	advance.success_threshold = 1
 	advance.failure_threshold = 1
 	advance.add(BehaviorTree.Action.new(&"avanzar",
-		Actions.advance_on_target, Actions.stop_moving))
-	advance.add(BehaviorTree.Action.new(&"fuego_de_avance", Actions.fire_if_visible))
+		BehaviorActions.advance_on_target, BehaviorActions.stop_moving))
+	advance.add(BehaviorTree.Action.new(&"fuego_de_avance", BehaviorActions.fire_if_visible))
 	root.add(advance)
 	return root
 
@@ -151,9 +148,9 @@ static func _assault() -> BehaviorTree.BTNode:
 ## Recargar, agachado si se está a cubierto.
 static func _reload() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"reload")
-	root.add(BehaviorTree.Condition.new(&"falta_munición", Actions.needs_reload))
-	root.add(BehaviorTree.Action.new(&"agacharse", Actions.crouch_if_in_cover))
-	root.add(BehaviorTree.Action.new(&"recargar", Actions.reload))
+	root.add(BehaviorTree.Condition.new(&"falta_munición", BehaviorActions.needs_reload))
+	root.add(BehaviorTree.Action.new(&"agacharse", BehaviorActions.crouch_if_in_cover))
+	root.add(BehaviorTree.Action.new(&"recargar", BehaviorActions.reload))
 	return root
 
 
@@ -161,34 +158,34 @@ static func _reload() -> BehaviorTree.BTNode:
 ## repliega en lugar de morir de uno en uno (GDD §8.4).
 static func _regroup() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"regroup")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Condition.new(&"hay_punto_de_reunión", Actions.has_rally_point))
-	root.add(BehaviorTree.Action.new(&"ir_al_punto", Actions.move_to_rally, Actions.stop_moving))
-	root.add(BehaviorTree.Action.new(&"aguantar", Actions.hold_position))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Condition.new(&"hay_punto_de_reunión", BehaviorActions.has_rally_point))
+	root.add(BehaviorTree.Action.new(&"ir_al_punto", BehaviorActions.move_to_rally, BehaviorActions.stop_moving))
+	root.add(BehaviorTree.Action.new(&"aguantar", BehaviorActions.hold_position))
 	return root
 
 
 ## Retirarse: alejarse de las amenazas, a cubierto si lo hay.
 static func _retreat() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"retreat")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
 	root.add(BehaviorTree.Action.new(&"elegir_salida",
-		Actions.pick_retreat_cover, Actions.stop_moving))
+		BehaviorActions.pick_retreat_cover, BehaviorActions.stop_moving))
 	root.add(BehaviorTree.Action.new(&"replegarse",
-		Actions.move_along_path, Actions.stop_moving))
-	root.add(BehaviorTree.Action.new(&"agacharse", Actions.crouch_if_in_cover))
-	root.add(BehaviorTree.Action.new(&"aguantar", Actions.hold_position))
+		BehaviorActions.move_along_path, BehaviorActions.stop_moving))
+	root.add(BehaviorTree.Action.new(&"agacharse", BehaviorActions.crouch_if_in_cover))
+	root.add(BehaviorTree.Action.new(&"aguantar", BehaviorActions.hold_position))
 	return root
 
 
 ## Compañeros (GDD §8.5): mantener la formación que fija `ai-escuadra`.
 static func _follow_leader() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"follow_leader")
-	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", Actions.is_embodied))
-	root.add(BehaviorTree.Action.new(&"seguir", Actions.follow_leader, Actions.stop_moving))
+	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	root.add(BehaviorTree.Action.new(&"seguir", BehaviorActions.follow_leader, BehaviorActions.stop_moving))
 	return root
 
 
 ## Compañeros: orden del jugador de quedarse donde está.
 static func _hold_position() -> BehaviorTree.BTNode:
-	return BehaviorTree.Action.new(&"hold_position", Actions.hold_position, Actions.stop_moving)
+	return BehaviorTree.Action.new(&"hold_position", BehaviorActions.hold_position, BehaviorActions.stop_moving)

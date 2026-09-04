@@ -23,9 +23,7 @@ func _context(area_m2: float, difficulty: float, pool: Array[StringName]) -> Enc
 	context.navigable_area_m2 = area_m2
 	context.floor_difficulty = difficulty
 	context.skill_multiplier = 1.0
-	context.mean_line_of_sight_m = 15.0
-	context.cover_points_per_100m2 = 3.0
-	context.entry_count = 2
+	context.set_map_shape(3.0, 15.0, 2)
 	context.allowed_archetypes = pool
 	return context
 
@@ -94,13 +92,9 @@ func test_solution_never_exceeds_the_budgets() -> void:
 func test_map_shape_modulates_budgets_within_its_gain() -> void:
 	var composer := EncounterComposer.new(_profile())
 	var open_zone := _context(892.7, 1.0, _all())
-	open_zone.mean_line_of_sight_m = 60.0
-	open_zone.cover_points_per_100m2 = 12.0
-	open_zone.entry_count = 8
+	open_zone.set_map_shape(12.0, 60.0, 8)
 	var tight := _context(892.7, 1.0, _all())
-	tight.mean_line_of_sight_m = 0.0
-	tight.cover_points_per_100m2 = 0.0
-	tight.entry_count = 0
+	tight.set_map_shape(0.0, 0.0, 0)
 
 	var enemy_total := composer.max_enemies(open_zone)
 	var open_budgets := composer.budgets_for(open_zone, enemy_total)
@@ -203,7 +197,7 @@ func test_result_carries_diagnostics() -> void:
 ## ello la composición. Si alguien vuelve a meter el 30 en código, esto salta.
 func test_shape_references_come_from_the_profile() -> void:
 	var context := _context(892.7, 1.0, _all())
-	context.mean_line_of_sight_m = 30.0
+	context.set_map_shape(3.0, 30.0, 2)
 
 	var strict := _profile()
 	strict.reference_line_of_sight_m = 30.0
@@ -223,9 +217,7 @@ func test_shape_references_come_from_the_profile() -> void:
 ## responde cada arquetipo, y por tanto la composición de la misma zona.
 func test_affinity_weights_come_from_the_profile() -> void:
 	var hall := _context(892.7, 1.0, _all())
-	hall.mean_line_of_sight_m = 40.0
-	hall.cover_points_per_100m2 = 8.0
-	hall.entry_count = 1
+	hall.set_map_shape(8.0, 40.0, 1)
 
 	var normal := EncounterComposer.new(_profile()).compose(hall)
 
@@ -240,3 +232,46 @@ func test_affinity_weights_come_from_the_profile() -> void:
 		"subir la afinidad del Sicario por los accesos le da más peso")
 	assert_lt(retuned.share(2), normal.share(2),
 		"bajar la del Veterano por lo diáfano se lo quita")
+
+
+## Una zona cuya forma nadie midió NO se lee como un descampado. Es el mismo
+## criterio que en `SpawnRequest`: el valor por defecto de un dato que no ha
+## llegado no puede ser un extremo.
+##
+## Importa de verdad: si el horneado de coberturas deja de ver una geometría
+## —porque se fundió en un trimesh, por ejemplo— la zona llegaría con 0
+## coberturas y 0 m de línea de visión, y sin esta bandera el director
+## respondería con menos Veteranos y más Sicarios. Nadie lo diagnosticaría
+## como un dato que falta: parecería un balanceo raro.
+func test_unmeasured_map_shape_makes_geometry_abstain() -> void:
+	var composer := EncounterComposer.new(_profile())
+
+	var unmeasured := _context(892.7, 1.0, _all())
+	unmeasured.cover_points_per_100m2 = 0.0
+	unmeasured.mean_line_of_sight_m = 0.0
+	unmeasured.entry_count = 0
+	unmeasured.shape_measured = false
+	assert_false(unmeasured.shape_measured, "la zona llega sin forma medida")
+
+	# Una zona MEDIDA con esos mismos ceros sí es un pasillo ciego y cerrado.
+	var measured_tight := _context(892.7, 1.0, _all())
+	measured_tight.set_map_shape(0.0, 0.0, 0)
+	assert_true(measured_tight.shape_measured, "set_map_shape marca la medida")
+
+	var enemy_total := composer.max_enemies(unmeasured)
+	var abstained := composer.budgets_for(unmeasured, enemy_total)
+	var modulated := composer.budgets_for(measured_tight, enemy_total)
+	var nominal: Array[float] = [93.3333, 51.6667, 46.6667]
+	for row: int in 3:
+		assert_almost_eq(abstained[row], nominal[row] * float(enemy_total),
+			nominal[row] * 0.01, "sin medir, el presupuesto %d se queda nominal" % row)
+		assert_lt(modulated[row], abstained[row],
+			"medida como cerrada, el presupuesto %d sí se recorta" % row)
+
+	# Y el reparto objetivo tampoco se inclina.
+	var shares := composer.affinity_shares(unmeasured)
+	assert_almost_eq(shares[0], shares[1], 0.000001, "sin medir, ningún arquetipo es favorito")
+	assert_almost_eq(shares[1], shares[2], 0.000001, "sin medir, ningún arquetipo es favorito")
+	var tight_shares := composer.affinity_shares(measured_tight)
+	assert_gt(tight_shares[0], tight_shares[2],
+		"medida como pasillo, el Sicario sí gana al Veterano")

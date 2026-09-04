@@ -68,7 +68,10 @@ func _make_zone_button(entry: Dictionary) -> Button:
 	var reward_amount: int = int(entry.get("reward_amount", 0.0))
 	var reward_line := ""
 	var reward_format_key: StringName = entry.get("reward_format_key", &"")
-	if not String(reward_format_key).is_empty():
+	if reward_format_key == &"STRATEGY_REWARD_WEAPON_FMT":
+		# Sin cantidad que formatear: sería un arma, no munición/vida.
+		reward_line = Localization.t(reward_format_key)
+	elif not String(reward_format_key).is_empty():
 		reward_line = Localization.t(reward_format_key) % reward_amount
 
 	var lines: Array[String] = [

@@ -1,0 +1,160 @@
+keys,es,en
+TITLE_GAME_NAME,Stracomter III: Torre Elite,Stracomter III: Elite Tower
+TITLE_SUBTITLE,": el mejor juego de la historia",": the best game ever made"
+TITLE_NEW_GAME,Nueva partida,New Game
+TITLE_CONTINUE,Continuar,Continue
+TITLE_OPTIONS,Opciones,Options
+TITLE_CREDITS,Créditos,Credits
+TITLE_QUIT,Salir,Quit
+CLASS_SELECT_TITLE,Selección de clase,Class Selection
+CLASS_SELECT_BACK,Atrás,Back
+CLASS_SELECT_CONFIRM,Confirmar,Confirm
+CLASS_STATS_FMT,"Vida: %d
+Velocidad: %.1f m/s
+Munición: %d
+Cadencia: %.1f disparos/s
+Daño por impacto: %d
+Habilidad: %d s de reutilización","Health: %d
+Speed: %.1f m/s
+Ammo: %d
+Rate of fire: %.1f shots/s
+Hit damage: %d
+Ability: %d s cooldown"
+STRATEGY_TITLE,Estrategia,Strategy
+STRATEGY_ZONES_SECTION,Planta siguiente,Next floor
+STRATEGY_SQUAD_SECTION,Escuadra,Squad
+STRATEGY_FLOOR_FMT,Planta %d,Floor %d
+STRATEGY_XP_FMT,Experiencia disponible: %d,Experience available: %d
+STRATEGY_COST_FMT,Coste de la selección: %d XP,Cost of selection: %d XP
+STRATEGY_ZONE_FMT,ZONA %d,ZONE %d
+STRATEGY_BOSS_WARNING,⚠ Posible jefe,⚠ Boss possible
+STRATEGY_MAP_SMALL,Mapa pequeño,Small map
+STRATEGY_MAP_MEDIUM,Mapa mediano,Medium map
+STRATEGY_MAP_LARGE,Mapa grande,Large map
+STRATEGY_ZONE_1_THREAT,"Ruta corta, poca cobertura","Short route, little cover"
+STRATEGY_ZONE_2_THREAT,Enemigos agrupados,Enemies grouped together
+STRATEGY_ZONE_3_THREAT,Recorrido estándar,Standard layout
+STRATEGY_ZONE_4_THREAT,Más puertas cerradas,More locked doors
+STRATEGY_ZONE_5_THREAT,Presencia de miniboss,Miniboss presence
+STRATEGY_ZONE_6_THREAT,"Espacio abierto, visión larga","Open space, long sightlines"
+STRATEGY_REWARD_AMMO_FMT,+%d munición,+%d ammo
+STRATEGY_REWARD_HEALTH_FMT,+%d vida,+%d health
+STRATEGY_REWARD_WEAPON_FMT,Arma especial,Special weapon
+STRATEGY_SQUAD_ALIVE_FMT,Vida %d/%d,Health %d/%d
+STRATEGY_SQUAD_KIA,Fuera de combate,Down
+STRATEGY_SQUAD_INCLUDE,Llevar a la planta,Bring to floor
+STRATEGY_SQUAD_REVIVE,Revivir y llevar,Revive and bring
+STRATEGY_BACK,Atrás,Back
+STRATEGY_CONFIRM,Entrar en la planta,Enter floor
+PAUSE_TITLE,Pausa,Paused
+PAUSE_RESUME,Reanudar,Resume
+PAUSE_OPTIONS,Opciones,Options
+PAUSE_RESTART,Reiniciar partida,Restart run
+PAUSE_MENU,Menú principal,Main menu
+PAUSE_QUIT,Salir,Quit
+GAME_OVER_TITLE,¡Segmentation Fault!,Segmentation Fault!
+GAME_OVER_RESTART,Reintentar,Try again
+GAME_OVER_MENU,Menú principal,Main menu
+VICTORY_TITLE,¡Enhorabuena!,Congratulations!
+VICTORY_SUBTITLE,Has limpiado la Torre Elite de arriba abajo.,You've cleared the Elite Tower top to bottom.
+VICTORY_CREDITS,Créditos,Credits
+VICTORY_MENU,Menú principal,Main menu
+FLOOR_END_TITLE,Zona despejada,Zone cleared
+FLOOR_END_SUMMARY_FMT,"Planta %d, zona %d
+Tiempo: %s
+Puntuación: %d
+Experiencia: %d","Floor %d, zone %d
+Time: %s
+Score: %d
+Experience: %d"
+FLOOR_END_CONTINUE,Continuar a Estrategia,Continue to Strategy
+CREDITS_TITLE,Créditos,Credits
+CREDITS_TEAM_HEADER,Equipo original (2012),Original team (2012)
+CREDITS_NAME_1,Sergio Gallardo Sales,Sergio Gallardo Sales
+CREDITS_NAME_2,Alejandro Oñate Latorre,Alejandro Oñate Latorre
+CREDITS_NAME_3,Martín Candela Calabuig,Martín Candela Calabuig
+CREDITS_NAME_4,Rubén Pardo Millá,Rubén Pardo Millá
+CREDITS_REMAKE_NOTE,Remake 2026 — Godot 4.7,2026 remake — Godot 4.7
+CREDITS_BACK,Atrás,Back
+HUD_HEALTH_FMT,%d/%d,%d/%d
+HUD_AMMO_FMT,Balas: %d/%d,Ammo: %d/%d
+HUD_SCORE_FMT,Puntuación: %d,Score: %d
+HUD_COMPASS_N,N,N
+HUD_COMPASS_NE,NE,NE
+HUD_COMPASS_E,E,E
+HUD_COMPASS_SE,SE,SE
+HUD_COMPASS_S,S,S
+HUD_COMPASS_SW,SO,SW
+HUD_COMPASS_W,O,W
+HUD_COMPASS_NW,NO,NW
+CONSOLE_PLACEHOLDER,Escribe un comando…,Type a command…
+CONSOLE_PROMPT_FMT,> %s,> %s
+CONSOLE_SUGGESTIONS_FMT,Sugerencias: %s,Suggestions: %s
+OPTIONS_TITLE,Opciones,Options
+OPTIONS_LANGUAGE,Idioma,Language
+OPTIONS_LOCALE_ES,Español,Spanish
+OPTIONS_LOCALE_EN,Inglés,English
+OPTIONS_AUDIO_SECTION,Audio,Audio
+OPTIONS_VOLUME_MASTER,Volumen general,Master volume
+OPTIONS_VOLUME_MUSIC,Música,Music
+OPTIONS_VOLUME_SFX,Efectos,Sound effects
+OPTIONS_VOLUME_VOICE,Voces,Voice
+OPTIONS_SUBTITLES,Subtítulos,Subtitles
+OPTIONS_ACCESS_SECTION,Accesibilidad,Accessibility
+OPTIONS_HUD_SCALE,Escala del HUD,HUD scale
+OPTIONS_COLORBLIND,Modo daltónico,Colorblind mode
+OPTIONS_COLORBLIND_NONE,Desactivado,Off
+OPTIONS_COLORBLIND_PROTANOPIA,Protanopia,Protanopia
+OPTIONS_COLORBLIND_DEUTERANOPIA,Deuteranopia,Deuteranopia
+OPTIONS_COLORBLIND_TRITANOPIA,Tritanopia,Tritanopia
+OPTIONS_FOV,Campo de visión,Field of view
+OPTIONS_MOUSE_SENS,Sensibilidad del ratón,Mouse sensitivity
+OPTIONS_GAMEPAD_SENS,Sensibilidad del mando,Gamepad sensitivity
+OPTIONS_CAMERA_SHAKE,Sacudida de cámara,Camera shake
+OPTIONS_REMAP_SECTION,Controles,Controls
+OPTIONS_REBIND_HINT,Pulsa una tecla o botón nuevo…,Press a new key or button…
+OPTIONS_RESET_BINDINGS,Restaurar controles de fábrica,Reset to default controls
+OPTIONS_BINDING_EMPTY,—,—
+OPTIONS_BINDING_WAITING,…,…
+OPTIONS_BACK,Guardar y volver,Save and back
+INPUT_ACTION_MOVE_FORWARD,Avanzar,Move forward
+INPUT_ACTION_MOVE_BACK,Retroceder,Move back
+INPUT_ACTION_MOVE_LEFT,Mover a la izquierda,Strafe left
+INPUT_ACTION_MOVE_RIGHT,Mover a la derecha,Strafe right
+INPUT_ACTION_SPRINT,Correr,Sprint
+INPUT_ACTION_CROUCH,Agacharse,Crouch
+INPUT_ACTION_FIRE,Disparar,Fire
+INPUT_ACTION_AIM,Apuntar,Aim
+INPUT_ACTION_MELEE,Cuerpo a cuerpo,Melee
+INPUT_ACTION_RELOAD,Recargar,Reload
+INPUT_ACTION_ABILITY,Habilidad de clase,Class ability
+INPUT_ACTION_INTERACT,Interactuar,Interact
+INPUT_ACTION_SQUAD_ORDER,Reagrupar escuadra,Rally squad
+INPUT_ACTION_TOGGLE_CAMERA,Cambiar cámara,Toggle camera
+INPUT_ACTION_TOGGLE_CONSOLE,Abrir consola,Open console
+INPUT_ACTION_PAUSE,Pausa,Pause
+CHAR_CAPTAIN,Capitán,Captain
+CHAR_TECHNICIAN,Técnico,Technician
+CHAR_SPECIALIST,Especialista,Specialist
+CHAR_DEMOLITION,Explosivo,Demolition
+ENEMY_THUG,Sicario,Thug
+ENEMY_MILITIAMAN,Miliciano,Militiaman
+ENEMY_VETERAN,Veterano,Veteran
+ENEMY_MINIBOSS,Miniboss,Miniboss
+ENEMY_MEGABOSS,Megaboss,Megaboss
+FLOOR_LOBBY,Vestíbulo,Lobby
+FLOOR_SUPPORT,Soporte técnico,Support
+FLOOR_DEV,Desarrollo,Development
+FLOOR_QA,Control de calidad,QA
+FLOOR_SALES,Ventas,Sales
+FLOOR_DATACENTER,Centro de datos,Data center
+FLOOR_BOARDROOM,Sala de juntas,Boardroom
+FLOOR_EXECUTIVE,Planta ejecutiva,Executive floor
+FLOOR_ROOFTOP,Azotea,Rooftop
+PICKUP_AMMO_SMALL,Munición (pequeña),Ammo (small)
+PICKUP_AMMO_MED,Munición (mediana),Ammo (medium)
+PICKUP_AMMO_LARGE,Munición (grande),Ammo (large)
+PICKUP_HEALTH_SMALL,Botiquín (pequeño),Medkit (small)
+PICKUP_HEALTH_MED,Botiquín (mediano),Medkit (medium)
+PICKUP_HEALTH_LARGE,Botiquín (grande),Medkit (large)
+PICKUP_SNIPER,Rifle de francotirador,Sniper rifle

@@ -310,10 +310,14 @@ const BASE_WEIGHTS: Dictionary[BehaviorKind.Kind, Dictionary] = {
 		TERM_LULL: 1.0,
 		TERM_ROLE: 1.0,
 	},
+	# Retirarse es una decisión PERSONAL: "me estoy muriendo y estoy a la
+	# vista". El colapso de la escuadra pesa poco aquí a propósito — eso lo
+	# resuelve REGROUP, y darle peso en los dos sitios diluía el término que
+	# debe mandar hasta dejar la retirada por debajo de buscar cobertura.
 	BehaviorKind.Kind.RETREAT: {
 		TERM_CRITICAL: 3.0,
 		TERM_EXPOSURE: 1.0,
-		TERM_SQUAD_BROKEN: 1.0,
+		TERM_SQUAD_BROKEN: 0.5,
 	},
 	BehaviorKind.Kind.FOLLOW_LEADER: {
 		TERM_CALM: 1.5,
@@ -344,12 +348,14 @@ const BASE_WEIGHTS: Dictionary[BehaviorKind.Kind, Dictionary] = {
 const ARCHETYPE_GAIN: Dictionary[StringName, Dictionary] = {
 	# Sicario: se lanza, apenas se cubre, no flanquea ni suprime.
 	&"enemy_thug": {
-		BehaviorKind.Kind.ATTACK: 0.95,
+		BehaviorKind.Kind.ATTACK: 0.90,
 		BehaviorKind.Kind.ASSAULT: 0.85,
 		BehaviorKind.Kind.TAKE_COVER: 0.45,
 		BehaviorKind.Kind.SUPPRESS: 0.25,
 		BehaviorKind.Kind.FLANK: 0.35,
-		BehaviorKind.Kind.RETREAT: 0.90,
+		# Agresivo no es suicida: sigue retirándose al borde de la muerte, sólo
+		# que más tarde que los otros dos porque su ATTACK aguanta más arriba.
+		BehaviorKind.Kind.RETREAT: 0.95,
 		BehaviorKind.Kind.PATROL: 0.40,
 	},
 	# Miliciano: la tabla base. Se queda como está a propósito — el equilibrado
@@ -360,7 +366,7 @@ const ARCHETYPE_GAIN: Dictionary[StringName, Dictionary] = {
 	# Veterano: suprime, se cubre mucho y avanza cuando otro fija.
 	&"enemy_veteran": {
 		BehaviorKind.Kind.SUPPRESS: 0.95,
-		BehaviorKind.Kind.TAKE_COVER: 0.95,
+		BehaviorKind.Kind.TAKE_COVER: 0.90,
 		BehaviorKind.Kind.ASSAULT: 0.85,
 		BehaviorKind.Kind.ATTACK: 0.70,
 		BehaviorKind.Kind.FLANK: 0.60,
@@ -393,7 +399,7 @@ const ARCHETYPE_WEIGHTS: Dictionary[StringName, Dictionary] = {
 			TERM_LINE_OF_SIGHT: 2.0,
 			TERM_AMMO: 1.0,
 			TERM_RANGE_OPTIMAL: 0.5,
-			TERM_HEALTH: 1.5,
+			TERM_HEALTH: 2.0,
 			TERM_SAFETY: 0.1,
 		},
 	},

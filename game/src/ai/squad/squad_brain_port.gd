@@ -70,7 +70,8 @@ func is_bound() -> bool:
 
 func bind(implementation: Object) -> bool:
 	if implementation != null and not implementation.has_method(SELECT_METHOD):
-		push_error("SquadBrainPort: la implementación no expone '%s'." % SELECT_METHOD)
+		if report_violations:
+			push_error("SquadBrainPort: la implementación no expone '%s'." % SELECT_METHOD)
 		return false
 	brain = implementation
 	return true
