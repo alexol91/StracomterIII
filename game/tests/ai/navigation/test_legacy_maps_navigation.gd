@@ -166,6 +166,7 @@ func test_las_zonas_de_cada_mapa_estan_conectadas() -> void:
 
 
 func test_cada_sala_tiene_al_menos_un_punto_de_cobertura() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
 	var maps := _map_paths()
 	assert_gt(float(maps.size()), 0.0, "no hay mapas que probar en %s" % MAPS_DIR)
 	var failures: Array[String] = []
@@ -178,8 +179,14 @@ func test_cada_sala_tiene_al_menos_un_punto_de_cobertura() -> void:
 		nav.setup()
 		nav.budget_enforced = false
 		var mesh := nav.bake_region(&"main", NavTestUtil.source_from_map(root))
-		var world := NavTestUtil.world_from_map(root, mesh)
-		world.nav = nav
+		# FÍSICA REAL, no un mundo de cajas. Es la única forma de que esta
+		# prueba mida lo que hace producción: `CoverBaker` lanza sus rayos con
+		# `WorldQuery.raycast`, y en el juego eso es `PhysicsDirectSpaceState3D`
+		# contra el trimesh del suelo y el zócalo del perímetro. Un doble hecho
+		# sólo de `BoxShape3D` dejó de parecerse al mapa en cuanto el conversor
+		# fundió el perímetro en el trimesh, y se quedó verde sin decirlo.
+		var physics := NavPhysicsWorld.new()
+		physics.build_from(root, tree)
 
 		var baker := CoverBaker.new()
 		var options := CoverBaker.Options.new()
@@ -188,7 +195,7 @@ func test_cada_sala_tiene_al_menos_un_punto_de_cobertura() -> void:
 		# Un solo rayo por dirección y altura: en integración interesa que haya
 		# cobertura, no distinguir total de parcial.
 		options.lateral_offsets_m = [0.0] as Array[float]
-		var cloud := baker.bake(mesh, world, options)
+		var cloud := baker.bake(mesh, physics.query, options)
 
 		if NO_COVER_POSSIBLE.has(path.get_file()):
 			pass
@@ -220,6 +227,7 @@ func test_cada_sala_tiene_al_menos_un_punto_de_cobertura() -> void:
 				if not covered.has(c):
 					failures.append("%s: sala de %d m² sin ningún punto de cobertura"
 						% [path.get_file(), int(area)])
+		physics.dispose()
 		nav.dispose()
 		root.free()
 	assert_size(failures, 0, "salas sin cobertura: %s" % str(failures))

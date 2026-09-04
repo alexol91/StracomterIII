@@ -5,9 +5,10 @@ extends RefCounted
 ## EL MISMO CEREBRO QUE LOS ENEMIGOS. Este fichero no contiene ninguna IA:
 ## no puntúa situaciones, no elige comportamientos y no ejecuta árboles. Eso
 ## lo hace `ai/behavior`, el mismo selector por utilidad que mueve a los
-## enemigos, invocado a través de `SquadBrainPort`. Lo único que cambia entre
-## un enemigo y un compañero es la TABLA DE PESOS (`SquadWeightTable`) y la
-## lista de comportamientos permitidos. Un solo sistema de IA para los dos
+## enemigos (`UtilityScorer` + `BehaviorController`), al que se llega por
+## `SquadBehaviorBinding`. Lo único que cambia entre un enemigo y un compañero
+## es la TABLA DE UTILIDAD (`UtilityWeights`, aquí vía `CompanionWeights`) y
+## el filtro de comportamientos permitidos (`BehaviorFilter`). Un solo sistema de IA para los dos
 ## bandos es la mitad de código y el doble de calidad en ambos lados, y es
 ## exactamente lo contrario de lo que hacía el original: cuatro FSM de
 ## compañero (`Captain.cc`, `Technic.cc`, `Especialist.cc`, `Explosive.cc`)
@@ -63,13 +64,13 @@ func decide(
 ) -> CompanionDirective:
 	var out := CompanionDirective.new()
 	out.bot_id = bot_id
-	out.weights = SquadWeightTable.for_companion()
+	out.weights = CompanionWeights.standard(archetype)
 	out.formation_slot = CompanionFormation.world_slot(leader_position, leader_forward, slot)
 	out.move_target = out.formation_slot
 
 	if state == null:
 		out.allowed = _allowed_survival(false)
-		out.weights = SquadWeightTable.for_companion_survival()
+		out.weights = CompanionWeights.survival(archetype)
 		out.obeys = false
 		out.move_target = Vector3.INF
 		return out
@@ -97,7 +98,7 @@ func decide(
 		# descubierto. No es que el compañero deje de servir: es que ha
 		# decidido que seguir vivo vale más que este trozo de suelo.
 		out.order_kind = SquadOrder.Kind.NONE
-		out.weights = SquadWeightTable.for_companion_survival()
+		out.weights = CompanionWeights.survival(archetype)
 		out.allowed = _allowed_survival(out.critical)
 		out.move_target = Vector3.INF
 		return out

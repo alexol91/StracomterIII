@@ -269,11 +269,21 @@ static func move_along_path(ctx: BehaviorContext, delta: float) -> BehaviorTree.
 	while ctx.move_index < ctx.move_path.size() \
 			and planar_distance(from, ctx.move_path[ctx.move_index]) <= arrival:
 		ctx.move_index += 1
-	if ctx.move_index >= ctx.move_path.size():
-		ctx.actuator.stop()
-		return BehaviorTree.Status.SUCCESS
-	ctx.actuator.move_towards(ctx.move_path[ctx.move_index])
-	return BehaviorTree.Status.RUNNING
+	if ctx.move_index < ctx.move_path.size():
+		ctx.actuator.move_towards(ctx.move_path[ctx.move_index])
+		return BehaviorTree.Status.RUNNING
+
+	# Ruta agotada. El último punto de una ruta de navmesh no es el destino
+	# exacto —el motor devuelve puntos sobre la malla—, así que se hace una
+	# aproximación final directa si el destino queda cerca. Si queda lejos, es
+	# que el navmesh no llega más allá: se da por bueno en lugar de insistir
+	# eternamente contra un destino inalcanzable.
+	var remaining := planar_distance(from, ctx.move_goal)
+	if remaining > arrival and remaining <= BehaviorTuning.FINAL_APPROACH_M:
+		ctx.actuator.move_towards(ctx.move_goal)
+		return BehaviorTree.Status.RUNNING
+	ctx.actuator.stop()
+	return BehaviorTree.Status.SUCCESS
 
 
 ## Pide cobertura al `CoverProvider` y la fija como destino.

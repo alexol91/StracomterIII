@@ -45,6 +45,38 @@ fallo**.
    (`docs/03-equipo-agentes.md`). Dos agentes tocando el mismo fichero es el fallo más
    caro y más evitable de este modelo de trabajo.
 
+## El principio de los valores por defecto
+
+Cuatro agentes llegaron a esta regla por separado, cada uno tras un bug distinto.
+Está escrita aquí para que el quinto no tenga que pagarla:
+
+> **El valor por defecto de un dato que no ha llegado nunca puede ser el permisivo
+> ni el extremo.**
+
+Los cuatro casos, por si ayuda a reconocer el patrón:
+
+* `WorldQuery.has_line_of_sight` devolvía `true` sin espacio de física. Resultado: rayos X
+  para cualquier bot creado antes de que el nivel enlazara la física. **Ante la duda, no
+  se ve.**
+* Una petición de aparición sin configurar generaba igualmente. Resultado: enemigos en la
+  cara del jugador. **Ante la duda, no se genera.**
+* Un muestreador sin backend de física daba todos los candidatos por buenos. **Ante la
+  duda, no se propone.**
+* El director no distinguía «esta zona no tiene cobertura» de «nadie me ha dicho cuánta
+  tiene»: en punto flotante ambas son `0.0`. Resultado: leía la zona como descampado y
+  mandaba la composición equivocada. **Ante la duda, la geometría se abstiene** y los
+  presupuestos se quedan en su valor nominal.
+
+Lo que hace peligrosos a estos fallos no es su gravedad, es que **no dan error**. Se
+manifiestan como un enemigo que dispara a través de una pared o como un balanceo raro,
+nunca como un mensaje en consola. Por eso la defensa tiene que estar en el valor por
+defecto y no en acordarse de comprobarlo.
+
+Corolario para los dobles de prueba: **un doble más amable que la realidad hace que las
+pruebas mientan.** Ya ha pasado tres veces —una máscara de colisión ignorada, rutas que
+siempre llegan al destino exacto, un mundo de cajas que dejó de parecerse al mapa—. Si
+escribes un doble, documenta qué modos de fallo del original reproduce y **cuáles no**.
+
 ## Convenciones
 
 * GDScript con **tipado estático estricto**: `class_name`, `-> void`, `: float`. El

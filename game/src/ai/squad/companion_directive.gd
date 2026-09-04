@@ -2,7 +2,8 @@ class_name CompanionDirective
 extends RefCounted
 ## Lo que un compañero debe intentar este ciclo de decisión. Objeto de datos
 ## puro: lo produce `CompanionController.decide()` y lo consume el cerebro de
-## `ai/behavior` a través de `SquadBrainPort`.
+## `ai/behavior`, que lo recibe como `BehaviorFilter` + `UtilityWeights` a
+## través de `SquadBehaviorBinding`.
 ##
 ## Separa DOS cosas que el original mezclaba en la misma FSM: qué quiere el
 ## jugador (la orden) y qué está dispuesto a hacer el compañero (la lista de
@@ -37,8 +38,10 @@ var focus_position: Vector3 = Vector3.INF
 
 ## Comportamientos permitidos (`BehaviorKind.Kind`).
 var allowed: PackedInt32Array = PackedInt32Array()
-## Tabla de pesos con la que el cerebro debe elegir dentro de `allowed`.
-var weights: SquadWeightTable = null
+## Tabla de utilidad con la que el cerebro debe elegir dentro de `allowed`.
+## Es un `UtilityWeights` de `ai/behavior`: el MISMO tipo que usa un enemigo.
+## Lo que cambia entre bandos son los números, no la clase.
+var weights: UtilityWeights = null
 
 
 func allows(kind: BehaviorKind.Kind) -> bool:

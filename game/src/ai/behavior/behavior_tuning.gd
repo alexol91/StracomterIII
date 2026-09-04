@@ -147,9 +147,21 @@ const RELOAD_SATISFIED_RATIO: float = 0.98
 # Ejecución de los árboles
 # ---------------------------------------------------------------------------
 
-## Radio con el que un árbol da por alcanzado un punto de destino.
+## Radio con el que un árbol da por alcanzado un punto de destino. Del orden
+## de una vez y media el radio del agente (0,4 m): un bot que se diera por
+## llegado a un metro de su cobertura no estaría cubierto, volvería a puntuar
+## alto TAKE_COVER y tendríamos la oscilación por la puerta de atrás.
 ## TODO(arquitecto): mover a datos.
-const ARRIVAL_RADIUS_M: float = 0.9
+const ARRIVAL_RADIUS_M: float = 0.6
+## Distancia dentro de la cual, agotada la ruta, se va derecho al destino.
+##
+## Hace falta porque el último punto de una ruta de navmesh NO es el punto que
+## pediste: `NavigationServer3D` devuelve puntos sobre la malla. Sin esta
+## aproximación final, un bot se da por llegado a su cobertura a un metro de
+## ella —lo bastante lejos como para no estar cubierto—, y eso reabre el
+## comportamiento una y otra vez.
+## TODO(arquitecto): mover a datos.
+const FINAL_APPROACH_M: float = 2.5
 ## Segundos que un comportamiento queda vetado tras fallar su árbol. Es lo que
 ## convierte "no hay cobertura a la que ir" en "pues me retiro" sin que el
 ## selector lo reintente 5 veces por segundo.

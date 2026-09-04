@@ -137,17 +137,17 @@ const FORMATION_SLOT_TOLERANCE_M: float = 1.0
 
 
 # ---------------------------------------------------------------------------
-# Tablas de utilidad (se entregan al cerebro de `ai/behavior`)
+# Tabla de utilidad del compañero que ha dejado de obedecer
 # ---------------------------------------------------------------------------
+# La tabla base del compañero es de `ai/behavior`
+# (`BehaviorTuning.COMPANION_GAIN`). Aquí sólo vive lo que la MORAL le hace
+# encima; `UtilityWeights.set_gain` existe justamente para esto.
 
-## Peso neutro de cualquier comportamiento no listado en una tabla.
-const WEIGHT_NEUTRAL: float = 1.0
-## Peso de un comportamiento que la tabla desaconseja sin prohibirlo.
-const WEIGHT_DISCOURAGED: float = 0.35
-## Peso de un comportamiento prioritario para esa tabla.
-const WEIGHT_PREFERRED: float = 1.8
-## Peso de un comportamiento dominante (la razón de ser de la tabla).
-const WEIGHT_DOMINANT: float = 2.6
+## Multiplicador sobre la ganancia de los verbos que mantienen vivo al
+## compañero cuando antepone sobrevivir.
+const SURVIVAL_GAIN_BOOST: float = 1.4
+## Multiplicador sobre la ganancia de los verbos que lo exponen.
+const SURVIVAL_GAIN_CUT: float = 0.35
 
 
 # ---------------------------------------------------------------------------

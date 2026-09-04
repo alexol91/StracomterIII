@@ -12,6 +12,23 @@ extends RefCounted
 ## necesita el sistema y que deben describir el mismo mundo: la geometría de
 ## origen del navmesh, que hornea Recast, y el `WorldQuery` sintético
 ## (`NavSyntheticWorld`) que resuelve los rayos analíticamente.
+##
+## FRONTERA ENTRE EL DOBLE Y LA REALIDAD, y no es una preferencia de estilo:
+##   * `NavSyntheticWorld` y `collect_map_boxes` valen para ESCENARIOS
+##     SINTÉTICOS PEQUEÑOS construidos a mano, donde las cajas son toda la
+##     geometría que hay y describirlas es lo cómodo y lo correcto.
+##   * NUNCA valen para validar los mapas reales. Se intentó y salió mal: el
+##     mundo de cajas se quedó VERDE cuando el conversor fundió el zócalo del
+##     perímetro en el trimesh del suelo, porque un mundo hecho sólo de
+##     `BoxShape3D` dejó de parecerse al mapa sin que ninguna prueba lo dijera.
+##     Para los mapas reales hay que usar `NavPhysicsWorld`, que registra las
+##     formas de colisión de verdad y consulta el `PhysicsDirectSpaceState3D`,
+##     que es lo que hace el juego.
+##
+## La regla general, que en este proyecto ya ha mordido tres veces: un doble
+## más amable —o simplemente DISTINTO— de la realidad hace que las pruebas
+## mientan, y el caso peor no es el doble mal escrito, es el doble que se
+## queda atrás cuando la realidad cambia debajo.
 
 
 ## AVISO PARA QUIEN AÑADA PRUEBAS AQUÍ: los constructores de escenario viven
@@ -261,8 +278,12 @@ static func _emit_upward(out: PackedVector3Array, a: Vector3, b: Vector3,
 		out.append_array(PackedVector3Array([a, c, b]))
 
 
-## Todos los `BoxShape3D` de la escena, con su transformada acumulada. Es la
-## geometría que bloquea rayos y navegación en los mapas convertidos.
+## Todos los `BoxShape3D` de la escena, con su transformada acumulada.
+##
+## OJO: esto NO es toda la colisión de un mapa convertido — el suelo y el
+## zócalo del perímetro son un `ConcavePolygonShape3D`. Sirve para el horneado
+## del navmesh, donde el suelo entra aparte, y NO para simular el mundo: para
+## eso está `NavPhysicsWorld`. Ver la frontera en la cabecera.
 static func collect_map_boxes(root: Node) -> Array[Array]:
 	var out: Array[Array] = []
 	_collect_boxes_into(out, root, Transform3D.IDENTITY)
@@ -318,3 +339,49 @@ static func spawn_request(player_position: Vector3, player_forward: Vector3,
 	request.prefer_entry_points = true
 	request.configured = true
 	return request
+
+
+## Construye la colisión que las escenas de mapa crean en su `_ready`.
+##
+## `_legacy_floor_mesh.gd` monta su `ConcavePolygonShape3D` ahí, y las pruebas
+## corren dentro del `_ready` del ejecutor, donde no se puede meter nada en el
+## árbol. Llamar al `_ready` del nodo suelto sí funciona: lo que fallaba era
+## `propagate_notification`, porque añade hijos mientras itera y el padre queda
+## marcado como ocupado.
+##
+## Se limita a los `CollisionObject3D`: es donde vive la colisión perezosa y
+## evita disparar `_ready` de nodos que no tienen nada que construir.
+static func ensure_colliders_built(root: Node) -> int:
+	var built := 0
+	var pending: Array[Node] = [root]
+	while not pending.is_empty():
+		var node: Node = pending.pop_back()
+		for child: Node in node.get_children():
+			pending.append(child)
+		if node is CollisionObject3D and node.get_script() != null \
+				and node.has_method(&"_ready"):
+			node.call(&"_ready")
+			built += 1
+	return built
+
+
+## Todas las formas de colisión de la escena con su transformada acumulada,
+## como `[Transform3D, Shape3D]`. Incluye el trimesh del suelo, que es
+## justamente lo que un mundo de cajas se dejaba fuera.
+static func collect_collision_shapes(root: Node) -> Array[Array]:
+	var out: Array[Array] = []
+	_collect_shapes_into(out, root, Transform3D.IDENTITY)
+	return out
+
+
+static func _collect_shapes_into(out: Array[Array], node: Node,
+		parent_transform: Transform3D) -> void:
+	var transform := parent_transform
+	var spatial := node as Node3D
+	if spatial != null:
+		transform = parent_transform * spatial.transform
+	var collision := node as CollisionShape3D
+	if collision != null and collision.shape != null:
+		out.append([transform, collision.shape])
+	for child: Node in node.get_children():
+		_collect_shapes_into(out, child, transform)
