@@ -7,8 +7,17 @@ extends Node
 
 ## Un personaje ha muerto. `killer_team` permite atribuir puntuación y XP.
 signal character_died(character_id: int, team: int, killer_id: int, xp: int)
-## Un personaje ha recibido daño. La IA lo usa para su cola de atacantes.
-signal character_damaged(character_id: int, amount: float, from_position: Vector3)
+## Un personaje ha recibido daño. La IA lo usa para su cola de atacantes, que
+## necesita saber QUIÉN dispara y de qué bando: sin eso, un bot herido sabe que
+## le atacan pero no a quién responder. El original lo resolvía pasándose el
+## puntero del atacante (EventControl::postDisparo); aquí van los dos ids.
+signal character_damaged(
+	character_id: int,
+	amount: float,
+	from_position: Vector3,
+	attacker_id: int,
+	attacker_team: int
+)
 ## Se ha emitido un ruido en el mundo. Alimenta el oído de la IA (GDD §8.1).
 ## `intensity` en 0..1, `radius_m` en metros.
 signal noise_emitted(position: Vector3, intensity: float, radius_m: float, source_id: int)

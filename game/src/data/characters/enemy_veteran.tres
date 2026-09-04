@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+[ext_resource type="Resource" path="res://src/data/perception/veteran.tres" id="2"]
 
 [resource]
 script = ExtResource("1")
@@ -19,3 +20,4 @@ vision_fov_primary_deg = 40.0
 vision_fov_secondary_deg = 75.0
 reaction_delay_s = 0.35
 tint = Color(0.9, 0.2, 0.05, 1)
+perception = ExtResource("2")

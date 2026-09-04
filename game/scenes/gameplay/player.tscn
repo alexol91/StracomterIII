@@ -1,0 +1,62 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/gameplay/character.tscn" id="1"]
+[ext_resource type="Script" path="res://src/gameplay/player_input.gd" id="2"]
+[ext_resource type="Script" path="res://src/gameplay/weapon_system.gd" id="3"]
+[ext_resource type="Script" path="res://src/gameplay/tps_camera.gd" id="4"]
+[ext_resource type="Script" path="res://src/gameplay/abilities/ability_captain_orders.gd" id="5"]
+[ext_resource type="Script" path="res://src/gameplay/abilities/ability_technician_hack.gd" id="6"]
+[ext_resource type="Script" path="res://src/gameplay/abilities/ability_specialist_suppression.gd" id="7"]
+[ext_resource type="Script" path="res://src/gameplay/abilities/ability_demolition_breach.gd" id="8"]
+[ext_resource type="Script" path="res://src/gameplay/auras/aura_emitter.gd" id="9"]
+
+[node name="Player" instance=ExtResource("1")]
+collision_layer = 2
+team = 0
+
+[node name="WeaponSystem" type="Node" parent="."]
+script = ExtResource("3")
+
+[node name="PlayerInput" type="Node" parent="."]
+script = ExtResource("2")
+camera_path = NodePath("../CameraRig")
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("4")
+target_path = NodePath("..")
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraRig"]
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/SpringArm3D"]
+
+[node name="AbilityCaptainOrders" type="Node" parent="."]
+script = ExtResource("5")
+required_archetype = &"captain"
+
+[node name="AbilityTechnicianHack" type="Node" parent="."]
+script = ExtResource("6")
+required_archetype = &"technician"
+
+[node name="AbilitySpecialistSuppression" type="Node" parent="."]
+script = ExtResource("7")
+required_archetype = &"specialist"
+
+[node name="AbilityDemolitionBreach" type="Node" parent="."]
+script = ExtResource("8")
+required_archetype = &"demolition"
+
+[node name="CaptainHealAura" type="Node" parent="."]
+script = ExtResource("9")
+required_archetype = &"captain"
+kind = 0
+radius_m = 8.0
+amount = 1.0
+interval_s = 2.0
+
+[node name="SpecialistAmmoAura" type="Node" parent="."]
+script = ExtResource("9")
+required_archetype = &"specialist"
+kind = 1
+radius_m = 8.0
+amount = 10.0
+interval_s = 4.0

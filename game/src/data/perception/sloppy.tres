@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="PerceptionProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/perception_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+primary_acquire_s = 0.45
+secondary_acquire_s = 1.60
+far_acquire_factor = 0.30
+max_localization_error_m = 7.0
+time_decay_rate = 0.55
+min_broadcast_confidence = 0.45

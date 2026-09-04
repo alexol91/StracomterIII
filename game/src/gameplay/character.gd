@@ -47,6 +47,11 @@ var intent_sprint: bool = false
 ## Se quiere agachar (afecta a la cobertura efectiva).
 var intent_crouch: bool = false
 
+## Arma actualmente equipada, si difiere de la por defecto del arquetipo
+## (p. ej. tras recoger el pickup `sniper`). Vacío = usar la del arquetipo.
+## La resuelve `WeaponSystem`; `Character` solo la almacena.
+var equipped_weapon_override: StringName = &""
+
 
 func _ready() -> void:
 	stats = Balance.character(archetype)
@@ -57,6 +62,10 @@ func _ready() -> void:
 	ammo = stats.max_ammo
 	health_changed.emit(health, stats.max_health)
 	ammo_changed.emit(ammo, stats.max_ammo)
+	# Registro para que sistemas del propio gameplay (auras, habilidades) se
+	# encuentren entre sí sin acoplarse a la jerarquía de escena de nadie.
+	# NO lo consulta `ai/`: eso violaría la regla de intenciones (ver cabecera).
+	add_to_group(&"characters")
 
 
 ## Limpia las intenciones. Debe llamarse al final de cada tick de física para
@@ -93,6 +102,13 @@ func reload() -> void:
 
 func use_ability() -> void:
 	intent_ability = true
+
+
+## Cambia el arma equipada (p. ej. al recoger el pickup `sniper`). La
+## resuelve `WeaponSystem` en su siguiente tick; este método solo guarda la
+## intención de equipo, igual que el resto de intenciones del contrato.
+func equip_weapon(weapon_id: StringName) -> void:
+	equipped_weapon_override = weapon_id
 
 
 # --- Estado consultable (solo lectura para las capas superiores) ---
@@ -133,7 +149,13 @@ func apply_damage(damage: Damage) -> void:
 	var final_amount := damage.effective_amount()
 	health = maxf(health - final_amount, 0.0)
 	health_changed.emit(health, stats.max_health if stats != null else 100.0)
-	EventBus.character_damaged.emit(get_instance_id(), final_amount, damage.source_position)
+	EventBus.character_damaged.emit(
+		get_instance_id(),
+		final_amount,
+		damage.source_position,
+		damage.attacker_id,
+		damage.attacker_team
+	)
 	if health <= 0.0:
 		_die(damage.attacker_id)
 
@@ -149,6 +171,32 @@ func add_ammo(amount: int) -> void:
 	if stats == null:
 		return
 	ammo = mini(ammo + amount, stats.max_ammo)
+	ammo_changed.emit(ammo, stats.max_ammo)
+
+
+## ¿Queda al menos una bala? Réplica de `Character::canShoot()` (parte de
+## munición; la parte de cadencia la lleva `Weapon`, en `weapon.gd`).
+func can_fire_ammo() -> bool:
+	return ammo > 0
+
+
+## Consume munición. Réplica de `Character::shootDamage()`: la bala se
+## descuenta AUNQUE el disparo falle — lo llama `WeaponSystem` en cuanto se
+## resuelve el disparo, acierte o no.
+func consume_ammo(amount: int = 1) -> void:
+	if stats == null:
+		return
+	ammo = maxi(ammo - amount, 0)
+	ammo_changed.emit(ammo, stats.max_ammo)
+
+
+## Recarga completa. El original no tenía recarga (GDD §9): un enemigo que
+## agotaba sus 50 balas quedaba inútil para el resto de la partida. Aquí
+## `WeaponSystem` la dispara tras `WeaponStats.reload_s` de espera.
+func refill_ammo() -> void:
+	if stats == null:
+		return
+	ammo = stats.max_ammo
 	ammo_changed.emit(ammo, stats.max_ammo)
 
 

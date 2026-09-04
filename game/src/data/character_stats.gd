@@ -45,6 +45,11 @@ extends Resource
 ## telepatía instantánea es lo que hace que un bot parezca tramposo.
 @export var reaction_delay_s: float = 0.45
 
+## Comportamiento fino del sensor. Si es null se usa el perfil por defecto.
+## Se separa de los campos de arriba porque la percepción se afina en bloque
+## y por arquetipo, no personaje a personaje.
+@export var perception: PerceptionProfile = null
+
 @export_group("Presentación")
 ## Color identificativo del arquetipo (el legacy asignaba uno por tipo).
 @export var tint: Color = Color.WHITE

@@ -19,7 +19,9 @@ extends RefCounted
 ##
 ## PUREZA: `evaluate()` es determinista dados (observador, objetivos, mundo,
 ## dt, presupuesto) y el acumulador de conciencia del propio sensor. Toda la
-## geometría y la curva de adquisición viven en funciones `static` puras.
+## geometría y la curva de adquisición viven en funciones `static` puras que
+## reciben el `PerceptionProfile` por parámetro; ningún número de balanceo vive
+## aquí dentro (ADR-005).
 
 ## En qué cono cae un objetivo.
 enum Cone {
@@ -28,33 +30,12 @@ enum Cone {
 	SECONDARY,  ## Periférico: detección lenta.
 }
 
-# --- Números sin dato en `CharacterStats`. ---
-# TODO(arquitecto): mover a datos (CharacterStats o un PerceptionProfile).
-
-## Altura de los ojos sobre el origen del cuerpo, en metros.
-const EYE_HEIGHT_M: float = 1.6
-## Altura del punto al que se dispara el rayo de oclusión (pecho del objetivo).
-const TARGET_CHEST_HEIGHT_M: float = 1.1
-## Lo mismo, con el objetivo agachado.
-const TARGET_CROUCHED_CHEST_HEIGHT_M: float = 0.65
-## El cono periférico alcanza menos lejos que el foco.
-const SECONDARY_RANGE_FACTOR: float = 0.75
-## Segundos de exposición continua para adquirir un objetivo en el foco.
-const PRIMARY_ACQUIRE_S: float = 0.25
-## Lo mismo en el cono periférico: mirar de reojo cuesta más.
-const SECONDARY_ACQUIRE_S: float = 1.10
-## Segundos que tarda la conciencia en caer a cero al perder de vista.
-const AWARENESS_DECAY_S: float = 0.60
-## Factor de velocidad de adquisición en el límite del alcance (1 = sin penalización).
-const FAR_ACQUIRE_FACTOR: float = 0.45
-## Un objetivo agachado se adquiere más despacio.
-const CROUCHED_ACQUIRE_FACTOR: float = 0.70
-## Tolerancia vertical, en metros. El juego pasa en una torre por plantas: un
-## bot no ve a quien está un piso por encima aunque caiga dentro del cono.
-const VERTICAL_VISION_M: float = 3.0
 ## Capa de colisión que bloquea la visión (`3d_physics/layer_1 = "world"`).
+## No es un número de balanceo: es la capa de física del mundo.
 const OCCLUDER_MASK: int = 1
-## Conciencia a partir de la cual el objetivo se considera adquirido.
+## La conciencia está normalizada a 0..1, así que el umbral de adquisición es
+## 1 por definición. Tampoco es balanceo: lo que se afina es la VELOCIDAD con
+## que se llega hasta él (`PerceptionProfile.primary_acquire_s`).
 const DETECTION_THRESHOLD: float = 1.0
 
 
@@ -104,8 +85,10 @@ class Result:
 	var best: Sighting = null
 
 
-## Altura de ojos efectiva. Los tests la ponen a 0 para razonar en un plano.
-var eye_height_m: float = EYE_HEIGHT_M
+## Parámetros del arquetipo. Lo inyecta el `PerceptionSystem` desde
+## `CharacterStats.perception`; si nadie lo pone, se usan los valores por
+## defecto del recurso.
+var profile: PerceptionProfile = null
 ## Capa que bloquea la visión.
 var occluder_mask: int = OCCLUDER_MASK
 
@@ -122,12 +105,14 @@ static func cone_for(
 	observer_position: Vector3,
 	forward: Vector3,
 	target_position: Vector3,
-	range_m: float,
-	primary_half_deg: float,
-	secondary_half_deg: float
+	stats: CharacterStats,
+	profile: PerceptionProfile
 ) -> Cone:
+	var range_m := stats.vision_range_m
+	var primary_half_deg := stats.vision_fov_primary_deg
+	var secondary_half_deg := stats.vision_fov_secondary_deg
 	var to_target := target_position - observer_position
-	if absf(to_target.y) > VERTICAL_VISION_M:
+	if absf(to_target.y) > profile.vertical_tolerance_m:
 		return Cone.NONE
 	var distance := to_target.length()
 	if distance > range_m:
@@ -142,34 +127,44 @@ static func cone_for(
 	var angle_deg := rad_to_deg(flat_forward.normalized().angle_to(flat_to_target.normalized()))
 	if angle_deg <= primary_half_deg:
 		return Cone.PRIMARY
-	if angle_deg <= secondary_half_deg and distance <= range_m * SECONDARY_RANGE_FACTOR:
+	if angle_deg <= secondary_half_deg and distance <= range_m * profile.secondary_range_factor:
 		return Cone.SECONDARY
 	return Cone.NONE
 
 
 ## Conciencia ganada por segundo de exposición continua.
-static func acquire_rate(cone: Cone, distance_m: float, range_m: float, crouched: bool) -> float:
+static func acquire_rate(
+	cone: Cone, distance_m: float, range_m: float, crouched: bool, profile: PerceptionProfile
+) -> float:
 	if cone == Cone.NONE or range_m <= 0.0:
 		return 0.0
-	var base := 1.0 / PRIMARY_ACQUIRE_S if cone == Cone.PRIMARY else 1.0 / SECONDARY_ACQUIRE_S
+	var acquire_s := profile.primary_acquire_s if cone == Cone.PRIMARY else profile.secondary_acquire_s
+	if acquire_s <= 0.0:
+		return INF
 	var t := clampf(distance_m / range_m, 0.0, 1.0)
-	var distance_factor := lerpf(1.0, FAR_ACQUIRE_FACTOR, t)
-	var crouch_factor := CROUCHED_ACQUIRE_FACTOR if crouched else 1.0
-	return base * distance_factor * crouch_factor
+	var distance_factor := lerpf(1.0, profile.far_acquire_factor, t)
+	var crouch_factor := profile.crouched_acquire_factor if crouched else 1.0
+	return (1.0 / acquire_s) * distance_factor * crouch_factor
 
 
 ## Un paso del acumulador de adquisición. Sube solo si hay visión CONFIRMADA.
-static func step_awareness(awareness: float, rate_per_s: float, dt: float, visible: bool) -> float:
+static func step_awareness(
+	awareness: float, rate_per_s: float, dt: float, visible: bool, profile: PerceptionProfile
+) -> float:
 	if visible:
 		return clampf(awareness + rate_per_s * dt, 0.0, 1.0)
-	return clampf(awareness - dt / AWARENESS_DECAY_S, 0.0, 1.0)
+	if profile.awareness_decay_s <= 0.0:
+		return 0.0
+	return clampf(awareness - dt / profile.awareness_decay_s, 0.0, 1.0)
 
 
 ## Punto al que se lanza el rayo de oclusión: el pecho del objetivo.
 ## Un objetivo agachado ofrece un punto más bajo, así que una cobertura a la
 ## altura del pecho lo esconde de verdad.
-static func aim_point(position: Vector3, crouched: bool) -> Vector3:
-	var height := TARGET_CROUCHED_CHEST_HEIGHT_M if crouched else TARGET_CHEST_HEIGHT_M
+static func aim_point(position: Vector3, crouched: bool, profile: PerceptionProfile) -> Vector3:
+	var height := (
+		profile.target_crouched_chest_height_m if crouched else profile.target_chest_height_m
+	)
 	return position + Vector3.UP * height
 
 
@@ -193,10 +188,9 @@ func evaluate(
 	if world == null or stats == null:
 		return result
 
+	var tuning := effective_profile()
 	var range_m := stats.vision_range_m
-	var primary_half := stats.vision_fov_primary_deg
-	var secondary_half := stats.vision_fov_secondary_deg
-	var eye := observer_position + Vector3.UP * eye_height_m
+	var eye := observer_position + Vector3.UP * tuning.eye_height_m
 
 	var candidates: Array[Sighting] = []
 	var live_ids: Dictionary[int, bool] = {}
@@ -212,9 +206,7 @@ func evaluate(
 		sighting.velocity = target.velocity
 		sighting.is_crouched = target.is_crouched
 		sighting.distance_m = observer_position.distance_to(target.position)
-		sighting.cone = cone_for(
-			observer_position, forward, target.position, range_m, primary_half, secondary_half
-		)
+		sighting.cone = cone_for(observer_position, forward, target.position, stats, tuning)
 		sighting.awareness = _awareness.get(target.target_id, 0.0)
 		candidates.append(sighting)
 
@@ -232,13 +224,15 @@ func evaluate(
 		if in_cone and rays < raycast_budget:
 			# Aquí está la corrección del legacy: sin rayo despejado no hay
 			# detección, aunque el objetivo esté centradísimo en el cono.
-			var chest := aim_point(sighting.position, sighting.is_crouched)
+			var chest := aim_point(sighting.position, sighting.is_crouched, tuning)
 			visible = world.has_line_of_sight(eye, chest, occluder_mask)
 			sighting.was_tested = true
 			rays += 1
 		sighting.has_line_of_sight = visible
-		var rate := acquire_rate(sighting.cone, sighting.distance_m, range_m, sighting.is_crouched)
-		sighting.awareness = step_awareness(sighting.awareness, rate, dt, visible)
+		var rate := acquire_rate(
+			sighting.cone, sighting.distance_m, range_m, sighting.is_crouched, tuning
+		)
+		sighting.awareness = step_awareness(sighting.awareness, rate, dt, visible, tuning)
 		sighting.detected = visible and sighting.awareness >= DETECTION_THRESHOLD
 		_awareness[sighting.target_id] = sighting.awareness
 		result.sightings.append(sighting)
@@ -247,6 +241,14 @@ func evaluate(
 
 	result.raycasts_used = rays
 	return result
+
+
+## Perfil en uso. Si nadie inyectó uno, se materializan los valores por
+## defecto del recurso una sola vez.
+func effective_profile() -> PerceptionProfile:
+	if profile == null:
+		profile = PerceptionProfile.new()
+	return profile
 
 
 ## Conciencia actual sobre un objetivo, 0..1. Para depuración y para los tests.

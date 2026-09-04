@@ -23,13 +23,13 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 
 | # | Tarea | Paridad | Agente | Estado |
 |---|---|---|---|---|
-| 1.1 | `project.godot`, estructura, autoloads, contratos base | — | `godot-arquitecto` | 🟨 |
-| 1.2 | Recursos `.tres` de balanceo con los valores canónicos del legacy | P01 P02 | `godot-arquitecto` | 🟨 |
+| 1.1 | `project.godot`, estructura, autoloads, contratos base | — | `godot-arquitecto` | ✅ |
+| 1.2 | Recursos `.tres` de balanceo con los valores canónicos del legacy | P01 P02 | `godot-arquitecto` | ✅ |
 | 1.3 | `Character` + `CharacterBody3D` + intenciones | P01 | `godot-gameplay` | 🟨 |
 | 1.4 | Controlador del jugador + cámara TPS + mando | P17 | `godot-gameplay` | 🟨 |
 | 1.5 | Armas: fuego, cuchillo, explosivo, munición, recarga | P06 | `godot-gameplay` | 🟨 |
 | 1.6 | Salud, daño localizado, muerte, puntuación, XP | P06 P12 | `godot-gameplay` | 🟨 |
-| 1.7 | `AIScheduler` con presupuesto de CPU (ADR-002) | — | `godot-arquitecto` | 🟨 |
+| 1.7 | `AIScheduler` con presupuesto de CPU (ADR-002) | — | `godot-arquitecto` | ✅ |
 | 1.8 | Conversor de mapas legacy + validador | P16 | `level-conversor` | 🟨 |
 | 1.9 | Navmesh, enlaces de puerta, muestreo de spawns | P08 P10 | `ai-navegacion` | 🟨 |
 | 1.10 | CI: gdlint + tests headless + 3 exports | — | `devops-ci` | 🟨 |
@@ -38,10 +38,10 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 
 | # | Tarea | Paridad | Agente | Estado |
 |---|---|---|---|---|
-| 2.1 | Percepción: visión con oclusión, dos conos | P07 | `ai-percepcion` | 🟨 |
-| 2.2 | Oído propagado por navmesh + eventos sonoros | E-04 | `ai-percepcion` | 🟨 |
-| 2.3 | Memoria de contactos con confianza decreciente | P07 | `ai-percepcion` | 🟨 |
-| 2.4 | Difusión de contactos con retardo de reacción | — | `ai-percepcion` | 🟨 |
+| 2.1 | Percepción: visión con oclusión, dos conos | P07 | `ai-percepcion` | ✅ |
+| 2.2 | Oído propagado por navmesh + eventos sonoros | E-04 | `ai-percepcion` | ✅ |
+| 2.3 | Memoria de contactos con confianza decreciente | P07 | `ai-percepcion` | ✅ |
+| 2.4 | Difusión de contactos con retardo de reacción | — | `ai-percepcion` | ✅ |
 | 2.5 | Selector por utilidad + histéresis | — | `ai-comportamiento` | 🟨 |
 | 2.6 | Árboles de comportamiento y ejecución | — | `ai-comportamiento` | 🟨 |
 | 2.7 | Arquetipos como tablas de pesos | P02 | `ai-comportamiento` | 🟨 |

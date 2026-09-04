@@ -1,0 +1,686 @@
+; Escena generada automáticamente por tools/map_converter/convert.py
+; NO EDITAR A MANO: los cambios se pierden al regenerar (build_all.py).
+; Fuente legacy: /home/user/StracomterIII/legacy/trunk/testFiles/maps/mapG3.xml
+; Escala: 1 unidad legacy = 0.0133333333 m (1/75, radio de personaje 30u -> 0.4m)
+; Mapeo de coordenadas: godot(x, y_altura, z) = (x*S, y_altura, y*S) — sin inversión de eje
+;   (cámara cenital rotation_degrees.x=-90; ver tools/map_converter/README.md).
+; Perímetro legacy: horario (Polygon::isClockwise, Math/lib/Polygon.cc:179-192).
+
+[gd_scene load_steps=43 format=3]
+
+[ext_resource type="Script" path="res://maps/legacy/_legacy_floor_mesh.gd" id="Script_1"]
+[ext_resource type="Script" path="res://maps/legacy/_legacy_navmesh.gd" id="Script_2"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim1"]
+size = Vector3(43.8, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim2"]
+size = Vector3(43.8, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim3"]
+size = Vector3(9.866667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim4"]
+size = Vector3(9.866667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim5"]
+size = Vector3(43.8, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim6"]
+size = Vector3(43.8, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim7"]
+size = Vector3(3.853333, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim8"]
+size = Vector3(3.853333, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim9"]
+size = Vector3(3.213333, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim10"]
+size = Vector3(3.213333, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim11"]
+size = Vector3(4.573333, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim12"]
+size = Vector3(4.573333, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim13"]
+size = Vector3(3.213333, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim14"]
+size = Vector3(3.213333, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_perim15"]
+size = Vector3(1.44, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_perim16"]
+size = Vector3(1.44, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall17"]
+size = Vector3(2.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall18"]
+size = Vector3(2.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall19"]
+size = Vector3(0.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall20"]
+size = Vector3(0.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall21"]
+size = Vector3(4.333333, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall22"]
+size = Vector3(4.333333, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall23"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall24"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall25"]
+size = Vector3(4, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall26"]
+size = Vector3(4, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall27"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall28"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall29"]
+size = Vector3(6.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall30"]
+size = Vector3(6.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall31"]
+size = Vector3(4, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall32"]
+size = Vector3(4, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall33"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall34"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall35"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall36"]
+size = Vector3(1.666667, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall37"]
+size = Vector3(8, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall38"]
+size = Vector3(8, 3, 0.333333)
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall39"]
+size = Vector3(4.666667, 3, 0.333333)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall40"]
+size = Vector3(4.666667, 3, 0.333333)
+
+[node name="mapG3" type="Node3D"]
+metadata/source_xml = "mapG3.xml"
+metadata/scale_u_to_m = 0.013333
+metadata/legacy_bbox = Rect2(-147, -299, 3526, 740)
+metadata/legacy_area_u2 = 2513563
+metadata/area_m2 = 446.855644
+metadata/wall_count = 12
+metadata/door_count = 2
+metadata/obstacle_count = 27
+metadata/pickup_count = 8
+metadata/has_player = true
+metadata/has_mini_boss = true
+metadata/has_mega_boss = false
+metadata/load_status = 1
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+collision_layer = 1
+collision_mask = 0
+script = ExtResource("Script_1")
+floor_vertices = PackedVector3Array(1.253333, 0, -3.986667, 45.053333, 0, -3.986667, 45.053333, 0, 5.88, 1.253333, 0, 5.88, 1.253333, 0, 2.026667, -1.96, 0, 2.026667, -1.96, 0, -2.546667, 1.253333, 0, -2.546667)
+floor_uvs = PackedVector2Array(0.47, -1.495, 16.895, -1.495, 16.895, 2.205, 0.47, 2.205, 0.47, 0.76, -0.735, 0.76, -0.735, -0.955, 0.47, -0.955)
+floor_indices = PackedInt32Array(7, 1, 0, 7, 2, 1, 2, 4, 3, 7, 4, 2, 7, 5, 4, 5, 7, 6)
+
+[node name="Walls" type="Node3D" parent="."]
+
+[node name="PerimeterWall_0" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23.153333, 1.5, -3.986667)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "0-1"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_0"]
+mesh = SubResource("BoxMesh_perim1")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_0"]
+shape = SubResource("BoxShape3D_perim2")
+
+[node name="PerimeterWall_1" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 45.053333, 1.5, 0.946667)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "1-2"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_1"]
+mesh = SubResource("BoxMesh_perim3")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_1"]
+shape = SubResource("BoxShape3D_perim4")
+
+[node name="PerimeterWall_2" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, -0, 0, -1, 23.153333, 1.5, 5.88)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "2-3"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_2"]
+mesh = SubResource("BoxMesh_perim5")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_2"]
+shape = SubResource("BoxShape3D_perim6")
+
+[node name="PerimeterWall_3" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 1.253333, 1.5, 3.953333)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "3-4"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_3"]
+mesh = SubResource("BoxMesh_perim7")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_3"]
+shape = SubResource("BoxShape3D_perim8")
+
+[node name="PerimeterWall_4" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, -0, 0, -1, -0.353333, 1.5, 2.026667)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "4-5"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_4"]
+mesh = SubResource("BoxMesh_perim9")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_4"]
+shape = SubResource("BoxShape3D_perim10")
+
+[node name="PerimeterWall_5" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, -1.96, 1.5, -0.26)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "5-6"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_5"]
+mesh = SubResource("BoxMesh_perim11")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_5"]
+shape = SubResource("BoxShape3D_perim12")
+
+[node name="PerimeterWall_6" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.353333, 1.5, -2.546667)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "6-7"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_6"]
+mesh = SubResource("BoxMesh_perim13")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_6"]
+shape = SubResource("BoxShape3D_perim14")
+
+[node name="PerimeterWall_7" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, -1, 0, 1, 0, 1, 0, 0, 1.253333, 1.5, -3.266667)
+collision_layer = 1
+collision_mask = 0
+metadata/legacy_edge = "7-0"
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/PerimeterWall_7"]
+mesh = SubResource("BoxMesh_perim15")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/PerimeterWall_7"]
+shape = SubResource("BoxShape3D_perim16")
+
+[node name="Wall_0" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.833333, 1.5, -1.333333)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_0"]
+mesh = SubResource("BoxMesh_wall17")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_0"]
+shape = SubResource("BoxShape3D_wall18")
+
+[node name="Wall_1" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.833333, 1.5, 1.666667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_1"]
+mesh = SubResource("BoxMesh_wall19")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_1"]
+shape = SubResource("BoxShape3D_wall20")
+
+[node name="Wall_2" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 9.5, 1.5, 3.833333)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_2"]
+mesh = SubResource("BoxMesh_wall21")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_2"]
+shape = SubResource("BoxShape3D_wall22")
+
+[node name="Wall_3" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17.833333, 1.5, -3.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_3"]
+mesh = SubResource("BoxMesh_wall23")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_3"]
+shape = SubResource("BoxShape3D_wall24")
+
+[node name="Wall_4" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17.833333, 1.5, 1)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_4"]
+mesh = SubResource("BoxMesh_wall25")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_4"]
+shape = SubResource("BoxShape3D_wall26")
+
+[node name="Wall_5" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17.833333, 1.5, 5.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_5"]
+mesh = SubResource("BoxMesh_wall27")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_5"]
+shape = SubResource("BoxShape3D_wall28")
+
+[node name="Wall_6" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.333333, 1.5, 1.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_6"]
+mesh = SubResource("BoxMesh_wall29")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_6"]
+shape = SubResource("BoxShape3D_wall30")
+
+[node name="Wall_7" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 24.833333, 1.5, 1)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_7"]
+mesh = SubResource("BoxMesh_wall31")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_7"]
+shape = SubResource("BoxShape3D_wall32")
+
+[node name="Wall_8" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 24.833333, 1.5, -3.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_8"]
+mesh = SubResource("BoxMesh_wall33")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_8"]
+shape = SubResource("BoxShape3D_wall34")
+
+[node name="Wall_9" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 24.833333, 1.5, 5.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_9"]
+mesh = SubResource("BoxMesh_wall35")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_9"]
+shape = SubResource("BoxShape3D_wall36")
+
+[node name="Wall_10" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29, 1.5, 1.166667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_10"]
+mesh = SubResource("BoxMesh_wall37")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_10"]
+shape = SubResource("BoxShape3D_wall38")
+
+[node name="Wall_11" type="StaticBody3D" parent="Walls"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 32.833333, 1.5, 3.666667)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Walls/Wall_11"]
+mesh = SubResource("BoxMesh_wall39")
+
+[node name="Collision" type="CollisionShape3D" parent="Walls/Wall_11"]
+shape = SubResource("BoxShape3D_wall40")
+
+[node name="Doors" type="Node3D" parent="."]
+
+[node name="Door_0" type="Marker3D" parent="Doors"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 0.833333, 0, 0.666667)
+metadata/type = "door"
+metadata/width_m = 1.333333
+metadata/depth_m = 0.333333
+metadata/height_m = 2.1
+metadata/use_radius_m = 1.2
+metadata/is_open_by_default = false
+
+[node name="Door_1" type="Marker3D" parent="Doors"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 24.833333, 0, 3.666667)
+metadata/type = "door"
+metadata/width_m = 1.333333
+metadata/depth_m = 0.333333
+metadata/height_m = 2.1
+metadata/use_radius_m = 1.2
+metadata/is_open_by_default = false
+
+[node name="Obstacles" type="Node3D" parent="."]
+
+[node name="Obstacle_0" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19.08, 0, 1.72)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_1" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23.666667, 0, 1.72)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_2" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.386667, 0, 1.813333)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_3" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, -0, 0, -1, 32.12, 0, 2.693333)
+metadata/type = "obstacle"
+metadata/subtype = 3
+metadata/subtype_name = "obs_sofa"
+metadata/legacy_angle_deg = 180
+
+[node name="Obstacle_4" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32.173333, 0, 5.386667)
+metadata/type = "obstacle"
+metadata/subtype = 6
+metadata/subtype_name = "obs_plantPot"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_5" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 25.493333, 0, 5.333333)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_6" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.693333, 0, 2.32)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_7" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.693333, 0, 3.64)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_8" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.693333, 0, 5.013333)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_9" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29.28, 0, 4.613333)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_10" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26.146667, 0, 1.706667)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_11" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.4, 0, -0.186667)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_12" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18.546667, 0, -3.146667)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_13" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18.52, 0, 0.213333)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_14" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.786667, 0, 4.64)
+metadata/type = "obstacle"
+metadata/subtype = 1
+metadata/subtype_name = "obs_desk"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_15" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.68, 0, -1.68)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_16" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(-0.999848, 0, -0.017452, 0, 1, 0, 0.017452, 0, -0.999848, 8.546667, 0, 3.613333)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 181
+
+[node name="Obstacle_17" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(-0.999848, 0, 0.017452, 0, 1, 0, -0.017452, 0, -0.999848, 8.533333, 0, 5.026667)
+metadata/type = "obstacle"
+metadata/subtype = 4
+metadata/subtype_name = "obs_chair"
+metadata/legacy_angle_deg = 179
+
+[node name="Obstacle_18" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.16, 0, 4.533333)
+metadata/type = "obstacle"
+metadata/subtype = 1
+metadata/subtype_name = "obs_desk"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_19" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17.386667, 0, 1.333333)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 90
+
+[node name="Obstacle_20" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17, 0, -3.413333)
+metadata/type = "obstacle"
+metadata/subtype = 6
+metadata/subtype_name = "obs_plantPot"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_21" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43.293333, 0, 4.4)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_22" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43.386667, 0, 0.626667)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_23" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 43.386667, 0, -2.773333)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_24" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38.413333, 0, 4.44)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_25" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26.56, 0, -3.56)
+metadata/type = "obstacle"
+metadata/subtype = 5
+metadata/subtype_name = "obs_shelf"
+metadata/legacy_angle_deg = 0
+
+[node name="Obstacle_26" type="Marker3D" parent="Obstacles"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 38.386667, 0, 0.986667)
+metadata/type = "obstacle"
+metadata/subtype = 7
+metadata/subtype_name = "obs_mesaConSillas"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickups" type="Node3D" parent="."]
+
+[node name="Pickup_0" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 19.32, 0, 5.213333)
+metadata/type = "objects"
+metadata/subtype = 1
+metadata/subtype_name = "health_pack_2"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_1" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 23.133333, 0, 5.28)
+metadata/type = "objects"
+metadata/subtype = 0
+metadata/subtype_name = "health_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_2" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29.253333, 0, 2.453333)
+metadata/type = "objects"
+metadata/subtype = 3
+metadata/subtype_name = "ammo_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_3" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.093333, 0, -3.386667)
+metadata/type = "objects"
+metadata/subtype = 0
+metadata/subtype_name = "health_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_4" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.36, 0, 5.133333)
+metadata/type = "objects"
+metadata/subtype = 3
+metadata/subtype_name = "ammo_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_5" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.346667, 0, -3.493333)
+metadata/type = "objects"
+metadata/subtype = 0
+metadata/subtype_name = "health_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_6" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 35.506667, 0, 5.093333)
+metadata/type = "objects"
+metadata/subtype = 3
+metadata/subtype_name = "ammo_pack_1"
+metadata/legacy_angle_deg = 0
+
+[node name="Pickup_7" type="Marker3D" parent="Pickups"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31.133333, 0, 4.626667)
+metadata/type = "objects"
+metadata/subtype = 2
+metadata/subtype_name = "health_pack_3"
+metadata/legacy_angle_deg = 0
+
+[node name="Spawns" type="Node3D" parent="."]
+
+[node name="PlayerSpawn" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+metadata/type = "player"
+metadata/legacy_angle_deg = 0
+
+[node name="CompanionOffset0" type="Marker3D" parent="Spawns/PlayerSpawn"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0, -0.8)
+metadata/type = "companion_offset"
+
+[node name="CompanionOffset1" type="Marker3D" parent="Spawns/PlayerSpawn"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0, -0.8)
+metadata/type = "companion_offset"
+
+[node name="CompanionOffset2" type="Marker3D" parent="Spawns/PlayerSpawn"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.6)
+metadata/type = "companion_offset"
+
+[node name="MiniBossSpawn" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36, 0, 2.666667)
+metadata/type = "miniBoss"
+metadata/source_angle_deg_discarded_by_original = 0
+
+[node name="NavigationRegion3D" type="NavigationRegion3D" parent="."]
+metadata/nav_cell_size_u = 40.382855
+metadata/nav_free_cells = 1360
+script = ExtResource("Script_2")
+nav_vertices = PackedVector3Array(1.270628, 0, -3.986667, 17.423771, 0, -3.986667, 17.423771, 0, -3.448229, 1.270628, 0, -3.448229, 17.962209, 0, -3.986667, 24.423465, 0, -3.986667, 24.423465, 0, -3.448229, 17.962209, 0, -3.448229, 24.961904, 0, -3.986667, 26.03878, 0, -3.986667, 26.03878, 0, -3.448229, 24.961904, 0, -3.448229, 27.115656, 0, -3.986667, 44.884112, 0, -3.986667, 44.884112, 0, -3.448229, 27.115656, 0, -3.448229, 17.423771, 0, -2.909791, 1.270628, 0, -2.909791, 18.500647, 0, -3.448229, 18.500647, 0, -2.909791, 17.962209, 0, -2.909791, 19.039085, 0, -3.448229, 24.423465, 0, -2.909791, 19.039085, 0, -2.909791, 42.73036, 0, -3.448229, 42.73036, 0, -2.909791, 24.961904, 0, -2.909791, 43.807236, 0, -3.448229, 44.884112, 0, -2.909791, 43.807236, 0, -2.909791, 17.423771, 0, -2.371352, 1.270628, 0, -2.371352, 24.423465, 0, -2.371352, 17.962209, 0, -2.371352, 42.73036, 0, -2.371352, 24.961904, 0, -2.371352, 44.884112, 0, -2.371352, 43.807236, 0, -2.371352, -1.96, 0, -2.371352, 44.884112, 0, -1.832914, -1.96, 0, -1.832914, 1.270628, 0, -1.832914, 1.270628, 0, -1.294476, -1.96, 0, -1.294476, 1.809066, 0, -1.832914, 44.884112, 0, -1.294476, 1.809066, 0, -1.294476, 44.884112, 0, -0.756038, -1.96, 0, -0.756038, 17.423771, 0, -0.756038, 17.423771, 0, -0.2176, -1.96, 0, -0.2176, 17.962209, 0, -0.756038, 20.654399, 0, -0.756038, 20.654399, 0, -0.2176, 17.962209, 0, -0.2176, 22.269713, 0, -0.756038, 24.423465, 0, -0.756038, 24.423465, 0, -0.2176, 22.269713, 0, -0.2176, 24.961904, 0, -0.756038, 44.884112, 0, -0.2176, 24.961904, 0, -0.2176, 17.423771, 0, 0.320838, -1.96, 0, 0.320838, 18.500647, 0, -0.2176, 18.500647, 0, 0.320838, 17.962209, 0, 0.320838, 19.039085, 0, -0.2176, 20.654399, 0, 0.320838, 19.039085, 0, 0.320838, 24.423465, 0, 0.320838, 22.269713, 0, 0.320838, 42.73036, 0, -0.2176, 42.73036, 0, 0.320838, 24.961904, 0, 0.320838, 43.807236, 0, -0.2176, 44.884112, 0, 0.320838, 43.807236, 0, 0.320838, 17.423771, 0, 0.859276, -1.96, 0, 0.859276, 24.423465, 0, 0.859276, 17.962209, 0, 0.859276, 37.884417, 0, 0.320838, 37.884417, 0, 0.859276, 24.961904, 0, 0.859276, 38.961293, 0, 0.320838, 42.73036, 0, 0.859276, 38.961293, 0, 0.859276, 44.884112, 0, 0.859276, 43.807236, 0, 0.859276, 16.885332, 0, 0.859276, 16.885332, 0, 1.397714, -1.96, 0, 1.397714, 33.038475, 0, 0.859276, 37.884417, 0, 1.397714, 33.038475, 0, 1.397714, 42.73036, 0, 1.397714, 38.961293, 0, 1.397714, 44.884112, 0, 1.397714, 43.807236, 0, 1.397714, 9.347199, 0, 1.397714, 9.347199, 0, 1.936152, -1.96, 0, 1.936152, 9.885638, 0, 1.397714, 16.885332, 0, 1.936152, 9.885638, 0, 1.936152, 17.962209, 0, 1.397714, 18.500647, 0, 1.397714, 18.500647, 0, 1.936152, 17.962209, 0, 1.936152, 19.577523, 0, 1.397714, 20.654399, 0, 1.397714, 20.654399, 0, 1.936152, 19.577523, 0, 1.936152, 21.731275, 0, 1.397714, 22.808151, 0, 1.397714, 22.808151, 0, 1.936152, 21.731275, 0, 1.936152, 24.961904, 0, 1.397714, 25.500342, 0, 1.397714, 25.500342, 0, 1.936152, 24.961904, 0, 1.936152, 26.577218, 0, 1.397714, 32.500036, 0, 1.397714, 32.500036, 0, 1.936152, 26.577218, 0, 1.936152, 44.884112, 0, 1.936152, 33.038475, 0, 1.936152, 1.270628, 0, 1.936152, 9.347199, 0, 2.47459, 1.270628, 0, 2.47459, 17.423771, 0, 1.936152, 17.423771, 0, 2.47459, 9.885638, 0, 2.47459, 24.423465, 0, 1.936152, 24.423465, 0, 2.47459, 17.962209, 0, 2.47459, 31.961598, 0, 1.936152, 31.961598, 0, 2.47459, 24.961904, 0, 2.47459, 33.576913, 0, 1.936152, 33.576913, 0, 2.47459, 33.038475, 0, 2.47459, 34.115351, 0, 1.936152, 44.884112, 0, 2.47459, 34.115351, 0, 2.47459, 9.347199, 0, 3.013028, 1.270628, 0, 3.013028, 17.423771, 0, 3.013028, 9.885638, 0, 3.013028, 24.423465, 0, 3.013028, 17.962209, 0, 3.013028, 31.961598, 0, 3.013028, 24.961904, 0, 3.013028, 44.884112, 0, 3.013028, 33.038475, 0, 3.013028, 9.347199, 0, 3.551466, 1.270628, 0, 3.551466, 31.961598, 0, 3.551466, 9.885638, 0, 3.551466, 44.884112, 0, 3.551466, 33.038475, 0, 3.551466, 8.270323, 0, 3.551466, 8.270323, 0, 4.089904, 1.270628, 0, 4.089904, 8.808761, 0, 3.551466, 9.347199, 0, 4.089904, 8.808761, 0, 4.089904, 10.424076, 0, 3.551466, 10.424076, 0, 4.089904, 9.885638, 0, 4.089904, 12.03939, 0, 3.551466, 32.500036, 0, 3.551466, 32.500036, 0, 4.089904, 12.03939, 0, 4.089904, 33.576913, 0, 3.551466, 33.576913, 0, 4.089904, 33.038475, 0, 4.089904, 34.115351, 0, 3.551466, 37.884417, 0, 3.551466, 37.884417, 0, 4.089904, 34.115351, 0, 4.089904, 38.961293, 0, 3.551466, 42.73036, 0, 3.551466, 42.73036, 0, 4.089904, 38.961293, 0, 4.089904, 43.807236, 0, 3.551466, 44.884112, 0, 4.089904, 43.807236, 0, 4.089904, 1.809066, 0, 4.089904, 1.809066, 0, 4.628342, 1.270628, 0, 4.628342, 3.424381, 0, 4.089904, 9.347199, 0, 4.628342, 3.424381, 0, 4.628342, 10.424076, 0, 4.628342, 9.885638, 0, 4.628342, 17.423771, 0, 4.089904, 17.423771, 0, 4.628342, 12.03939, 0, 4.628342, 17.962209, 0, 4.089904, 24.423465, 0, 4.089904, 24.423465, 0, 4.628342, 17.962209, 0, 4.628342, 24.961904, 0, 4.089904, 28.73097, 0, 4.089904, 28.73097, 0, 4.628342, 24.961904, 0, 4.628342, 29.807846, 0, 4.089904, 32.500036, 0, 4.628342, 29.807846, 0, 4.628342, 37.884417, 0, 4.628342, 33.038475, 0, 4.628342, 42.73036, 0, 4.628342, 38.961293, 0, 4.628342, 44.884112, 0, 4.628342, 43.807236, 0, 4.628342, 1.809066, 0, 5.166781, 1.270628, 0, 5.166781, 8.270323, 0, 4.628342, 8.270323, 0, 5.166781, 3.424381, 0, 5.166781, 8.808761, 0, 4.628342, 9.347199, 0, 5.166781, 8.808761, 0, 5.166781, 10.424076, 0, 5.166781, 9.885638, 0, 5.166781, 17.423771, 0, 5.166781, 12.03939, 0, 5.166781, 24.423465, 0, 5.166781, 17.962209, 0, 5.166781, 28.73097, 0, 5.166781, 24.961904, 0, 5.166781, 32.500036, 0, 5.166781, 29.807846, 0, 5.166781, 33.576913, 0, 4.628342, 33.576913, 0, 5.166781, 33.038475, 0, 5.166781, 34.115351, 0, 4.628342, 37.884417, 0, 5.166781, 34.115351, 0, 5.166781, 42.73036, 0, 5.166781, 38.961293, 0, 5.166781, 44.884112, 0, 5.166781, 43.807236, 0, 5.166781, 9.347199, 0, 5.705219, 1.270628, 0, 5.705219, 17.423771, 0, 5.705219, 9.885638, 0, 5.705219, 24.423465, 0, 5.705219, 17.962209, 0, 5.705219, 25.500342, 0, 5.166781, 31.961598, 0, 5.166781, 31.961598, 0, 5.705219, 25.500342, 0, 5.705219, 44.884112, 0, 5.705219, 33.038475, 0, 5.705219)
+nav_polygons = Array[PackedInt32Array]([PackedInt32Array(3, 2, 1, 0), PackedInt32Array(7, 6, 5, 4), PackedInt32Array(11, 10, 9, 8), PackedInt32Array(15, 14, 13, 12), PackedInt32Array(17, 16, 2, 3), PackedInt32Array(20, 19, 18, 7), PackedInt32Array(23, 22, 6, 21), PackedInt32Array(26, 25, 24, 11), PackedInt32Array(29, 28, 14, 27), PackedInt32Array(31, 30, 16, 17), PackedInt32Array(33, 32, 22, 20), PackedInt32Array(35, 34, 25, 26), PackedInt32Array(37, 36, 28, 29), PackedInt32Array(40, 39, 36, 38), PackedInt32Array(43, 42, 41, 40), PackedInt32Array(46, 45, 39, 44), PackedInt32Array(48, 47, 45, 43), PackedInt32Array(51, 50, 49, 48), PackedInt32Array(55, 54, 53, 52), PackedInt32Array(59, 58, 57, 56), PackedInt32Array(62, 61, 47, 60), PackedInt32Array(64, 63, 50, 51), PackedInt32Array(67, 66, 65, 55), PackedInt32Array(70, 69, 54, 68), PackedInt32Array(72, 71, 58, 59), PackedInt32Array(75, 74, 73, 62), PackedInt32Array(78, 77, 61, 76), PackedInt32Array(80, 79, 63, 64), PackedInt32Array(82, 81, 71, 67), PackedInt32Array(85, 84, 83, 75), PackedInt32Array(88, 87, 74, 86), PackedInt32Array(90, 89, 77, 78), PackedInt32Array(93, 92, 91, 80), PackedInt32Array(96, 95, 84, 94), PackedInt32Array(98, 97, 87, 88), PackedInt32Array(100, 99, 89, 90), PackedInt32Array(103, 102, 101, 93), PackedInt32Array(106, 105, 92, 104), PackedInt32Array(110, 109, 108, 107), PackedInt32Array(114, 113, 112, 111), PackedInt32Array(118, 117, 116, 115), PackedInt32Array(122, 121, 120, 119), PackedInt32Array(126, 125, 124, 123), PackedInt32Array(128, 127, 99, 96), PackedInt32Array(131, 130, 102, 129), PackedInt32Array(134, 133, 132, 106), PackedInt32Array(137, 136, 135, 110), PackedInt32Array(140, 139, 138, 122), PackedInt32Array(143, 142, 141, 128), PackedInt32Array(146, 145, 127, 144), PackedInt32Array(148, 147, 130, 131), PackedInt32Array(150, 149, 133, 134), PackedInt32Array(152, 151, 136, 137), PackedInt32Array(154, 153, 139, 140), PackedInt32Array(156, 155, 145, 143), PackedInt32Array(158, 157, 147, 148), PackedInt32Array(160, 159, 153, 150), PackedInt32Array(162, 161, 155, 156), PackedInt32Array(165, 164, 163, 158), PackedInt32Array(168, 167, 157, 166), PackedInt32Array(171, 170, 169, 160), PackedInt32Array(175, 174, 173, 172), PackedInt32Array(178, 177, 176, 162), PackedInt32Array(182, 181, 180, 179), PackedInt32Array(186, 185, 184, 183), PackedInt32Array(189, 188, 161, 187), PackedInt32Array(192, 191, 190, 165), PackedInt32Array(195, 194, 167, 193), PackedInt32Array(197, 196, 170, 171), PackedInt32Array(200, 199, 198, 175), PackedInt32Array(204, 203, 202, 201), PackedInt32Array(208, 207, 206, 205), PackedInt32Array(211, 210, 174, 209), PackedInt32Array(213, 212, 181, 178), PackedInt32Array(215, 214, 185, 186), PackedInt32Array(217, 216, 188, 189), PackedInt32Array(219, 218, 191, 192), PackedInt32Array(222, 221, 220, 195), PackedInt32Array(225, 224, 194, 223), PackedInt32Array(227, 226, 196, 197), PackedInt32Array(229, 228, 199, 200), PackedInt32Array(231, 230, 203, 204), PackedInt32Array(233, 232, 207, 208), PackedInt32Array(235, 234, 210, 211), PackedInt32Array(238, 237, 236, 213), PackedInt32Array(241, 240, 212, 239), PackedInt32Array(243, 242, 214, 215), PackedInt32Array(245, 244, 216, 217), PackedInt32Array(247, 246, 224, 219), PackedInt32Array(249, 248, 228, 227), PackedInt32Array(251, 250, 230, 231), PackedInt32Array(255, 254, 253, 252), PackedInt32Array(257, 256, 244, 238)])

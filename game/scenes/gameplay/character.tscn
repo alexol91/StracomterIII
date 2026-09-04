@@ -1,0 +1,40 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://src/gameplay/character_controller.gd" id="1"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_torso"]
+radius = 0.35
+height = 1.2
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_head"]
+radius = 0.22
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_limb"]
+radius = 0.14
+height = 0.9
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.35
+height = 1.8
+
+[node name="Character" type="CharacterBody3D"]
+collision_layer = 8
+collision_mask = 1
+script = ExtResource("1")
+archetype = &"captain"
+
+[node name="TorsoShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("CapsuleShape3D_torso")
+
+[node name="HeadShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+shape = SubResource("SphereShape3D_head")
+
+[node name="LimbShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 0.9, 0)
+shape = SubResource("CapsuleShape3D_limb")
+
+[node name="BodyMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mesh = SubResource("CapsuleMesh_body")

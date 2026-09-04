@@ -86,6 +86,17 @@ primero que hunde el frame.
 | Petición de camino | Bajo demanda | Cola, máx. 4 por frame, con caché por par (origen, destino) |
 | Puntuación de cobertura | Al cambiar de comportamiento | Nunca por frame |
 
+**Reparto entre frames, no por ráfagas.** La percepción NO se ejecuta de golpe cada
+100 ms. Un techo de rayos aplicado a una ráfaga ordenada por prioridad produce
+**inanición**: los mismos bots de mayor prioridad se llevan todo el presupuesto y el
+resto no percibe nunca. En su lugar, cada frame se atiende una porción de clientes con
+un cursor rotatorio y vencimiento por cliente, de modo que el techo por frame solo
+introduce **retraso**, nunca hambre. Con 48 rayos/frame a 60 fps hay 2.880 rayos/s
+disponibles y 40 bots a 3 rayos y 10 Hz consumen 1.200.
+
+Al cliente se le pasa el **tiempo real transcurrido**, no el periodo nominal: si el
+techo lo retrasó, su memoria debe decaer por lo que de verdad ha pasado.
+
 **Prioridad:** distancia al jugador y visibilidad en cámara. Un bot a 60 m detrás de una
 pared se actualiza a 2 Hz; el que te está disparando, a tasa completa. **Degradación
 elegante, no recorte de calidad**: nunca se baja la calidad de la decisión, se baja su
