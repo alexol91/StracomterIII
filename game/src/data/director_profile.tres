@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="DirectorProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/director_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+max_enemies_area_divisor = 250.0
+max_enemies_multiplier = 10.0
+damage_coefficients = PackedFloat32Array(60, 100, 120)
+health_coefficients = PackedFloat32Array(45, 50, 65)
+speed_coefficients = PackedFloat32Array(60, 45, 35)
+damage_budget_per_enemy = 93.3333
+health_budget_per_enemy = 51.6667
+speed_budget_per_enemy = 46.6667
+skill_window = 8
+skill_multiplier_min = 0.65
+skill_multiplier_max = 1.75
+weight_accuracy = 0.3
+weight_damage_taken = 0.3
+weight_clear_time = 0.2
+weight_squad_losses = 0.1
+weight_cover_usage = 0.1
+phase_budget_fractions = PackedFloat32Array(0.45, 0.45, 0.1)
+relief_duration_s = 15.0
+rest_duration_s = 30.0
+min_spawn_distance_m = 12.0
+forbid_spawn_in_player_fov = true
+forbid_spawn_with_line_of_sight = true
+prefer_entry_points = true

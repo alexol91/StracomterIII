@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"enemy_thug"
+display_name_key = "ENEMY_THUG"
+max_health = 45
+speed_legacy = 150
+max_force = 3
+cadence_ms = 500
+damage = 1
+max_ammo = 50
+morale = 0
+xp_on_kill = 3
+vision_range_m = 18.0
+vision_fov_primary_deg = 30.0
+vision_fov_secondary_deg = 65.0
+reaction_delay_s = 0.80
+tint = Color(1.0, 0.15, 0.1, 1)

@@ -1,0 +1,15 @@
+# Godot
+game/.godot/
+game/android/
+game/export_presets.cfg
+*.translation
+
+# Builds
+build/
+dist/
+export/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.swp

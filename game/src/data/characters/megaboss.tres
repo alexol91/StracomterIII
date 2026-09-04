@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"megaboss"
+display_name_key = "ENEMY_MEGABOSS"
+max_health = 500
+speed_legacy = 60
+max_force = 3
+cadence_ms = 200
+damage = 10
+max_ammo = 50
+morale = 0
+xp_on_kill = 500
+vision_range_m = 30.0
+vision_fov_primary_deg = 45.0
+vision_fov_secondary_deg = 90.0
+reaction_delay_s = 0.25
+tint = Color(0.3, 0.1, 0.6, 1)

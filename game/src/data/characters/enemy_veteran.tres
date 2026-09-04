@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"enemy_veteran"
+display_name_key = "ENEMY_VETERAN"
+max_health = 65
+speed_legacy = 130
+max_force = 3
+cadence_ms = 600
+damage = 2
+max_ammo = 50
+morale = 0
+xp_on_kill = 7
+vision_range_m = 26.0
+vision_fov_primary_deg = 40.0
+vision_fov_secondary_deg = 75.0
+reaction_delay_s = 0.35
+tint = Color(0.9, 0.2, 0.05, 1)

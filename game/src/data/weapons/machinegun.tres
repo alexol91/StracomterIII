@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/weapon_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"machinegun"
+display_name_key = "WEAPON_MG"
+kind = 0
+cadence_ms = 200
+damage = 5
+range_m = 34.0
+spread_base_deg = 0.45
+spread_max_deg = 4.0
+spread_per_shot_deg = 0.50
+spread_recovery_deg_per_s = 2.6
+magazine = 50
+reload_s = 2.6
+infinite_ammo = false
+blast_radius_m = 0.0
+friendly_fire = true
+noise_intensity = 1.00
+noise_radius_m = 55.0

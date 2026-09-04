@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/weapon_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"pistol"
+display_name_key = "WEAPON_PISTOL"
+kind = 0
+cadence_ms = 100
+damage = 10
+range_m = 32.0
+spread_base_deg = 0.35
+spread_max_deg = 3.5
+spread_per_shot_deg = 0.55
+spread_recovery_deg_per_s = 3.2
+magazine = 50
+reload_s = 1.8
+infinite_ammo = false
+blast_radius_m = 0.0
+friendly_fire = true
+noise_intensity = 0.85
+noise_radius_m = 40.0

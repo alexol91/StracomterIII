@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"demolition"
+display_name_key = "CHAR_DEMOLITION"
+max_health = 110
+speed_legacy = 450
+max_force = 4
+cadence_ms = 500
+damage = 60
+max_ammo = 50
+morale = 2
+xp_on_kill = 0
+vision_range_m = 26.0
+vision_fov_primary_deg = 35.0
+vision_fov_secondary_deg = 75.0
+reaction_delay_s = 0.30
+tint = Color(0.5, 0.3, 0.1, 1)

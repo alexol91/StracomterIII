@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/weapon_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"smg"
+display_name_key = "WEAPON_SMG"
+kind = 0
+cadence_ms = 80
+damage = 7
+range_m = 26.0
+spread_base_deg = 0.60
+spread_max_deg = 5.5
+spread_per_shot_deg = 0.75
+spread_recovery_deg_per_s = 4.0
+magazine = 50
+reload_s = 2.0
+infinite_ammo = false
+blast_radius_m = 0.0
+friendly_fire = true
+noise_intensity = 0.90
+noise_radius_m = 45.0

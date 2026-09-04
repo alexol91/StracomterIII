@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/weapon_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"knife"
+display_name_key = "WEAPON_KNIFE"
+kind = 1
+cadence_ms = 500
+damage = 30
+range_m = 1.07
+spread_base_deg = 0.0
+spread_max_deg = 0.0
+spread_per_shot_deg = 0.0
+spread_recovery_deg_per_s = 0.0
+magazine = 0
+reload_s = 0.0
+infinite_ammo = true
+blast_radius_m = 0.0
+friendly_fire = false
+noise_intensity = 0.15
+noise_radius_m = 6.0

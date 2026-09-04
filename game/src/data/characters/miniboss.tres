@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="CharacterStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/character_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"miniboss"
+display_name_key = "ENEMY_MINIBOSS"
+max_health = 200
+speed_legacy = 80
+max_force = 3
+cadence_ms = 500
+damage = 30
+max_ammo = 50
+morale = 0
+xp_on_kill = 50
+vision_range_m = 24.0
+vision_fov_primary_deg = 40.0
+vision_fov_secondary_deg = 80.0
+reaction_delay_s = 0.40
+tint = Color(0.5, 0.3, 0.1, 1)

@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="FloorConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/floor_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+floor_number = 9
+display_name_key = "FLOOR_ROOFTOP"
+base_difficulty = 5.2
+zone_maps = Array[String](["res://maps/legacy/rooftop.tscn", "res://maps/legacy/rooftop.tscn", "res://maps/legacy/rooftop.tscn", "res://maps/legacy/rooftop.tscn", "res://maps/legacy/rooftop.tscn", "res://maps/legacy/rooftop.tscn"])
+zone_rewards = Array[StringName]([&"ammo_pack_1", &"health_pack_1", &"ammo_pack_2", &"health_pack_2", &"ammo_pack_3", &"health_pack_3"])
+has_miniboss = false
+has_megaboss = true
+enemy_pool = Array[StringName]([&"enemy_militiaman", &"enemy_veteran"])

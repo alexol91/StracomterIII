@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="WeaponStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/weapon_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"sniper"
+display_name_key = "WEAPON_SNIPER"
+kind = 0
+cadence_ms = 900
+damage = 45
+range_m = 70.0
+spread_base_deg = 0.05
+spread_max_deg = 0.6
+spread_per_shot_deg = 0.10
+spread_recovery_deg_per_s = 1.5
+magazine = 10
+reload_s = 3.2
+infinite_ammo = false
+blast_radius_m = 0.0
+friendly_fire = true
+noise_intensity = 1.00
+noise_radius_m = 80.0
