@@ -169,26 +169,15 @@ const SCORE_REFINE_FACTOR: int = 3
 # Aparición de enemigos (GDD §7)
 # ---------------------------------------------------------------------------
 
-## Distancia mínima al jugador. El legacy usaba 200 u ≈ 2,7 m y los enemigos
-## aparecían en la cara del jugador (`Optimization.cc:152`).
-## TODO(arquitecto): mover a datos.
-const SPAWN_MIN_PLAYER_DISTANCE_M: float = 12.0
-## Semiángulo del cono de visión del jugador dentro del cual NO se aparece.
-## Es más ancho que el FOV de cámara a propósito: aparecer justo fuera del
-## encuadre y entrar en él al segundo siguiente se lee igual de tramposo.
-## TODO(arquitecto): mover a datos.
-const SPAWN_PLAYER_CONE_HALF_ANGLE_DEG: float = 70.0
-## Distancia de camino por encima de la cual un punto deja de ser útil: el
-## enemigo tardaría tanto en llegar que el encuentro ya habría terminado.
-## TODO(arquitecto): mover a datos.
-const SPAWN_MAX_PATH_DISTANCE_M: float = 70.0
-## Multiplicador de peso para accesos reales (puertas, escaleras, ascensor)
-## frente a un punto suelto en mitad de una sala.
-## TODO(arquitecto): mover a datos.
-const SPAWN_ACCESS_POINT_BONUS: float = 4.0
-## Separación mínima entre dos puntos de aparición del mismo lote.
-## TODO(arquitecto): mover a datos.
-const SPAWN_MIN_SEPARATION_M: float = 2.0
+## LAS REGLAS DE JUSTICIA NO VIVEN AQUÍ. Distancia mínima al jugador, cono de
+## visión, decaimiento por distancia de camino y bonificación de accesos son
+## del `DirectorProfile` y las aplica `SpawnPointProvider`, que es función pura
+## y está probada sin mundo. `SpawnSampler` sólo MIDE. Duplicar esos números
+## aquí sería garantizar que un día divergen y que los enemigos aparecen donde
+## no deben sin que ninguna prueba lo vea.
+##
+## Lo que sigue es lo único que es de navegación y no de balanceo del director.
+
 ## Radio alrededor de un acceso dentro del cual un candidato "es" ese acceso.
 ## TODO(arquitecto): mover a datos.
 const SPAWN_ACCESS_RADIUS_M: float = 3.0

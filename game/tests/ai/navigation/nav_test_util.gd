@@ -297,3 +297,24 @@ static func world_from_map(root: Node, mesh: NavigationMesh) -> NavSyntheticWorl
 	for entry: Array in collect_map_boxes(root):
 		world.add_oriented_box(entry[0] as Transform3D, entry[1] as Vector3)
 	return world
+
+
+## Petición de aparición ya configurada. Los valores son de la prueba, no de
+## `NavTuning`: las reglas de justicia son del `DirectorProfile` y quien las
+## aplica es `SpawnPointProvider`.
+static func spawn_request(player_position: Vector3, player_forward: Vector3,
+		count: int, min_distance_m: float, fov_half_angle_deg: float,
+		falloff_m: float, entry_bonus: float) -> SpawnPointProvider.SpawnRequest:
+	var request := SpawnPointProvider.SpawnRequest.new()
+	request.player_position = player_position
+	request.player_forward = player_forward
+	request.count = count
+	request.min_distance_m = min_distance_m
+	request.player_fov_half_angle_deg = fov_half_angle_deg
+	request.path_distance_falloff_m = falloff_m
+	request.entry_point_weight_bonus = entry_bonus
+	request.forbid_in_player_fov = true
+	request.forbid_line_of_sight = true
+	request.prefer_entry_points = true
+	request.configured = true
+	return request

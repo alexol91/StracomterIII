@@ -177,3 +177,29 @@ func test_sin_espacio_fisico_la_linea_de_vision_es_optimista() -> void:
 	assert_false(world.nav.raycast(Vector3.ZERO, Vector3(5.0, 0.0, 0.0)).is_finite(),
 		"sin espacio físico, ningún rayo impacta")
 	world.dispose()
+
+
+func test_vacia_las_caches_dependientes_al_cambiar_la_topologia() -> void:
+	# `WorldQueryPhysics` (percepción) cachea el coste de camino por celda y el
+	# oído lo usa. Si una puerta se cierra y esa caché no se vacía, los bots
+	# siguen oyendo como si estuviera abierta: un disparo al otro lado de una
+	# puerta cerrada se oiría al lado.
+	var world := NavTestUtil.fixture(
+		[NavTestUtil.floor_box(FLOOR_HALF_EXTENT_M)] as Array[AABB])
+	var perception := WorldQueryPhysics.new()
+	perception.navigation_map = world.nav.map_rid()
+	world.nav.add_cache_dependent(perception)
+	assert_eq(world.nav.cache_dependent_count(), 1, "el dependiente se registra")
+
+	perception.path_cost(Vector3(-8.0, 0.0, 0.0), Vector3(8.0, 0.0, 0.0))
+	assert_gt(float(perception.cache_size()), 0.0,
+		"la caché de percepción debería tener algo")
+
+	var tree := Engine.get_main_loop() as SceneTree
+	var bus: Node = tree.root.get_node_or_null(^"/root/EventBus")
+	assert_not_null(bus, "hace falta el EventBus para esta prueba")
+	if bus != null:
+		bus.emit_signal(&"door_state_changed", 11, false)
+		assert_eq(perception.cache_size(), 0,
+			"al cambiar una puerta se vacía también la caché del oído")
+	world.dispose()

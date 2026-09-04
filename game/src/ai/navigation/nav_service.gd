@@ -114,6 +114,7 @@ func dispose() -> void:
 	for region_id: StringName in _regions:
 		if not _adopted.get(region_id, false):
 			NavigationServer3D.free_rid(_regions[region_id])
+	_cache_dependents.clear()
 	_regions.clear()
 	_meshes.clear()
 	_sources.clear()
@@ -440,6 +441,32 @@ func pump() -> int:
 	return served
 
 
+## Otras cachés que dependen de la topología y hay que vaciar con ella.
+##
+## El caso concreto es `WorldQueryPhysics`, que el oído usa para estimar la
+## propagación del sonido por coste de camino: si una puerta se cierra y esa
+## caché no se vacía, los bots siguen oyendo como si estuviera abierta. Quien
+## escucha `door_state_changed` y `level_topology_changed` es este servicio,
+## así que la invalidación se coordina aquí y no en cinco sitios.
+##
+## Se acepta cualquier objeto con `clear_cache()`, sin depender del tipo: la
+## navegación no tiene por qué conocer a la percepción.
+var _cache_dependents: Array[Object] = []
+
+
+func add_cache_dependent(dependent: Object) -> void:
+	if dependent != null and not _cache_dependents.has(dependent):
+		_cache_dependents.append(dependent)
+
+
+func remove_cache_dependent(dependent: Object) -> void:
+	_cache_dependents.erase(dependent)
+
+
+func cache_dependent_count() -> int:
+	return _cache_dependents.size()
+
+
 func invalidate_cache() -> void:
 	_path_cache.clear()
 	_cost_cache.clear()
@@ -581,7 +608,15 @@ func _event_bus() -> Node:
 ## rutas es menor que el de que un bot cruce una puerta cerrada.
 func _on_door_state_changed(_door_id: int, _is_open: bool) -> void:
 	invalidate_cache()
+	_invalidate_dependents()
 
 
 func _on_level_topology_changed(region_aabb: AABB) -> void:
 	rebake_aabb(region_aabb)
+	_invalidate_dependents()
+
+
+func _invalidate_dependents() -> void:
+	for dependent: Object in _cache_dependents:
+		if is_instance_valid(dependent) and dependent.has_method(&"clear_cache"):
+			dependent.call(&"clear_cache")

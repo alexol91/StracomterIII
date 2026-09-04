@@ -1,11 +1,17 @@
 extends TestCase
-## Reglas de aparición justa (GDD §7).
+## `SpawnSampler` como implementación de `SpawnPointProvider` (GDD §7).
 ##
-## El legacy hacía aparecer a los enemigos en incentros de triángulos a más de
-## **200 unidades** del jugador (`Optimization.cc:152`). A la escala del remake
-## eso son 2,7 m: los enemigos salían literalmente en la cara del jugador, a
-## veces dentro de su campo de visión. Esta prueba existe para que eso no
-## vuelva a pasar por accidente.
+## El reparto es: el muestreador MIDE el mundo, el director DECIDE. Así que
+## aquí se prueban dos cosas distintas y ninguna es "reimplementar la justicia":
+##   1. que los datos medidos son correctos (navegable, distancia de CAMINO,
+##      línea de visión, acceso real),
+##   2. que la combinación muestreador + reglas del director no produce ni una
+##      sola aparición injusta.
+##
+## El legacy hacía aparecer enemigos a más de **200 unidades** del jugador
+## (`Optimization.cc:152`), que a la escala del remake son 2,7 m: literalmente
+## en su cara, a veces dentro de su campo de visión. Esta prueba existe para
+## que eso no vuelva a pasar por accidente.
 ##
 ## Escenario: anillo de 32×32 m con un bloque macizo de 20×20 en el centro. El
 ## jugador está en el corredor oeste mirando al norte, así que hay:
@@ -18,123 +24,167 @@ const BLOCK_HALF_M: float = 10.0
 const PLAYER_POSITION: Vector3 = Vector3(-13.0, 0.0, 0.0)
 ## Mirando al norte (−Z), que es el convenio de Godot para "hacia delante".
 const PLAYER_FORWARD: Vector3 = Vector3(0.0, 0.0, -1.0)
-const BATCH: int = 4
 const RNG_SEED: int = 20261234
+## Valores de perfil de la petición. Se fijan en la prueba y NO en `NavTuning`:
+## las reglas de justicia son del `DirectorProfile`.
+const REQUEST_MIN_DISTANCE_M: float = 12.0
+const REQUEST_FOV_HALF_ANGLE_DEG: float = 70.0
+const REQUEST_FALLOFF_M: float = 20.0
+const REQUEST_ENTRY_BONUS: float = 4.0
 
 
-func test_ningun_punto_muestreado_viola_las_reglas_de_justicia() -> void:
+func test_los_candidatos_medidos_pasan_el_filtro_del_director() -> void:
 	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
 	var sampler := SpawnSampler.new()
 	sampler.setup(world.nav, world)
 	assert_gt(float(sampler.build_candidates(world.mesh)), 0.0,
 		"el muestreo del navmesh no puede salir vacío")
-
 	var rng := RandomNumberGenerator.new()
 	rng.seed = RNG_SEED
-	var points := sampler.sample(BATCH, PLAYER_POSITION, PLAYER_FORWARD, rng)
-	assert_gt(float(points.size()), 0.0,
+	sampler.set_rng(rng)
+
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	var candidates := sampler.sample_candidates(request)
+	assert_gt(float(candidates.size()), 0.0, "no se midió ni un candidato")
+
+	var chosen := SpawnPointProvider.select(candidates, request, rng)
+	assert_gt(float(chosen.size()), 0.0,
 		"un anillo de 32 m tiene sitios legales de sobra; no salió ninguno")
-	for p: Vector3 in points:
-		assert_gt(p.distance_to(PLAYER_POSITION), NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M,
+	for candidate: SpawnPointProvider.SpawnCandidate in chosen:
+		var p := candidate.position
+		assert_gt(p.distance_to(PLAYER_POSITION), REQUEST_MIN_DISTANCE_M,
 			"aparición a %f m del jugador: el mínimo son %f"
-			% [p.distance_to(PLAYER_POSITION), NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M])
-		assert_false(
-			SpawnSampler.is_inside_view_cone(p, PLAYER_POSITION, PLAYER_FORWARD),
+			% [p.distance_to(PLAYER_POSITION), REQUEST_MIN_DISTANCE_M])
+		assert_false(SpawnPointProvider.is_inside_view_cone(p, request),
 			"aparición dentro del cono de visión del jugador, en %s" % p)
 		assert_false(world.has_line_of_sight(
 				PLAYER_POSITION + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M,
 				p + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M),
 			"aparición a la vista del jugador, en %s" % p)
-		assert_true(sampler.is_fair(p, PLAYER_POSITION, PLAYER_FORWARD),
-			"el propio muestreador considera injusto un punto que ha devuelto")
 	world.dispose()
 
 
-func test_el_muestreo_no_repite_el_mismo_metro_cuadrado() -> void:
+func test_la_distancia_medida_es_de_camino_y_no_euclidea() -> void:
+	# Es la diferencia entre "a 26 m en línea recta" y "a 52 m rodeando el
+	# bloque". El reparto del director pondera con la de camino, así que si
+	# aquí se midiera la euclídea el peso estaría mal en todo el mapa.
+	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
+	var sampler := SpawnSampler.new()
+	sampler.setup(world.nav, world)
+	sampler.build_candidates(world.mesh)
+	var far_side := Vector3(13.0, 0.0, 0.0)
+	var straight := PLAYER_POSITION.distance_to(far_side)
+	var walked := sampler.path_distance(PLAYER_POSITION, far_side)
+	assert_false(is_inf(walked), "por el anillo se llega")
+	assert_gt(walked, straight * 1.5,
+		"rodeando el bloque se anda mucho más (recta %f, camino %f)"
+		% [straight, walked])
+	world.dispose()
+
+
+func test_marca_la_linea_de_vision_y_la_navegabilidad_de_cada_candidato() -> void:
 	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
 	var sampler := SpawnSampler.new()
 	sampler.setup(world.nav, world)
 	sampler.build_candidates(world.mesh)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = RNG_SEED
-	var points := sampler.sample(BATCH, PLAYER_POSITION, PLAYER_FORWARD, rng)
-	assert_gt(float(points.size()), 1.0, "hacen falta al menos dos para comparar")
-	for i in points.size():
-		for j in range(i + 1, points.size()):
-			assert_gt(points[i].distance_to(points[j]),
-				NavTuning.SPAWN_MIN_SEPARATION_M * 0.99,
-				"dos refuerzos del mismo lote aparecen encima el uno del otro")
+	sampler.set_rng(rng)
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	var candidates := sampler.sample_candidates(request)
+	assert_gt(float(candidates.size()), 0.0, "no se midió ni un candidato")
+	var checked := 0
+	for candidate: SpawnPointProvider.SpawnCandidate in candidates:
+		assert_true(candidate.navigable,
+			"un candidato salido del navmesh tiene que ser navegable")
+		var expected := world.has_line_of_sight(
+			PLAYER_POSITION + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M,
+			candidate.position + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M)
+		assert_eq(candidate.has_line_of_sight_to_player, expected,
+			"la línea de visión medida no coincide con el mundo en %s"
+			% candidate.position)
+		checked += 1
+	assert_gt(float(checked), 0.0, "no se comprobó ni un candidato")
 	world.dispose()
 
 
-func test_rechaza_por_cercania_el_error_del_legacy() -> void:
-	# 2,7 m es lo que permitía el original. Aquí tiene que salir TOO_CLOSE.
-	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
-	var sampler := SpawnSampler.new()
-	sampler.setup(world.nav, world)
-	var legacy_distance := PLAYER_POSITION + Vector3(0.0, 0.0, 2.7)
-	assert_eq(sampler.rejection_reason(legacy_distance, PLAYER_POSITION, PLAYER_FORWARD),
-		SpawnSampler.Rejection.TOO_CLOSE,
-		"2,7 m es la distancia del legacy y es demasiado cerca")
-	world.dispose()
-
-
-func test_rechaza_lo_que_esta_dentro_del_cono_de_vision() -> void:
-	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
-	var sampler := SpawnSampler.new()
-	sampler.setup(world.nav, world)
-	var ahead := PLAYER_POSITION + Vector3(0.0, 0.0, -13.0)
-	assert_gt(ahead.distance_to(PLAYER_POSITION), NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M,
-		"el punto de prueba debe pasar el filtro de distancia para que el"
-		+ " motivo de rechazo sea el cono y no otra cosa")
-	assert_eq(sampler.rejection_reason(ahead, PLAYER_POSITION, PLAYER_FORWARD),
-		SpawnSampler.Rejection.IN_VIEW_CONE,
-		"aparecer justo delante del jugador es el peor de los casos")
-	world.dispose()
-
-
-func test_rechaza_lo_que_esta_a_la_vista_aunque_este_lejos() -> void:
-	# Detrás del jugador, a 14 m por el mismo pasillo: fuera del cono, pero se
-	# ve. Aparecer ahí es aparecer en un sitio al que el jugador sólo tiene que
-	# girarse para mirar.
-	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
-	var sampler := SpawnSampler.new()
-	sampler.setup(world.nav, world)
-	var behind := PLAYER_POSITION + Vector3(0.0, 0.0, 14.0)
-	assert_false(SpawnSampler.is_inside_view_cone(behind, PLAYER_POSITION, PLAYER_FORWARD),
-		"el punto de prueba está a la espalda: no es el cono lo que lo rechaza")
-	assert_eq(sampler.rejection_reason(behind, PLAYER_POSITION, PLAYER_FORWARD),
-		SpawnSampler.Rejection.HAS_LINE_OF_SIGHT,
-		"a la espalda pero a la vista por el pasillo: no vale")
-	world.dispose()
-
-
-func test_los_accesos_reales_pesan_mas_que_el_medio_de_una_sala() -> void:
-	# Un enemigo que sale por una puerta se lee como un refuerzo; uno que se
-	# materializa en mitad de la sala se lee como un fallo del motor.
+func test_una_peticion_sin_perfil_no_produce_nada() -> void:
+	# Regla del director: el valor por defecto de una regla de justicia no
+	# puede ser permisivo. Si nadie aplicó el perfil, no se mide ni se genera.
 	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
 	var sampler := SpawnSampler.new()
 	sampler.setup(world.nav, world)
 	sampler.build_candidates(world.mesh)
+	var request := SpawnPointProvider.SpawnRequest.new()
+	request.player_position = PLAYER_POSITION
+	request.player_forward = PLAYER_FORWARD
+	request.count = 4
+	assert_false(request.configured, "la petición no lleva perfil aplicado")
+	assert_size(sampler.sample_candidates(request), 0,
+		"sin perfil no se mide el mundo ni se proponen apariciones")
+	world.dispose()
 
-	var door := Vector3(13.0, 0.0, 0.0)
+
+func test_marca_los_accesos_reales() -> void:
+	# Un enemigo que sale por una puerta se lee como un refuerzo; uno que se
+	# materializa en mitad de la sala se lee como un fallo del motor. El
+	# muestreador sólo marca cuáles son accesos; ponderarlos es del director.
+	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
+	var sampler := SpawnSampler.new()
+	sampler.setup(world.nav, world)
+	sampler.build_candidates(world.mesh, 1.5)
+	var door := Vector3(13.5, 0.0, 0.0)
 	sampler.set_access_points(PackedVector3Array([door]))
 	assert_eq(sampler.access_point_count(), 1, "el acceso debe registrarse")
+	assert_eq(sampler.entry_points(0).size(), 1,
+		"el contrato del director pide los accesos por zona")
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = RNG_SEED
-	var near_door := 0
-	var total := 0
-	for _run in 40:
-		var points := sampler.sample(1, PLAYER_POSITION, PLAYER_FORWARD, rng)
-		for p: Vector3 in points:
-			total += 1
-			if p.distance_to(door) <= NavTuning.SPAWN_ACCESS_RADIUS_M:
-				near_door += 1
-	assert_gt(float(total), 0.0, "debería haber muestreado algo")
-	assert_gt(float(near_door), 0.0,
-		"con bonificación ×%f el acceso debe salir elegido alguna vez"
-		% NavTuning.SPAWN_ACCESS_POINT_BONUS)
+	sampler.set_rng(rng)
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	var marked := 0
+	var mismarked := 0
+	for _run in 8:
+		for candidate: SpawnPointProvider.SpawnCandidate in sampler.sample_candidates(request):
+			var near := candidate.position.distance_to(door) <= NavTuning.SPAWN_ACCESS_RADIUS_M
+			if candidate.is_entry_point:
+				marked += 1
+				if not near:
+					mismarked += 1
+	assert_gt(float(marked), 0.0,
+		"ningún candidato junto a la puerta se marcó como acceso")
+	assert_eq(mismarked, 0,
+		"se marcaron como acceso puntos que no están junto a ninguno")
+	world.dispose()
+
+
+func test_no_gasta_consultas_de_camino_en_puntos_demasiado_cercanos() -> void:
+	# El atajo usa el `min_distance_m` DE LA PETICIÓN, no una constante propia:
+	# no puede divergir de la regla del director, sólo le ahorra trabajo.
+	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
+	var sampler := SpawnSampler.new()
+	sampler.setup(world.nav, world)
+	sampler.build_candidates(world.mesh)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = RNG_SEED
+	sampler.set_rng(rng)
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	var candidates := sampler.sample_candidates(request)
+	assert_gt(float(sampler.stat_last_skipped_near), 0.0,
+		"con el jugador dentro del mapa tiene que haber puntos demasiado cerca")
+	for candidate: SpawnPointProvider.SpawnCandidate in candidates:
+		assert_gt(candidate.position.distance_to(PLAYER_POSITION),
+			REQUEST_MIN_DISTANCE_M - 0.001,
+			"se midió un punto que el atajo debería haber saltado")
 	world.dispose()
 
 
@@ -162,17 +212,20 @@ func test_collect_access_points_lee_los_marcadores_del_conversor() -> void:
 	root.free()
 
 
-func test_sin_candidatos_no_inventa_apariciones() -> void:
-	# Preferible a colocar enemigos "donde sea": el director se queda sin
-	# oleada, que es un problema de diseño de nivel, no un enemigo dentro de
-	# una pared.
+func test_sin_navmesh_horneado_el_proveedor_se_declara_no_listo() -> void:
+	# El director debe negarse a generar en lugar de soltar enemigos en el
+	# aire. Decirlo es responsabilidad del proveedor.
 	var world := NavTestUtil.ring_scenario(OUTER_HALF_M, BLOCK_HALF_M)
 	var sampler := SpawnSampler.new()
 	sampler.setup(world.nav, world)
-	# Sin `build_candidates`: no hay de dónde elegir.
-	assert_eq(sampler.candidate_count(), 0, "no se han construido candidatos")
-	var rng := RandomNumberGenerator.new()
-	rng.seed = RNG_SEED
-	assert_size(sampler.sample(BATCH, PLAYER_POSITION, PLAYER_FORWARD, rng), 0,
-		"sin candidatos no se devuelve nada")
-	world.dispose()
+	assert_false(sampler.is_ready(),
+		"sin candidatos construidos el proveedor no está listo")
+	sampler.build_candidates(world.mesh)
+	assert_true(sampler.is_ready(), "con navmesh y candidatos, sí lo está")
+	var request := NavTestUtil.spawn_request(
+		PLAYER_POSITION, PLAYER_FORWARD, 4, REQUEST_MIN_DISTANCE_M,
+		REQUEST_FOV_HALF_ANGLE_DEG, REQUEST_FALLOFF_M, REQUEST_ENTRY_BONUS)
+	world.nav.dispose()
+	assert_false(sampler.is_ready(), "sin mapa de navegación, deja de estarlo")
+	assert_size(sampler.sample_candidates(request), 0,
+		"y no propone nada en lugar de proponer cualquier cosa")

@@ -10,26 +10,25 @@ extends WorldQuery
 ## física. El `AIScheduler` corre en `_process`, así que quien construya esta
 ## clase debe refrescar el espacio con `bind_space()` desde
 ## `_physics_process` (o pasar el `World3D` y dejar que se resuelva solo).
-
-## Tolerancia al comparar el final de una ruta con el destino pedido, en
-## metros. Por debajo se considera que la ruta llega; por encima,
-## `NavigationServer3D` ha devuelto un camino parcial y no hay ruta real.
 ##
-## Las tres constantes de este bloque NO son balanceo y por eso no viven en
-## `PerceptionProfile`: describen el margen numérico del navmesh y el tamaño de
-## una caché. Cambiarlas no hace a un enemigo mejor ni peor, solo más o menos
-## exacto al leer el motor.
-const PATH_ARRIVAL_TOLERANCE_M: float = 1.0
-## Entradas máximas de la caché de coste de camino.
-const PATH_COST_CACHE_LIMIT: int = 128
-## Lado de la celda con que se cuantizan las posiciones para cachear, en
-## metros. Dos consultas dentro de la misma celda comparten resultado.
-const PATH_COST_CACHE_CELL_M: float = 1.0
+## QUIEN MONTE EL NIVEL debe hacer dos cosas más:
+##   1. `nav_service.add_cache_dependent(esta_instancia)`, para que la caché de
+##      costes se vacíe al abrirse una puerta o al demolerse un muro. Sin eso el
+##      oído seguirá creyendo que una puerta cerrada está abierta.
+##   2. asignar `nav_service`, sin el cual no hay rutas de flanqueo.
+
+## Los márgenes del navmesh y el tamaño de la caché salen de `NavTuning`, no de
+## constantes propias: si esta clase y `NavService` respondieran con tolerancias
+## distintas a la misma pregunta ("¿hay ruta?"), el juego tendría dos verdades.
+## No son números de balanceo y por eso no viven en `PerceptionProfile`.
 
 var space_state: PhysicsDirectSpaceState3D = null
 var navigation_map: RID = RID()
 ## Cuerpos excluidos de los raycast (el propio bot, típicamente).
 var exclude: Array[RID] = []
+## Servicio de navegación del nivel. Lo inyecta quien carga el nivel; sin él no
+## hay rutas de flanqueo (ver `disjoint_routes`).
+var nav_service: NavService = null
 
 var _path_cost_cache: Dictionary[int, float] = {}
 
@@ -108,13 +107,9 @@ func path_cost(from: Vector3, to: Vector3) -> float:
 		return _path_cost_cache[key]
 
 	var points := NavigationServer3D.map_get_path(navigation_map, from, to, true)
-	var cost := _length_of(points)
-	if points.size() < 2 or points[points.size() - 1].distance_to(to) > PATH_ARRIVAL_TOLERANCE_M:
-		# Ruta parcial: `map_get_path` devuelve el punto alcanzable más cercano
-		# cuando el destino es inalcanzable. Eso NO es una ruta.
-		cost = INF
+	var cost := _length_of(points) if _route_arrives(points, to) else INF
 
-	if _path_cost_cache.size() >= PATH_COST_CACHE_LIMIT:
+	if _path_cost_cache.size() >= NavTuning.PATH_CACHE_MAX_ENTRIES:
 		_path_cost_cache.clear()
 	_path_cost_cache[key] = cost
 	return cost
@@ -126,16 +121,20 @@ func path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	return NavigationServer3D.map_get_path(navigation_map, from, to, true)
 
 
-## Rutas disjuntas para el flanqueo.
+## Rutas disjuntas para el flanqueo. Delegadas en `NavService`, que es quien
+## sabe de corredores de polígonos (`RoutePlanner`); aquí no se reimplementan.
 ##
-## NO se implementa aquí: es el ámbito de `ai-navegacion`, que decidirá cómo
-## penalizar los tramos ya reclamados en la pizarra. Devolver vacío es la
-## respuesta correcta mientras tanto — el director de escuadra simplemente no
-## asignará flanqueos, en lugar de asignar dos flanqueos por el mismo pasillo.
+## Sin `nav_service` devuelve vacío, y eso NO es un error: el director de
+## escuadra debe leer "menos de dos rutas" como "no hay flanqueo posible" y
+## asignar otro rol, en lugar de mandar a dos flanqueadores por el mismo
+## pasillo — que es lo que pasaría si aquí se devolviera la misma ruta dos
+## veces con tal de rellenar el hueco.
 func disjoint_routes(
-	_from: Vector3, _to: Vector3, _max_routes: int = 2
+	from: Vector3, to: Vector3, max_routes: int = 2
 ) -> Array[PackedVector3Array]:
-	return []
+	if nav_service == null:
+		return []
+	return nav_service.disjoint_routes(from, to, max_routes)
 
 
 ## Vacía la caché de costes. Obligatorio al cambiar la topología del nivel
@@ -148,6 +147,28 @@ func cache_size() -> int:
 	return _path_cost_cache.size()
 
 
+## ¿La ruta llega de verdad al destino, o es un camino parcial?
+##
+## `map_get_path` devuelve el camino hasta el punto alcanzable MÁS CERCANO
+## cuando origen y destino están en islas distintas, así que sin esta
+## comprobación un destino inalcanzable da una distancia finita y el oído
+## estimaría "cerca" un ruido al que no hay paso.
+##
+## La comparación es contra el punto NAVEGABLE más cercano al destino, no
+## contra el destino en bruto: los focos de ruido casi nunca están sobre el
+## navmesh (un disparo sale a la altura del pecho, no de los pies), y comparar
+## con el destino crudo declararía inalcanzable cualquier disparo por el mero
+## hecho de sonar a 1,2 m del suelo.
+func _route_arrives(points: PackedVector3Array, to: Vector3) -> bool:
+	if points.size() < 2:
+		return false
+	var last := points[points.size() - 1]
+	if last.distance_to(to) <= NavTuning.NAVMESH_SNAP_TOLERANCE_M:
+		return true
+	var target := NavigationServer3D.map_get_closest_point(navigation_map, to)
+	return last.distance_to(target) <= NavTuning.NAVMESH_SNAP_TOLERANCE_M
+
+
 func _length_of(points: PackedVector3Array) -> float:
 	if points.size() < 2:
 		return INF
@@ -158,14 +179,7 @@ func _length_of(points: PackedVector3Array) -> float:
 
 
 func _cache_key(from: Vector3, to: Vector3) -> int:
-	var a := Vector3i(
-		roundi(from.x / PATH_COST_CACHE_CELL_M),
-		roundi(from.y / PATH_COST_CACHE_CELL_M),
-		roundi(from.z / PATH_COST_CACHE_CELL_M)
-	)
-	var b := Vector3i(
-		roundi(to.x / PATH_COST_CACHE_CELL_M),
-		roundi(to.y / PATH_COST_CACHE_CELL_M),
-		roundi(to.z / PATH_COST_CACHE_CELL_M)
-	)
+	var cell := NavTuning.PATH_CACHE_CELL_M
+	var a := Vector3i(roundi(from.x / cell), roundi(from.y / cell), roundi(from.z / cell))
+	var b := Vector3i(roundi(to.x / cell), roundi(to.y / cell), roundi(to.z / cell))
 	return hash([a, b])
