@@ -14,16 +14,20 @@ extends RefCounted
 ## (`NavSyntheticWorld`) que resuelve los rayos analíticamente.
 ##
 ## FRONTERA ENTRE EL DOBLE Y LA REALIDAD, y no es una preferencia de estilo:
-##   * `NavSyntheticWorld` y `collect_map_boxes` valen para ESCENARIOS
-##     SINTÉTICOS PEQUEÑOS construidos a mano, donde las cajas son toda la
-##     geometría que hay y describirlas es lo cómodo y lo correcto.
-##   * NUNCA valen para validar los mapas reales. Se intentó y salió mal: el
-##     mundo de cajas se quedó VERDE cuando el conversor fundió el zócalo del
-##     perímetro en el trimesh del suelo, porque un mundo hecho sólo de
-##     `BoxShape3D` dejó de parecerse al mapa sin que ninguna prueba lo dijera.
-##     Para los mapas reales hay que usar `NavPhysicsWorld`, que registra las
-##     formas de colisión de verdad y consulta el `PhysicsDirectSpaceState3D`,
-##     que es lo que hace el juego.
+##   * `NavSyntheticWorld` vale para ESCENARIOS SINTÉTICOS PEQUEÑOS construidos
+##     a mano (`fixture`, `cover_scenario`, `ring_scenario`), donde las cajas
+##     son toda la geometría que hay y describirlas es lo cómodo y lo correcto.
+##   * NUNCA vale para validar los mapas reales, y para eso está
+##     `NavPhysicsWorld`: registra las formas de colisión de verdad y consulta
+##     el `PhysicsDirectSpaceState3D`, que es lo que hace el juego.
+##
+## Aquí hubo un mundo de cajas para mapas reales (`world_from_map`,
+## `collect_map_boxes`) y está BORRADO a propósito, no jubilado: se quedó VERDE
+## cuando el conversor fundió el zócalo del perímetro en el trimesh del suelo,
+## porque un mundo hecho sólo de `BoxShape3D` dejó de parecerse al mapa sin que
+## ninguna prueba lo dijera. Medido después con física real, además subestimaba
+## la cobertura en TODOS los mapas (mapP4: 15 puntos contra 33). Dejarlo
+## disponible era dejar puesta la trampa.
 ##
 ## La regla general, que en este proyecto ya ha mordido tres veces: un doble
 ## más amable —o simplemente DISTINTO— de la realidad hace que las pruebas

@@ -38,10 +38,14 @@ func test_no_gd_file_assigns_a_literal_phrase_to_a_text_property() -> void:
 	var violations: Array[String] = []
 	for path: String in _list_files(UI_SRC_DIR, ".gd"):
 		var content := FileAccess.get_file_as_string(path)
-		for m: RegExMatch in _text_property_regex.search_all(content):
+		for line: String in content.split("\n"):
+			var trimmed := line.strip_edges()
+			var m := _text_property_regex.search(trimmed)
+			if m == null:
+				continue
 			var value := m.get_string(2)
 			if not value.is_empty() and _lowercase_regex.search(value) != null:
-				violations.append("%s → %s = \"%s\"" % [path, m.get_string(1), value])
+				violations.append("%s → %s" % [path, trimmed])
 	assert_true(violations.is_empty(),
 		"literales sin traducir en código:\n" + "\n".join(violations))
 

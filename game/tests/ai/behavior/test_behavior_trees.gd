@@ -277,14 +277,21 @@ func test_investigating_goes_to_the_freshest_lead_and_scans() -> void:
 	assert_lt(actuator.position().distance_to(Vector3(6.0, 0.0, 6.0)), 1.5)
 
 
-## Patrullar recorre el ciclo de puntos y no se detiene al llegar al primero.
+## Patrullar recorre el CICLO entero y vuelve a empezar. El legacy elegía el
+## siguiente vértice al azar entre los otros dos (`Enemy.cc:54-55`), así que un
+## bot podía quedarse rebotando entre dos puntos indefinidamente.
 func test_patrolling_cycles_through_its_points() -> void:
 	ctx.patrol_points = PackedVector3Array([
 		Vector3(6.0, 0.0, 0.0), Vector3(6.0, 0.0, 6.0), Vector3(0.0, 0.0, 6.0)])
 	var tree := BehaviorLibrary.build(BehaviorKind.Kind.PATROL)
-	BehaviorTestUtil.run_tree(tree, ctx, actuator, 120)
-	assert_gt(ctx.patrol_index, 0, "se pasa al siguiente punto al llegar")
-	assert_gt(actuator.distance_travelled_m, 5.0)
+	var visited: Array[int] = []
+	for _i: int in range(200):
+		tree.tick(ctx, 0.05)
+		actuator.advance(0.05)
+		if not visited.has(ctx.patrol_index):
+			visited.append(ctx.patrol_index)
+	assert_size(visited, 3, "visita los tres puntos del recorrido")
+	assert_gt(actuator.distance_travelled_m, 12.0, "y los recorre andando")
 
 
 ## Retirarse aleja de la amenaza conocida. Sin cobertura útil se huye

@@ -46,8 +46,8 @@ func test_low_morale_prioritizes_surviving_over_obeying() -> void:
 		"desaparece el verbo con el que se cumple 'Ir ahí'")
 	assert_true(directive.allows(BehaviorKind.Kind.TAKE_COVER))
 	assert_gt(
-		directive.weights.weight_for(BehaviorKind.Kind.TAKE_COVER),
-		directive.weights.weight_for(BehaviorKind.Kind.ATTACK),
+		directive.weights.gain(BehaviorKind.Kind.TAKE_COVER),
+		directive.weights.gain(BehaviorKind.Kind.ATTACK),
 		"cubrirse pesa más que disparar"
 	)
 
