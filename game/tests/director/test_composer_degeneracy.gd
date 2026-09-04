@@ -105,7 +105,7 @@ func test_new_objective_separates_them() -> void:
 ## nave diáfana producen la MISMA composición.
 func test_legacy_formulation_ignores_map_shape() -> void:
 	var composer := EncounterComposer.new()
-	composer.legacy_formulation = true
+	composer.mode = EncounterComposer.Mode.LEGACY_SIMPLEX
 	var corridor := composer.compose(_context(892.7, 5.0, 1.0, 5))
 	var room := composer.compose(_context(892.7, 15.0, 3.0, 2))
 	var hall := composer.compose(_context(892.7, 40.0, 8.0, 1))
@@ -160,3 +160,74 @@ func test_legacy_optimum_violates_the_bounds_the_new_one_enforces() -> void:
 	assert_lt(float(SKEWED[2]), float(minimum),
 		"(3, 26, 0) incumple la cota mínima por arquetipo (%d)" % minimum)
 	assert_true(_fits(SKEWED), "y aun así es factible y óptimo para el objetivo original")
+
+
+## 7. LAS DOS VÍAS, SOBRE LOS MISMOS PRESUPUESTOS.
+##
+## Mismo N, mismas tres restricciones, misma libertad de cotas (0..N). Lo
+## único que cambia es CÓMO se elige dentro de ese espacio:
+##   * el Simplex de 2012 maximiza `x1+x2+x3` y no distingue una mezcla de un
+##     monocultivo,
+##   * la búsqueda puntúa variedad, objetivo, forma, novedad y presupuesto.
+## El resultado es la justificación del diseño, con números.
+func test_search_and_simplex_over_the_same_budgets() -> void:
+	# --- Vía A: el Simplex con la formulación de 2012 ---
+	var simplex := IntegerSimplex.new(3)
+	simplex.set_objective_ints([1, 1, 1], true)
+	simplex.add_constraint_ints(DAMAGE, Simplex.Relation.LESS_EQUAL, BUDGET_DAMAGE)
+	simplex.add_constraint_ints(HEALTH, Simplex.Relation.LESS_EQUAL, BUDGET_HEALTH)
+	simplex.add_constraint_ints(SPEED, Simplex.Relation.LESS_EQUAL, BUDGET_SPEED)
+	simplex.solve()
+	var simplex_counts := simplex.get_solution_ints()
+
+	# --- Vía B: enumeración + puntuación, mismos presupuestos y cotas ---
+	var request := CompositionSearch.Request.new()
+	request.lower = [0, 0, 0]
+	request.upper = [30, 30, 30]
+	request.budgets = [float(BUDGET_DAMAGE), float(BUDGET_HEALTH), float(BUDGET_SPEED)]
+	request.damage_coefficients = [60.0, 100.0, 120.0]
+	request.health_coefficients = [45.0, 50.0, 65.0]
+	request.speed_coefficients = [60.0, 45.0, 35.0]
+	request.target_counts = [10.0, 10.0, 10.0]
+	request.affinity_shares = [0.3334, 0.3333, 0.3333]
+	request.max_total = 30
+	request.seed = 20120611
+	request.top_k = 10
+	var search := CompositionSearch.run(request)
+	assert_true(search.has_solution(), "la enumeración encuentra composición")
+
+	var searched := search.best.counts
+	var search_variety := CompositionSearch.variety_term(searched, request)
+	var simplex_variety := CompositionSearch.variety_term(simplex_counts, request)
+	var skewed_variety := CompositionSearch.variety_term(SKEWED, request)
+
+	# La búsqueda produce una mezcla; el óptimo sesgado que el objetivo de
+	# 2012 admite es casi un monocultivo.
+	assert_gt(search_variety, 0.95, "la enumeración devuelve una composición variada")
+	assert_lt(search.best.dominant_share(), 0.45,
+		"y ningún arquetipo pasa del 45% del encuentro")
+	assert_lt(skewed_variety, 0.5,
+		"mientras que (3, 26, 0) —óptimo para el objetivo de 2012— casi no tiene variedad")
+	assert_gt(search_variety, skewed_variety, "la diferencia es la que buscábamos")
+	assert_gt(search_variety, simplex_variety - 0.000001,
+		"la enumeración nunca es menos variada que el vértice que devuelve el Simplex")
+
+	# Y el precio: la búsqueda renuncia a algunas cabezas, porque contar
+	# cabezas no era el objetivo. Es una decisión, no un defecto.
+	var simplex_total := simplex_counts[0] + simplex_counts[1] + simplex_counts[2]
+	assert_eq(simplex_total, 29, "el Simplex agota el objetivo de 2012")
+	assert_lt(float(search.best.total()), float(simplex_total) + 1.0,
+		"la enumeración no trae más enemigos: trae mejores")
+
+
+## 8. El mecanismo por defecto es la enumeración. Si alguien lo cambia sin
+## querer, esto salta.
+func test_search_is_the_default_mechanism() -> void:
+	var composer := EncounterComposer.new()
+	assert_eq(EncounterComposer.mode_name(composer.mode), "SEARCH",
+		"el composer arranca en modo búsqueda")
+	var result := composer.compose(_context(892.7, 15.0, 3.0, 2))
+	assert_eq(EncounterComposer.mode_name(result.mode), "SEARCH",
+		"y la composición declara con qué se hizo")
+	assert_gt(float(result.ranked.size()), 1.0, "con su ranking y su desglose")
+	assert_eq(result.score_terms.size(), 5, "y los cinco términos con nombre")

@@ -237,9 +237,15 @@ func register_console_commands() -> void:
 	DevConsole.register("director.budget", "Presupuestos del encuentro en curso.", 0, _cmd_budget)
 	DevConsole.register(
 		"director.compose",
-		"Compone un encuentro de prueba: director.compose <area_m2> <dificultad> [legacy].",
+		"Compone un encuentro de prueba y lista las 10 mejores composiciones con el desglose de puntuación: director.compose <area_m2> <dificultad>.",
 		2,
 		_cmd_compose
+	)
+	DevConsole.register(
+		"director.composer",
+		"Conmuta el mecanismo de composición: director.composer <search|legacy|goal>.",
+		0,
+		_cmd_composer
 	)
 
 
@@ -287,23 +293,47 @@ func _cmd_compose(args: Array[String]) -> String:
 	test_context.skill_multiplier = skill_model.skill_multiplier()
 	test_context.floor_number = GameState.current_floor
 	test_context.zone = GameState.current_zone
+	test_context.seed = GameState.run_seed
 	var floor_data := Balance.floor_config(GameState.current_floor)
 	if floor_data != null:
 		test_context.allowed_archetypes = floor_data.enemy_pool.duplicate()
-	# Forma del mapa: si no hay zona en curso se usa la de la zona actual.
+	# Forma del mapa: si hay zona en curso se usa la suya.
 	if _context != null:
 		test_context.cover_points_per_100m2 = _context.cover_points_per_100m2
 		test_context.mean_line_of_sight_m = _context.mean_line_of_sight_m
 		test_context.entry_count = _context.entry_count
-	var use_legacy := args.size() > 2 and args[2].to_lower() == "legacy"
-	var previous := composer.legacy_formulation
-	composer.legacy_formulation = use_legacy
+
+	# El composer conserva la composición anterior para el término de
+	# novedad; una prueba de consola no debe ensuciar la partida en curso.
+	var saved_previous := composer.previous_counts()
 	var result := composer.compose(test_context)
-	composer.legacy_formulation = previous
-	return "%s\n  objetivo: %s\n  presupuestos: %s\n  consumido: %s\n  nodos: %d" % [
-		result.describe(),
-		str(result.target_counts),
-		str(result.budgets),
-		str(result.spent),
-		result.nodes_explored,
-	]
+	var ranked := result.ranked
+	composer.set_previous_counts(saved_previous)
+
+	var lines: Array[String] = []
+	lines.append(result.describe())
+	lines.append("  presupuestos: daño %.1f · vida %.1f · velocidad %.1f" % [
+		result.budgets[0], result.budgets[1], result.budgets[2]])
+	lines.append("  consumido:    daño %.1f · vida %.1f · velocidad %.1f" % [
+		result.spent[0], result.spent[1], result.spent[2]])
+	lines.append("  objetivo de planta: [%.1f/%.1f/%.1f]" % [
+		result.target_counts[0], result.target_counts[1], result.target_counts[2]])
+	if result.mode == EncounterComposer.Mode.SEARCH:
+		lines.append("  espacio: %d combinaciones visitadas, %d viables, %d µs" % [
+			result.combinations_visited, result.feasible_count, result.search_usec])
+		lines.append("  las %d mejores [Sicario/Miliciano/Veterano]:" % ranked.size())
+		for index: int in ranked.size():
+			lines.append("   %2d. %s" % [index + 1, ranked[index].describe()])
+	else:
+		lines.append("  Simplex: estado %s, %d nodos" % [
+			IntegerSimplex.status_name(result.solver_status), result.nodes_explored])
+	return "\n".join(lines)
+
+
+func _cmd_composer(args: Array[String]) -> String:
+	_ensure_parts()
+	if args.is_empty():
+		return "Mecanismo actual: %s. Uso: director.composer <search|legacy|goal>" % (
+			EncounterComposer.mode_name(composer.mode))
+	composer.mode = EncounterComposer.mode_from_string(args[0])
+	return "Mecanismo de composición: %s" % EncounterComposer.mode_name(composer.mode)

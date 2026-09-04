@@ -30,6 +30,13 @@ const SETTER_PHYSICS_PRIORITY: int = -100
 var character: Character = null
 var _cooldown_remaining_s: float = 0.0
 
+## Inyectable SOLO para pruebas: sustituye el raycast físico real de
+## `_raycast()`. Misma idea y mismo motivo que `WeaponSystem.raycast_override`
+## (ver su comentario): los cuerpos recién creados no son consultables por
+## raycast dentro del mismo tick de física en el que se crean, y el runner de
+## pruebas nunca avanza un frame real.
+var raycast_override: Callable = Callable()
+
 
 func _ready() -> void:
 	process_physics_priority = SETTER_PHYSICS_PRIORITY
@@ -73,6 +80,20 @@ func aim_direction_from(origin: Vector3) -> Vector3:
 		if to_target.length_squared() > 0.0001:
 			return to_target.normalized()
 	return -character.global_transform.basis.z
+
+
+## Raycast común a las habilidades que apuntan (Órdenes, Demolición). Excluye
+## siempre al propio `character`.
+func _raycast(from: Vector3, to: Vector3, mask: int) -> Dictionary:
+	if raycast_override.is_valid():
+		var result: Variant = raycast_override.call(from, to, mask)
+		return result if result is Dictionary else {}
+	if character == null or not character.is_inside_tree():
+		return {}
+	var space_state := character.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(from, to, mask)
+	query.exclude = [character.get_rid()]
+	return space_state.intersect_ray(query)
 
 
 ## Hook opcional para habilidades con efecto sostenido (p. ej. Supresión).

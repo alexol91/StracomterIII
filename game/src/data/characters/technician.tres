@@ -21,3 +21,5 @@ vision_fov_secondary_deg = 75.0
 reaction_delay_s = 0.30
 tint = Color(0.4, 0.3, 0.3, 1)
 perception = ExtResource("2")
+default_weapon_id = &"smg"
+ability_cooldown_s = 12.0

@@ -155,52 +155,244 @@ class Result:
 
 ## Recorre el espacio y devuelve las mejores composiciones.
 ##
-## La poda es la que hace que esto sea barato: los tres costes crecen con
-## cada enemigo, así que en cuanto un prefijo se pasa de presupuesto, todo lo
-## que venga detrás en ese bucle también se pasa y se corta el barrido.
+## Dos decisiones que hacen que esto sea barato de verdad:
+##
+## 1. [b]Poda analítica[/b]: como los tres costes crecen linealmente con cada
+##    enemigo, para un prefijo (x0, x1) dado se DESPEJA el mayor x2 que cabe
+##    en los tres presupuestos, y el bucle interior recorre solo el tramo
+##    viable. No se enumera para descartar: no se enumera lo inviable.
+## 2. [b]El cuerpo del bucle está en línea[/b], sin llamadas ni objetos
+##    intermedios. En GDScript interpretado, cinco llamadas por candidato
+##    cuestan más que toda la aritmética junta.
+##
+## Esa segunda decisión duplica la función de puntuación, así que hay una
+## prueba (`test_composition_search.gd`) que compara candidato a candidato
+## este bucle contra `evaluate`, que es la implementación de referencia. Si
+## alguien toca una y no la otra, salta.
 static func run(request: Request) -> Result:
 	var started := Time.get_ticks_usec()
 	var result := Result.new()
-	var archetypes := request.archetype_count()
-	if archetypes != 3:
-		push_error("CompositionSearch: se esperan 3 arquetipos, llegaron %d." % archetypes)
+	if request.archetype_count() != 3:
+		push_error("CompositionSearch: se esperan 3 arquetipos, llegaron %d."
+			% request.archetype_count())
 		return result
 
-	var scored: Array[Candidate] = []
-	var counts: Array[int] = [0, 0, 0]
+	var damage := request.damage_coefficients
+	var health := request.health_coefficients
+	var speed := request.speed_coefficients
+	var budget_damage := request.budgets[0]
+	var budget_health := request.budgets[1]
+	var budget_speed := request.budgets[2]
+
+	# Todo lo que no cambia dentro del bucle se calcula una vez.
+	var target_0 := request.target_counts[0]
+	var target_1 := request.target_counts[1]
+	var target_2 := request.target_counts[2]
+	var target_scale := 2.0 * float(maxi(request.max_total, 1))
+	var affinity_0 := request.affinity_shares[0]
+	var affinity_1 := request.affinity_shares[1]
+	var affinity_2 := request.affinity_shares[2]
+
+	var available: int = 0
+	for index: int in 3:
+		if request.upper[index] > 0:
+			available += 1
+	var single_archetype := available <= 1
+	var variety_scale := 0.0 if single_archetype else 1.0 / log(float(available))
+
+	var previous_total: int = 0
+	for value: int in request.previous_counts:
+		previous_total += value
+	var has_previous := previous_total > 0 and request.previous_counts.size() == 3
+	var previous_inverse := 0.0 if not has_previous else 1.0 / float(previous_total)
+	var previous_0 := 0.0 if not has_previous else float(request.previous_counts[0]) * previous_inverse
+	var previous_1 := 0.0 if not has_previous else float(request.previous_counts[1]) * previous_inverse
+	var previous_2 := 0.0 if not has_previous else float(request.previous_counts[2]) * previous_inverse
+
+	var budget_rows: int = 0
+	for index: int in 3:
+		if request.budgets[index] > 0.0:
+			budget_rows += 1
+	var budget_divisor := 0.0 if budget_rows == 0 else 1.0 / float(budget_rows)
+	var inverse_damage := 0.0 if budget_damage <= 0.0 else 1.0 / budget_damage
+	var inverse_health := 0.0 if budget_health <= 0.0 else 1.0 / budget_health
+	var inverse_speed := 0.0 if budget_speed <= 0.0 else 1.0 / budget_speed
+	var inverse_weight := 1.0 / (
+		WEIGHT_TARGET + WEIGHT_VARIETY + WEIGHT_NOVELTY + WEIGHT_BUDGET + WEIGHT_MAP_FIT
+	)
+
+	var wanted := maxi(request.top_k, 1)
+	var best_scores: Array[float] = []
+	var best_counts: Array[Array] = []
+	# Array reutilizado: `_offer` duplica al insertar, así que nadie se queda
+	# con una referencia a este.
+	var scratch: Array[int] = [0, 0, 0]
 
 	for x0: int in range(request.lower[0], request.upper[0] + 1):
-		if not _prefix_fits(request, [x0, 0, 0]):
+		var damage_0 := damage[0] * float(x0)
+		var health_0 := health[0] * float(x0)
+		var speed_0 := speed[0] * float(x0)
+		if damage_0 > budget_damage or health_0 > budget_health or speed_0 > budget_speed:
+			break
+		if x0 > request.max_total:
 			break
 		for x1: int in range(request.lower[1], request.upper[1] + 1):
-			if not _prefix_fits(request, [x0, x1, 0]):
+			result.combinations_visited += 1
+			var damage_1 := damage_0 + damage[1] * float(x1)
+			var health_1 := health_0 + health[1] * float(x1)
+			var speed_1 := speed_0 + speed[1] * float(x1)
+			if damage_1 > budget_damage or health_1 > budget_health or speed_1 > budget_speed:
 				break
-			for x2: int in range(request.lower[2], request.upper[2] + 1):
+			if x0 + x1 > request.max_total:
+				break
+
+			# Mayor x2 que cabe: se despeja de cada presupuesto y del tope.
+			var limit := request.upper[2]
+			limit = mini(limit, _limit_from(budget_damage - damage_1, damage[2]))
+			limit = mini(limit, _limit_from(budget_health - health_1, health[2]))
+			limit = mini(limit, _limit_from(budget_speed - speed_1, speed[2]))
+			limit = mini(limit, request.max_total - x0 - x1)
+
+			var deviation_prefix := absf(float(x0) - target_0) + absf(float(x1) - target_1)
+			for x2: int in range(request.lower[2], limit + 1):
 				result.combinations_visited += 1
+				result.feasible_count += 1
 				if result.combinations_visited >= MAX_COMBINATIONS:
 					result.truncated = true
 					break
-				counts = [x0, x1, x2]
-				if x0 + x1 + x2 > request.max_total:
-					break
-				if not _prefix_fits(request, counts):
-					break
-				result.feasible_count += 1
-				scored.append(evaluate(counts, request))
+
+				var total := x0 + x1 + x2
+				# --- objetivo ---
+				var deviation := deviation_prefix + absf(float(x2) - target_2)
+				var term_target := clampf(1.0 - deviation / target_scale, 0.0, 1.0)
+				# --- variedad, novedad y forma (todas sobre el reparto) ---
+				var term_variety := 0.0
+				var term_novelty := 1.0
+				var term_fit := 0.0
+				if total > 0:
+					var inverse := 1.0 / float(total)
+					var share_0 := float(x0) * inverse
+					var share_1 := float(x1) * inverse
+					var share_2 := float(x2) * inverse
+					if single_archetype:
+						term_variety = 1.0
+					else:
+						var entropy := 0.0
+						if x0 > 0:
+							entropy -= share_0 * log(share_0)
+						if x1 > 0:
+							entropy -= share_1 * log(share_1)
+						if x2 > 0:
+							entropy -= share_2 * log(share_2)
+						term_variety = clampf(entropy * variety_scale, 0.0, 1.0)
+					term_fit = clampf(1.0 - 0.5 * (
+						absf(share_0 - affinity_0)
+						+ absf(share_1 - affinity_1)
+						+ absf(share_2 - affinity_2)
+					), 0.0, 1.0)
+					if has_previous:
+						term_novelty = clampf(0.5 * (
+							absf(share_0 - previous_0)
+							+ absf(share_1 - previous_1)
+							+ absf(share_2 - previous_2)
+						), 0.0, 1.0)
+				# --- presupuesto ---
+				var spent_damage := damage_1 + damage[2] * float(x2)
+				var spent_health := health_1 + health[2] * float(x2)
+				var spent_speed := speed_1 + speed[2] * float(x2)
+				var occupancy := 0.0
+				if inverse_damage > 0.0:
+					occupancy += clampf(spent_damage * inverse_damage, 0.0, 1.0)
+				if inverse_health > 0.0:
+					occupancy += clampf(spent_health * inverse_health, 0.0, 1.0)
+				if inverse_speed > 0.0:
+					occupancy += clampf(spent_speed * inverse_speed, 0.0, 1.0)
+				var term_budget := occupancy * budget_divisor
+
+				var score := inverse_weight * (
+					WEIGHT_TARGET * term_target
+					+ WEIGHT_VARIETY * term_variety
+					+ WEIGHT_NOVELTY * term_novelty
+					+ WEIGHT_BUDGET * term_budget
+					+ WEIGHT_MAP_FIT * term_fit
+				)
+				scratch[0] = x0
+				scratch[1] = x1
+				scratch[2] = x2
+				_offer(best_scores, best_counts, score, scratch, wanted, request.seed)
 			if result.truncated:
 				break
 		if result.truncated:
 			break
 
-	_sort_candidates(scored, request.seed)
-	result.ranked = scored.slice(0, maxi(request.top_k, 1))
-	if not scored.is_empty():
-		result.best = scored[0]
+	for index: int in best_counts.size():
+		var counts: Array[int] = best_counts[index]
+		result.ranked.append(evaluate(counts, request))
+	if not result.ranked.is_empty():
+		result.best = result.ranked[0]
 	result.elapsed_usec = Time.get_ticks_usec() - started
 	return result
 
 
-## Puntúa una composición. Pública porque el desglose es lo que se depura.
+## Mayor número entero de enemigos que caben en lo que queda de presupuesto.
+static func _limit_from(remaining: float, coefficient: float) -> int:
+	if coefficient <= 0.0:
+		return MAX_COMBINATIONS
+	if remaining < 0.0:
+		return -1
+	return floori(remaining / coefficient + 0.000000001)
+
+
+## Inserta una composición en el ranking parcial si se lo gana.
+static func _offer(
+	scores: Array[float],
+	counts_list: Array[Array],
+	score: float,
+	counts: Array[int],
+	wanted: int,
+	seed_value: int
+) -> void:
+	if scores.size() >= wanted:
+		var last: Array[int] = counts_list[scores.size() - 1]
+		if not _is_better(score, counts, scores[scores.size() - 1], last, seed_value):
+			return
+	var position := scores.size()
+	for index: int in scores.size():
+		var other: Array[int] = counts_list[index]
+		if _is_better(score, counts, scores[index], other, seed_value):
+			position = index
+			break
+	scores.insert(position, score)
+	counts_list.insert(position, counts.duplicate())
+	while scores.size() > wanted:
+		scores.remove_at(scores.size() - 1)
+		counts_list.remove_at(counts_list.size() - 1)
+
+
+## Orden TOTAL y determinista: primero la puntuación redondeada a la
+## precisión de `SCORE_EPSILON` (para que dos puntuaciones indistinguibles no
+## dependan del ruido de coma flotante), y el empate lo rompe una función de
+## la semilla de la partida — nunca el orden del bucle.
+static func _is_better(
+	score_a: float,
+	counts_a: Array[int],
+	score_b: float,
+	counts_b: Array[int],
+	seed_value: int
+) -> bool:
+	var rank_a := _rank(score_a)
+	var rank_b := _rank(score_b)
+	if rank_a != rank_b:
+		return rank_a > rank_b
+	return tie_break_key(counts_a, seed_value) < tie_break_key(counts_b, seed_value)
+
+
+static func _rank(score: float) -> int:
+	return roundi(score / SCORE_EPSILON)
+
+
+## Puntúa una composición y devuelve su desglose. Se usa para materializar
+## las ganadoras y en los tests; el bucle caliente usa `score_of`.
 static func evaluate(counts: Array[int], request: Request) -> Candidate:
 	var candidate := Candidate.new()
 	candidate.counts = counts.duplicate()
@@ -228,17 +420,52 @@ static func evaluate(counts: Array[int], request: Request) -> Candidate:
 
 ## Los cinco términos, cada uno normalizado a 0..1 con 1 = mejor.
 static func score_terms(counts: Array[int], request: Request) -> Dictionary[StringName, float]:
+	var total := counts[0] + counts[1] + counts[2]
+	var spent_values := spend(counts, request)
 	return {
-		TERM_TARGET: target_term(counts, request),
-		TERM_VARIETY: variety_term(counts, request),
-		TERM_NOVELTY: novelty_term(counts, request),
-		TERM_BUDGET: budget_term(counts, request),
-		TERM_MAP_FIT: map_fit_term(counts, request),
+		TERM_TARGET: _target_term(counts, request),
+		TERM_VARIETY: _variety_term(counts, total, request),
+		TERM_NOVELTY: _novelty_term(counts, total, request),
+		TERM_BUDGET: _budget_term(spent_values[0], spent_values[1], spent_values[2], request),
+		TERM_MAP_FIT: _map_fit_term(counts, total, request),
 	}
 
 
 ## Cercanía a la composición objetivo de la planta.
 static func target_term(counts: Array[int], request: Request) -> float:
+	return _target_term(counts, request)
+
+
+## VARIEDAD: entropía de Shannon normalizada. Vale 1 cuando la mezcla está
+## repartida entre todos los arquetipos disponibles y 0 cuando son todos del
+## mismo tipo. Es el término que hace imposible la degeneración de 2012, y es
+## justo el que NO cabe en una función objetivo lineal: la entropía no es
+## lineal en los conteos, así que ningún Simplex puede perseguirla.
+static func variety_term(counts: Array[int], request: Request) -> float:
+	return _variety_term(counts, counts[0] + counts[1] + counts[2], request)
+
+
+## NOVEDAD: distancia a la composición anterior, en reparto. 1 = no se
+## parece en nada; 0 = la misma mezcla otra vez.
+static func novelty_term(counts: Array[int], request: Request) -> float:
+	return _novelty_term(counts, counts[0] + counts[1] + counts[2], request)
+
+
+## Aprovechamiento del presupuesto: media de las tres ocupaciones. Penaliza
+## dejar amenaza sin gastar; no puede pasar de 1 porque lo que se pasa del
+## presupuesto ni siquiera entra en la búsqueda.
+static func budget_term(counts: Array[int], request: Request) -> float:
+	var spent_values := spend(counts, request)
+	return _budget_term(spent_values[0], spent_values[1], spent_values[2], request)
+
+
+## Ajuste a la forma del mapa: cuánto se parece el reparto de la composición
+## al que pide la geometría de la zona.
+static func map_fit_term(counts: Array[int], request: Request) -> float:
+	return _map_fit_term(counts, counts[0] + counts[1] + counts[2], request)
+
+
+static func _target_term(counts: Array[int], request: Request) -> float:
 	var deviation: float = 0.0
 	for index: int in counts.size():
 		deviation += absf(float(counts[index]) - request.target_counts[index])
@@ -246,61 +473,55 @@ static func target_term(counts: Array[int], request: Request) -> float:
 	return clampf(1.0 - deviation / scale, 0.0, 1.0)
 
 
-## VARIEDAD: entropía de Shannon normalizada. Vale 1 cuando la mezcla está
-## repartida entre todos los arquetipos disponibles y 0 cuando son todos del
-## mismo tipo. Es el término que hace imposible la degeneración de 2012, y es
-## justo el que no cabe en una función objetivo lineal.
-static func variety_term(counts: Array[int], request: Request) -> float:
-	var total: int = 0
-	var available: int = 0
-	for index: int in counts.size():
-		total += counts[index]
-		if request.upper[index] > 0:
-			available += 1
+static func _variety_term(counts: Array[int], total: int, request: Request) -> float:
 	if total <= 0:
 		return 0.0
+	var available: int = 0
+	for index: int in counts.size():
+		if request.upper[index] > 0:
+			available += 1
 	if available <= 1:
 		# Con un solo arquetipo disponible, la variedad no es una decisión:
 		# no se puede premiar ni castigar por algo que no se puede elegir.
 		return 1.0
 	var entropy: float = 0.0
+	var inverse := 1.0 / float(total)
 	for value: int in counts:
 		if value <= 0:
 			continue
-		var share := float(value) / float(total)
+		var share := float(value) * inverse
 		entropy -= share * log(share)
 	return clampf(entropy / log(float(available)), 0.0, 1.0)
 
 
-## NOVEDAD: distancia a la composición anterior, en reparto. 1 = no se
-## parece en nada; 0 = la misma mezcla otra vez.
-static func novelty_term(counts: Array[int], request: Request) -> float:
-	if request.previous_counts.is_empty():
+static func _novelty_term(counts: Array[int], total: int, request: Request) -> float:
+	if request.previous_counts.is_empty() or total <= 0:
 		return 1.0
 	var previous_total: int = 0
 	for value: int in request.previous_counts:
 		previous_total += value
-	var total: int = 0
-	for value: int in counts:
-		total += value
-	if previous_total <= 0 or total <= 0:
+	if previous_total <= 0:
 		return 1.0
 	var distance: float = 0.0
+	var inverse := 1.0 / float(total)
+	var previous_inverse := 1.0 / float(previous_total)
 	for index: int in counts.size():
-		var mine := float(counts[index]) / float(total)
-		var theirs := float(request.previous_counts[index]) / float(previous_total)
-		distance += absf(mine - theirs)
+		distance += absf(
+			float(counts[index]) * inverse - float(request.previous_counts[index]) * previous_inverse
+		)
 	return clampf(distance * 0.5, 0.0, 1.0)
 
 
-## Aprovechamiento del presupuesto: media de las tres ocupaciones. Deja de
-## premiar en cuanto se llena, y no puede pasar de 1 porque lo que se pasa ni
-## siquiera entra en la búsqueda.
-static func budget_term(counts: Array[int], request: Request) -> float:
-	var spent_values := spend(counts, request)
+static func _budget_term(
+	spent_damage: float,
+	spent_health: float,
+	spent_speed: float,
+	request: Request
+) -> float:
 	var total: float = 0.0
 	var rows: int = 0
-	for index: int in spent_values.size():
+	var spent_values: Array[float] = [spent_damage, spent_health, spent_speed]
+	for index: int in 3:
 		var budget := request.budgets[index]
 		if budget <= 0.0:
 			continue
@@ -309,17 +530,13 @@ static func budget_term(counts: Array[int], request: Request) -> float:
 	return 0.0 if rows == 0 else total / float(rows)
 
 
-## Ajuste a la forma del mapa: cuánto se parece el reparto de la composición
-## al que pide la geometría de la zona.
-static func map_fit_term(counts: Array[int], request: Request) -> float:
-	var total: int = 0
-	for value: int in counts:
-		total += value
+static func _map_fit_term(counts: Array[int], total: int, request: Request) -> float:
 	if total <= 0:
 		return 0.0
 	var distance: float = 0.0
+	var inverse := 1.0 / float(total)
 	for index: int in counts.size():
-		distance += absf(float(counts[index]) / float(total) - request.affinity_shares[index])
+		distance += absf(float(counts[index]) * inverse - request.affinity_shares[index])
 	return clampf(1.0 - distance * 0.5, 0.0, 1.0)
 
 
@@ -358,22 +575,3 @@ static func _mix(hash_value: int, value: int) -> int:
 		result ^= (value >> shift) & 0xFF
 		result = (result * 0x100000001B3) & 0x7FFFFFFFFFFFFFFF
 	return result
-
-
-## ¿Cabe este prefijo en los tres presupuestos? Con coeficientes positivos,
-## si un prefijo no cabe, ningún superconjunto suyo cabrá: por eso vale para
-## podar.
-static func _prefix_fits(request: Request, counts: Array[int]) -> bool:
-	var spent_values := spend(counts, request)
-	for index: int in spent_values.size():
-		if spent_values[index] > request.budgets[index]:
-			return false
-	return true
-
-
-static func _sort_candidates(candidates: Array[Candidate], seed_value: int) -> void:
-	candidates.sort_custom(func(a: Candidate, b: Candidate) -> bool:
-		if absf(a.score - b.score) > SCORE_EPSILON:
-			return a.score > b.score
-		return tie_break_key(a.counts, seed_value) < tie_break_key(b.counts, seed_value)
-	)

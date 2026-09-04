@@ -21,3 +21,5 @@ vision_fov_secondary_deg = 65.0
 reaction_delay_s = 0.80
 tint = Color(1.0, 0.15, 0.1, 1)
 perception = ExtResource("2")
+default_weapon_id = &"pistol"
+sprint_multiplier = 1.4

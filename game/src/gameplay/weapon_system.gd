@@ -69,6 +69,22 @@ var _current_weapon_id: StringName = &""
 var _firearm_uses_character_stats: bool = true
 var _rng := RandomNumberGenerator.new()
 
+## Inyectable SOLO para pruebas: sustituye el raycast físico real.
+## Firma: `Callable(from: Vector3, to: Vector3, mask: int) -> Dictionary`,
+## con el mismo formato que devuelve
+## `PhysicsDirectSpaceState3D.intersect_ray` (`position`, `collider`,
+## `shape`...). Vacío (por defecto) = física real.
+##
+## Por qué existe: los cuerpos de física recién añadidos al árbol no son
+## consultables por raycast hasta que pasa al menos un paso de física real
+## (limitación del motor — Jolt no actualiza el broadphase de forma
+## síncrona), y el runner de pruebas del proyecto (`tests/run_tests.gd`)
+## ejecuta todas las pruebas dentro de un único `_ready()` síncrono, sin
+## avanzar nunca un frame real. Es la misma idea que `ai/contracts/world_query.gd`
+## usa para hacer testeable la IA sin física real; aquí se resuelve de forma
+## independiente porque `gameplay/` no puede importar nada de `src/ai/`.
+var raycast_override: Callable = Callable()
+
 
 func _ready() -> void:
 	process_physics_priority = CONSUMER_PHYSICS_PRIORITY
@@ -258,6 +274,9 @@ func _emit_shot_feedback(weapon: Weapon, origin: Vector3, hit: bool, is_headshot
 
 
 func _raycast(from: Vector3, to: Vector3, mask: int) -> Dictionary:
+	if raycast_override.is_valid():
+		var result: Variant = raycast_override.call(from, to, mask)
+		return result if result is Dictionary else {}
 	if character == null or not character.is_inside_tree():
 		return {}
 	var space_state := character.get_world_3d().direct_space_state

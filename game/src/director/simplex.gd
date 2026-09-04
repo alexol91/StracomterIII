@@ -2,6 +2,26 @@ class_name Simplex
 extends RefCounted
 ## Simplex de DOS FASES con aritmética racional exacta (ADR-003).
 ##
+## [b]Por qué sigue aquí, si ya no es el mecanismo por defecto[/b]
+##
+## El director compone los encuentros por enumeración exhaustiva y
+## puntuación ([CompositionSearch]), no con programación lineal. Esta clase
+## SE CONSERVA por dos razones, y ninguna es que haga falta:
+##
+## 1. Es la pieza histórica del proyecto: el Simplex con racionales exactos
+##    era el corazón académico del original de 2012, y este es su port
+##    correcto —dos fases en vez de Big-M, regla de Bland en vez de Dantzig,
+##    64 bits con desbordamiento detectado en vez de 32 en silencio—.
+## 2. Es la EVIDENCIA de por qué se sustituyó. `test_composer_degeneracy.gd`
+##    resuelve con este solucionador la formulación de 2012 y demuestra que
+##    su óptimo admite 26 enemigos del mismo tipo de 29. Sin un solucionador
+##    correcto, esa demostración no valdría nada: sería "nuestro Simplex está
+##    mal" en lugar de "la formulación estaba mal".
+##
+## Lo que le falta no es velocidad —son tres variables y corre una vez por
+## zona—, es EXPRESIVIDAD: un programa lineal solo admite objetivos lineales,
+## y variedad (entropía) o novedad frente a la oleada anterior no lo son.
+##
 ## Qué se conserva del original (`legacy/trunk/Optimization/lib/Simplex.cc`):
 ## el algoritmo y la aritmética exacta sobre racionales.
 ##

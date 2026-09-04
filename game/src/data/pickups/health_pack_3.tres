@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="PickupStats" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/data/pickup_stats.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"health_pack_3"
+display_name_key = "PICKUP_HEALTH_LARGE"
+effect = 0
+amount = 100.0
+weapon_id = &""

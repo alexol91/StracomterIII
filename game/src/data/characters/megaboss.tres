@@ -21,3 +21,5 @@ vision_fov_secondary_deg = 90.0
 reaction_delay_s = 0.25
 tint = Color(0.3, 0.1, 0.6, 1)
 perception = ExtResource("2")
+default_weapon_id = &"machinegun"
+sprint_multiplier = 1.1

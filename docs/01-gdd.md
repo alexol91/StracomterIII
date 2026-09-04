@@ -87,6 +87,12 @@ cadencia, radio de cuerpo 30 u.
 > como **variante de balanceo alternativa**, seleccionable por datos. Son más lentos y
 > más equilibrados; puede que sean mejores. Pero no son los que se jugaron.
 
+> **Desviación consciente: el radio de las auras.** El original usaba 200 u, que a la
+> escala del remake son **2,67 m** — más corto que la propia formación de escuadra, así
+> que el aura del Capitán casi nunca alcanzaba a nadie. Se usa **8 m**. Es una de las
+> pocas veces en que replicar el número exacto habría replicado un fallo en vez de un
+> diseño.
+
 **Habilidades activas (nuevo, `E-01`).** En el original las cuatro clases se
 diferenciaban en estadísticas y en dos auras pasivas: elegir clase era elegir números.
 Se añade una habilidad activa por clase que convierte esa elección en una forma de jugar:

@@ -21,30 +21,22 @@ extends RefCounted
 ## 26 Milicianos y ni un Veterano. Como el solucionador es determinista,
 ## siempre devolvía la misma —y era una de las sesgadas—, planta tras planta.
 ## El original no producía variedad: producía un artefacto del orden de
-## pivotaje. `test_composer_degeneracy.gd` lo demuestra.
+## pivotaje. `test_composer_degeneracy.gd` lo demuestra con números.
 ##
-## [b]La formulación nueva[/b]
+## [b]Qué hace el remake[/b]
 ##
-## Se conservan el algoritmo (Simplex exacto + ramificación y acotación) y
-## los tres presupuestos. Cambia el objetivo: en vez de contar cabezas, se
-## persigue una COMPOSICIÓN OBJETIVO con cotas por arquetipo.
-## [codeblock]
-## min  SUM_i (d_i+ + d_i-)  -  epsilon * SUM_i x_i
-## s.a. presupuestos de daño / vida / velocidad (los originales, modulados
-##      por la forma del mapa)
-##      x_i - d_i+ + d_i- = objetivo_i            (fila de meta por arquetipo)
-##      min_i <= x_i <= max_i                     (cotas por arquetipo)
-##      x_i entera, d_i+ , d_i- >= 0 continuas
-## [/codeblock]
+## Lo que se quiere optimizar —variedad de la mezcla, novedad frente a la
+## zona anterior, ajuste a la geometría— NO ES LINEAL, y un programa lineal
+## solo admite objetivos lineales. Por eso el mecanismo por defecto es
+## [CompositionSearch]: enumerar el espacio entero (unos pocos miles de
+## combinaciones) y puntuarlo con términos con nombre y peso.
 ##
-## El término `- epsilon * SUM x_i` degrada el objetivo original a simple
-## DESEMPATE: entre dos composiciones igual de cercanas al objetivo, gana la
-## que trae más enemigos. Es todo lo que aquel objetivo podía aportar.
+## Lo que SÍ se conserva del original, porque es lo que describía bien el
+## problema, son los tres presupuestos y sus coeficientes: siguen siendo las
+## restricciones duras, ahora moduladas por la forma del mapa.
 ##
-## La composición objetivo no es una constante: sale de la forma del mapa.
-## Un pasillo estrecho con muchos accesos pide Sicarios; una planta diáfana
-## con líneas de tiro largas admite Veteranos. El Simplex responde así a la
-## geometría real y al rendimiento real del jugador, no a una constante.
+## Los tres modos conviven a propósito (ver [enum Mode]): el Simplex se queda
+## como pieza histórica y como evidencia de por qué se sustituyó.
 
 ## Orden canónico de arquetipos. Es x1, x2, x3 de la formulación original:
 ## `e_enemy1`, `e_enemy2`, `e_enemy3` del legacy.
@@ -53,6 +45,23 @@ const ARCHETYPE_ORDER: Array[StringName] = [
 	&"enemy_militiaman",  # Miliciano:  equilibrado, usa cobertura
 	&"enemy_veteran",     # Veterano:   duro, suprime a distancia
 ]
+
+## Mecanismo con el que se decide la composición.
+enum Mode {
+	## Enumeración exhaustiva del espacio + puntuación por términos.
+	## Es el mecanismo por defecto: admite objetivos no lineales (variedad,
+	## novedad) y devuelve el desglose que hace balanceable el sistema.
+	SEARCH,
+	## Simplex exacto con la formulación de 2012 (`max x1+x2+x3`). Se
+	## conserva para poder comparar y para demostrar su degeneración.
+	LEGACY_SIMPLEX,
+	## Simplex exacto con objetivo de composición (minimizar desviación
+	## respecto a un objetivo, con cotas por arquetipo). Es el arreglo
+	## LINEAL del problema de 2012: mejor que el original, pero incapaz de
+	## expresar variedad o novedad. Se conserva como paso intermedio
+	## documentado.
+	GOAL_SIMPLEX,
+}
 
 # ---- Constantes de diseño pendientes de mover a datos ----
 # TODO(arquitecto): todo este bloque debería vivir en DirectorProfile
@@ -63,10 +72,12 @@ const ARCHETYPE_ORDER: Array[StringName] = [
 ## arquetipo desaparezca del encuentro.
 const MIN_SHARE_PER_ARCHETYPE: float = 0.12
 ## Cota superior por arquetipo, como fracción de MaxEnemies. Es la cota que
-## hace IMPOSIBLE por construcción la degeneración del original.
+## acota el espacio de búsqueda y, con el término de variedad, la que hace
+## imposible por construcción la degeneración del original.
 const MAX_SHARE_PER_ARCHETYPE: float = 0.55
 ## Cuánto puede desviar la forma del mapa la composición objetivo respecto al
-## reparto uniforme. 0 = la geometría no influye; 1 = influye del todo.
+## reparto uniforme (solo en `GOAL_SIMPLEX`; en `SEARCH` la geometría entra
+## por su propio término de puntuación).
 const SHAPE_GAIN: float = 0.5
 ## Cuánto puede desviar la forma del mapa los tres presupuestos.
 const BUDGET_SHAPE_GAIN: float = 0.15
@@ -82,18 +93,17 @@ const MILITIA_MIDRANGE_WEIGHT: float = 0.5
 const VETERAN_OPENNESS_WEIGHT: float = 0.7
 const VETERAN_COVER_WEIGHT: float = 0.3
 
-## Peso del desempate "más enemigos". NO es una constante de balanceo: es el
-## epsilon que garantiza que el desempate nunca domina a la desviación.
+## Peso del desempate "más enemigos" del objetivo lineal. NO es balanceo: es
+## el epsilon que garantiza que el desempate nunca domina a la desviación.
 const COUNT_TIE_BREAK_NUMERATOR: int = 1
 const COUNT_TIE_BREAK_DENOMINATOR: int = 1000
 
 ## De dónde salió la composición devuelta.
 enum Source {
-	## La resolvió el Simplex entero.
+	## La decidió el mecanismo configurado.
 	SOLVER,
-	## El problema salió infactible o se agotó el tope de nodos: reparto
-	## uniforme, como el `E1=E2=E3=MaxEnemies/3` del legacy
-	## (`Optimization.cc:126-128`).
+	## No había ninguna composición viable: reparto uniforme, como el
+	## `E1=E2=E3=MaxEnemies/3` del legacy (`Optimization.cc:126-128`).
 	FALLBACK_UNIFORM,
 	## MaxEnemies <= 0: zona sin enemigos. El legacy hacía lo mismo cuando
 	## `(area/250)*dif < 1` daba logaritmo negativo.
@@ -116,10 +126,19 @@ class Composition:
 	var spent: Array[float] = [0.0, 0.0, 0.0]
 	var effective_difficulty: float = 0.0
 	var source: Source = Source.EMPTY
+	var mode: Mode = Mode.SEARCH
+	## Puntuación total y desglose por término (solo en `SEARCH`).
+	var score: float = 0.0
+	var score_terms: Dictionary[StringName, float] = {}
+	## Las mejores composiciones con su desglose (solo en `SEARCH`).
+	var ranked: Array[CompositionSearch.Candidate] = []
+	## Diagnóstico de la búsqueda.
+	var combinations_visited: int = 0
+	var feasible_count: int = 0
+	var search_usec: int = 0
+	## Diagnóstico del Simplex, cuando se usó.
 	var solver_status: IntegerSimplex.Status = IntegerSimplex.Status.NOT_SOLVED
 	var nodes_explored: int = 0
-	## true si se resolvió con la formulación del original.
-	var legacy_formulation: bool = false
 
 	func total() -> int:
 		return counts[0] + counts[1] + counts[2]
@@ -154,20 +173,22 @@ class Composition:
 		return out
 
 	func describe() -> String:
-		return "%d enemigos [Sicario %d / Miliciano %d / Veterano %d] · N=%d · %s%s" % [
+		return "%d enemigos [Sicario %d / Miliciano %d / Veterano %d] · N=%d · %s · %s" % [
 			total(), counts[0], counts[1], counts[2], max_enemies,
-			Source.keys()[int(source)],
-			" (formulación legacy)" if legacy_formulation else "",
+			Mode.keys()[int(mode)], Source.keys()[int(source)],
 		]
 
 
-## Si es true se resuelve la formulación de 2012 tal cual, para poder
-## compararlas. Es el conmutador que exige el ADR-003.
-var legacy_formulation: bool = false
-## Tope de nodos de ramificación y acotación.
+## Mecanismo con el que se compone. `SEARCH` por defecto.
+var mode: Mode = Mode.SEARCH
+## Cuántas composiciones ordenadas se devuelven en `ranked`.
+var top_k: int = 10
+## Tope de nodos de ramificación y acotación (modos con Simplex).
 var max_nodes: int = IntegerSimplex.DEFAULT_MAX_NODES
 
 var _profile: DirectorProfile = null
+## Composición anterior, para el término de novedad.
+var _previous_counts: Array[int] = []
 
 
 func _init(profile: DirectorProfile = null) -> void:
@@ -180,11 +201,38 @@ func profile() -> DirectorProfile:
 	return _profile
 
 
+## Fija la composición contra la que se mide la novedad. La pone el director
+## al cambiar de zona; también sirve para reproducir un caso en un test.
+func set_previous_counts(counts: Array[int]) -> void:
+	_previous_counts = counts.duplicate()
+
+
+func previous_counts() -> Array[int]:
+	return _previous_counts
+
+
+static func mode_name(value: Mode) -> String:
+	return Mode.keys()[int(value)]
+
+
+## Traduce el argumento de consola a modo.
+static func mode_from_string(text: String) -> Mode:
+	match text.strip_edges().to_lower():
+		"search", "busqueda", "búsqueda":
+			return Mode.SEARCH
+		"legacy", "simplex", "legacy_simplex":
+			return Mode.LEGACY_SIMPLEX
+		"goal", "objetivo", "goal_simplex":
+			return Mode.GOAL_SIMPLEX
+		_:
+			return Mode.SEARCH
+
+
 # ---- Composición ----
 
 func compose(context: EncounterContext) -> Composition:
 	var result := Composition.new()
-	result.legacy_formulation = legacy_formulation
+	result.mode = mode
 	result.effective_difficulty = context.effective_difficulty()
 	result.max_enemies = max_enemies(context)
 	if result.max_enemies <= 0:
@@ -193,32 +241,36 @@ func compose(context: EncounterContext) -> Composition:
 
 	var budgets := _budgets(context, result.max_enemies)
 	result.budgets = Rational.array_to_floats(budgets)
-
 	var allowed := _allowed_flags(context)
-	var lower := _lower_bounds(context, result.max_enemies, allowed)
-	var upper := _upper_bounds(context, result.max_enemies, allowed)
+	var lower := _lower_bounds(result.max_enemies, allowed)
+	var upper := _upper_bounds(result.max_enemies, allowed)
 
-	var problem: IntegerSimplex = null
-	if legacy_formulation:
-		problem = _build_legacy_problem(budgets, upper)
+	if mode == Mode.SEARCH:
+		_compose_by_search(context, result, budgets, lower, upper, allowed)
 	else:
-		var targets := target_counts(context, result.max_enemies)
-		result.target_counts = Rational.array_to_floats(targets)
-		problem = _build_goal_problem(budgets, targets, lower, upper)
-	problem.max_nodes = max_nodes
+		_compose_by_simplex(context, result, budgets, lower, upper)
 
-	var status := problem.solve()
-	result.solver_status = status
-	result.nodes_explored = problem.nodes_explored()
-	if problem.has_solution():
-		var values := problem.get_solution_ints()
-		result.counts = [values[0], values[1], values[2]]
-		result.source = Source.SOLVER
-	else:
+	if result.counts.is_empty() or (result.total() == 0 and result.max_enemies > 0):
 		result.counts = _uniform_fallback(result.max_enemies, allowed, budgets)
 		result.source = Source.FALLBACK_UNIFORM
 	result.spent = _spend(result.counts)
+	_previous_counts = result.counts.duplicate()
 	return result
+
+
+## Las `k` mejores composiciones con su desglose. Solo tiene sentido en
+## `SEARCH`; en los modos con Simplex devuelve la única solución.
+func compose_ranked(context: EncounterContext, k: int = 10) -> Array[CompositionSearch.Candidate]:
+	var previous_k := top_k
+	top_k = maxi(k, 1)
+	var result := compose(context)
+	top_k = previous_k
+	if not result.ranked.is_empty():
+		return result.ranked
+	var single := CompositionSearch.Candidate.new()
+	single.counts = result.counts.duplicate()
+	single.spent = result.spent.duplicate()
+	return [single]
 
 
 ## MaxEnemies = ln((área / divisor) * dificultad_efectiva) * multiplicador.
@@ -244,23 +296,26 @@ static func area_in_legacy_units(area_m2: float) -> float:
 	return area_m2 * pixels_per_meter * pixels_per_meter / 1000.0
 
 
-## Composición objetivo, en enemigos por arquetipo. Suma MaxEnemies.
-func target_counts(context: EncounterContext, enemy_total: int) -> Array[Rational]:
-	var shares := target_shares(context)
-	var out: Array[Rational] = []
+## Composición objetivo DE LA PLANTA: reparto uniforme entre los arquetipos
+## que admite, sin mirar la geometría. En `SEARCH` la geometría no se mezcla
+## aquí sino que puntúa aparte, para que los dos términos se puedan depurar
+## por separado.
+func base_target_shares(context: EncounterContext) -> Array[float]:
+	var allowed := _allowed_flags(context)
+	var count := _allowed_count(allowed)
+	var shares: Array[float] = [0.0, 0.0, 0.0]
+	if count == 0:
+		return shares
 	for index: int in ARCHETYPE_ORDER.size():
-		out.append(Rational.from_float(shares[index] * float(enemy_total)))
-	return out
+		shares[index] = 1.0 / float(count) if allowed[index] else 0.0
+	return shares
 
 
-## Reparto objetivo por arquetipo, 0..1. Parte del reparto uniforme entre los
-## arquetipos que la planta admite y lo inclina según la forma del mapa.
+## Reparto objetivo inclinado por la forma del mapa. Lo usa `GOAL_SIMPLEX`,
+## que no puede puntuar la geometría aparte porque su objetivo es lineal.
 func target_shares(context: EncounterContext) -> Array[float]:
 	var allowed := _allowed_flags(context)
-	var allowed_count: int = 0
-	for flag: bool in allowed:
-		if flag:
-			allowed_count += 1
+	var allowed_count := _allowed_count(allowed)
 	var shares: Array[float] = [0.0, 0.0, 0.0]
 	if allowed_count == 0:
 		return shares
@@ -301,12 +356,114 @@ func shape_affinities(context: EncounterContext) -> Array[float]:
 	]
 
 
+## Reparto que pide la geometría, normalizado a 1 sobre los arquetipos
+## permitidos. Es el objetivo del término `forma` de la búsqueda.
+func affinity_shares(context: EncounterContext) -> Array[float]:
+	var allowed := _allowed_flags(context)
+	var affinities := shape_affinities(context)
+	var shares: Array[float] = [0.0, 0.0, 0.0]
+	var total: float = 0.0
+	for index: int in ARCHETYPE_ORDER.size():
+		if allowed[index]:
+			total += affinities[index]
+	if total <= 0.0:
+		return base_target_shares(context)
+	for index: int in ARCHETYPE_ORDER.size():
+		shares[index] = affinities[index] / total if allowed[index] else 0.0
+	return shares
+
+
 ## Presupuestos efectivos (daño, vida, velocidad) para `enemy_total` enemigos.
 func budgets_for(context: EncounterContext, enemy_total: int) -> Array[float]:
 	return Rational.array_to_floats(_budgets(context, enemy_total))
 
 
-# ---- Construcción del problema ----
+## Cotas por arquetipo para un encuentro de `enemy_total` enemigos.
+func bounds_for(context: EncounterContext, enemy_total: int) -> Array[Array]:
+	var allowed := _allowed_flags(context)
+	return [
+		_to_int_array(_lower_bounds(enemy_total, allowed)),
+		_to_int_array(_upper_bounds(enemy_total, allowed)),
+	]
+
+
+# ---- Mecanismo 1: búsqueda exhaustiva ----
+
+func _compose_by_search(
+	context: EncounterContext,
+	result: Composition,
+	budgets: Array[Rational],
+	lower: PackedInt64Array,
+	upper: PackedInt64Array,
+	_allowed: Array[bool]
+) -> void:
+	var request := CompositionSearch.Request.new()
+	request.lower = _to_int_array(lower)
+	request.upper = _to_int_array(upper)
+	request.budgets = Rational.array_to_floats(budgets)
+	request.damage_coefficients = _coefficient_floats(0)
+	request.health_coefficients = _coefficient_floats(1)
+	request.speed_coefficients = _coefficient_floats(2)
+	request.affinity_shares = affinity_shares(context)
+	request.previous_counts = _previous_counts.duplicate()
+	request.max_total = result.max_enemies
+	request.seed = context.seed
+	request.top_k = top_k
+
+	var base_shares := base_target_shares(context)
+	var targets: Array[float] = []
+	for index: int in ARCHETYPE_ORDER.size():
+		targets.append(base_shares[index] * float(result.max_enemies))
+	request.target_counts = targets
+	result.target_counts = targets
+
+	var search := CompositionSearch.run(request)
+	result.combinations_visited = search.combinations_visited
+	result.feasible_count = search.feasible_count
+	result.search_usec = search.elapsed_usec
+	result.ranked = search.ranked
+	if not search.has_solution():
+		result.counts = []
+		return
+	result.counts = search.best.counts.duplicate()
+	result.score = search.best.score
+	result.score_terms = search.best.terms.duplicate()
+	result.source = Source.SOLVER
+
+
+# ---- Mecanismo 2: Simplex exacto (pieza histórica) ----
+
+func _compose_by_simplex(
+	context: EncounterContext,
+	result: Composition,
+	budgets: Array[Rational],
+	lower: PackedInt64Array,
+	upper: PackedInt64Array
+) -> void:
+	var problem: IntegerSimplex = null
+	if mode == Mode.LEGACY_SIMPLEX:
+		problem = _build_legacy_problem(budgets, upper)
+	else:
+		var shares := target_shares(context)
+		var targets: Array[Rational] = []
+		var target_floats: Array[float] = []
+		for index: int in ARCHETYPE_ORDER.size():
+			var value := shares[index] * float(result.max_enemies)
+			target_floats.append(value)
+			targets.append(Rational.from_float(value))
+		result.target_counts = target_floats
+		problem = _build_goal_problem(budgets, targets, lower, upper)
+	problem.max_nodes = max_nodes
+
+	result.solver_status = problem.solve()
+	result.nodes_explored = problem.nodes_explored()
+	if not problem.has_solution():
+		result.counts = []
+		return
+	var values := problem.get_solution_ints()
+	result.counts = [values[0], values[1], values[2]]
+	result.source = Source.SOLVER
+
 
 func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 	var base: Array[float] = [
@@ -314,7 +471,7 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 		_profile.health_budget_per_enemy,
 		_profile.speed_budget_per_enemy,
 	]
-	if legacy_formulation:
+	if mode == Mode.LEGACY_SIMPLEX:
 		# El legacy calculaba `(280/3)*MaxEnemies` con división ENTERA de C++
 		# (93, 51, 46) y además truncaba el término independiente con `atoi`
 		# (`Simplex.cc:193`). Se replica al pie de la letra.
@@ -323,7 +480,7 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 			out.append(Rational.from_int(int(floorf(base[index])) * enemy_total))
 		return out
 
-	# Formulación nueva: la geometría modula cuánta amenaza tolera la zona.
+	# La geometría modula cuánta amenaza tolera la zona:
 	# * Más cobertura -> el jugador tiene dónde parapetarse -> cabe más daño.
 	# * Líneas de tiro largas -> puede batir a distancia -> cabe más vida.
 	# * Más accesos -> más rutas que cubrir -> caben enemigos más móviles.
@@ -341,7 +498,7 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 	return budgets
 
 
-## Formulación NUEVA: objetivo de composición con desviaciones.
+## Objetivo de composición con desviaciones, resuelto por Simplex entero.
 ## Variables: x1 x2 x3 | d1+ d1− | d2+ d2− | d3+ d3−.
 func _build_goal_problem(
 	budgets: Array[Rational],
@@ -363,7 +520,7 @@ func _build_goal_problem(
 		objective.append(Rational.one())
 	problem.set_objective(objective, false)
 
-	for row: int in ARCHETYPE_ORDER.size():
+	for row: int in archetypes:
 		problem.add_constraint(_padded(_coefficients(row), variables),
 			Simplex.Relation.LESS_EQUAL, budgets[row])
 
@@ -398,6 +555,13 @@ func _build_legacy_problem(budgets: Array[Rational], upper: PackedInt64Array) ->
 ## Coeficientes de la restricción `row`: 0 daño, 1 vida, 2 velocidad. Son los
 ## del original, conservados como DATO en `DirectorProfile`.
 func _coefficients(row: int) -> Array[Rational]:
+	var out: Array[Rational] = []
+	for value: float in _coefficient_floats(row):
+		out.append(Rational.from_float(value))
+	return out
+
+
+func _coefficient_floats(row: int) -> Array[float]:
 	var source: PackedFloat32Array
 	match row:
 		0:
@@ -406,9 +570,9 @@ func _coefficients(row: int) -> Array[Rational]:
 			source = _profile.health_coefficients
 		_:
 			source = _profile.speed_coefficients
-	var out: Array[Rational] = []
+	var out: Array[float] = []
 	for index: int in ARCHETYPE_ORDER.size():
-		out.append(Rational.from_float(source[index] if index < source.size() else 0.0))
+		out.append(source[index] if index < source.size() else 0.0)
 	return out
 
 
@@ -440,7 +604,7 @@ func _allowed_count(allowed: Array[bool]) -> int:
 	return count
 
 
-func _lower_bounds(_context: EncounterContext, enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
+func _lower_bounds(enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
 	var bounds := PackedInt64Array()
 	var share := minf(MIN_SHARE_PER_ARCHETYPE, 1.0 / float(maxi(_allowed_count(allowed), 1)))
 	for index: int in ARCHETYPE_ORDER.size():
@@ -448,7 +612,7 @@ func _lower_bounds(_context: EncounterContext, enemy_total: int, allowed: Array[
 	return bounds
 
 
-func _upper_bounds(_context: EncounterContext, enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
+func _upper_bounds(enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
 	var bounds := PackedInt64Array()
 	# Con un solo arquetipo permitido la cota máxima no puede ser una
 	# fracción: no habría con qué completar el encuentro.
@@ -510,9 +674,16 @@ func _fits(counts: Array[int], budgets: Array[Rational]) -> bool:
 func _spend(counts: Array[int]) -> Array[float]:
 	var out: Array[float] = []
 	for row: int in ARCHETYPE_ORDER.size():
-		var coefficients := _coefficients(row)
-		var total := Rational.zero()
+		var coefficients := _coefficient_floats(row)
+		var total: float = 0.0
 		for index: int in ARCHETYPE_ORDER.size():
-			total = total.add(coefficients[index].scaled(counts[index]))
-		out.append(total.to_float())
+			total += coefficients[index] * float(counts[index])
+		out.append(total)
+	return out
+
+
+static func _to_int_array(values: PackedInt64Array) -> Array[int]:
+	var out: Array[int] = []
+	for value: int in values:
+		out.append(value)
 	return out

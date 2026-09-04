@@ -17,10 +17,15 @@ func test_ability_disables_itself_for_the_wrong_archetype() -> void:
 
 
 func test_captain_orders_marks_hostile_target_in_sight() -> void:
-	var captain := make_full_character(&"captain", Character.Team.PLAYER, Vector3(0, 0, 0))
-	var enemy := make_full_character(&"enemy_thug", Character.Team.ENEMY, Vector3(5, 0, 0))
+	var captain := make_character(&"captain", Character.Team.PLAYER)
+	var enemy := make_character(&"enemy_thug", Character.Team.ENEMY)
+	enemy.global_position = Vector3(5, 0, 0)
 	var ability := AbilityCaptainOrders.new()
 	captain.add_child(ability)
+	# Ver `WeaponSystem.raycast_override`: un cuerpo recién creado no es
+	# consultable por raycast real dentro del mismo tick de física.
+	ability.raycast_override = func(_f: Vector3, _t: Vector3, _m: int) -> Dictionary:
+		return {"collider": enemy}
 
 	var received: Array = []
 	ability.target_marked.connect(func(pos: Vector3, id: int) -> void: received.append([pos, id]))
@@ -33,10 +38,13 @@ func test_captain_orders_marks_hostile_target_in_sight() -> void:
 
 
 func test_captain_orders_does_not_mark_allies() -> void:
-	var captain := make_full_character(&"captain", Character.Team.PLAYER, Vector3(0, 0, 0))
-	var companion := make_full_character(&"technician", Character.Team.COMPANION, Vector3(5, 0, 0))
+	var captain := make_character(&"captain", Character.Team.PLAYER)
+	var companion := make_character(&"technician", Character.Team.COMPANION)
+	companion.global_position = Vector3(5, 0, 0)
 	var ability := AbilityCaptainOrders.new()
 	captain.add_child(ability)
+	ability.raycast_override = func(_f: Vector3, _t: Vector3, _m: int) -> Dictionary:
+		return {"collider": companion}
 
 	var received: Array = []
 	ability.target_marked.connect(func(pos: Vector3, id: int) -> void: received.append(id))
@@ -90,13 +98,14 @@ func test_specialist_suppression_marks_blackboard_and_sustains_fire() -> void:
 
 	specialist.intent_look_at = specialist.global_position + Vector3(0, 0, -10)
 	specialist.use_ability()
-	ability._physics_process(0.016)
+	ability._physics_process(0.016) # tick 1: activa la habilidad y marca Blackboard
 
 	assert_true(Blackboard.has_active_suppression(3),
 		"activar Supresión debe marcar la pizarra compartida (no la escuadra directamente)")
 
 	var starting_ammo := specialist.ammo
-	ws._physics_process(0.016)
+	ability._physics_process(0.016) # tick 2: _on_tick ya ve el sostenido activo -> character.fire()
+	ws._physics_process(0.016) # WeaponSystem resuelve el disparo que puso Ability
 	assert_lt(float(specialist.ammo), float(starting_ammo),
 		"Supresión es fuego SOSTENIDO: debe llegar a disparar de verdad")
 

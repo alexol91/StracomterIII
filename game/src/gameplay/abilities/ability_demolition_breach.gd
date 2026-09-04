@@ -24,15 +24,12 @@ const BREACH_RAY_MASK: int = 65
 
 
 func _activate() -> void:
-	if character == null or not character.is_inside_tree():
+	if character == null:
 		return
 	var origin := character.eye_position()
 	var dir := aim_direction_from(origin)
 	var to := origin + dir * breach_range_m
-	var space_state := character.get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(origin, to, BREACH_RAY_MASK)
-	query.exclude = [character.get_rid()]
-	var result := space_state.intersect_ray(query)
+	var result := _raycast(origin, to, BREACH_RAY_MASK)
 
 	var center := to
 	if not result.is_empty():

@@ -187,8 +187,10 @@ func test_target_shares_sum_to_one() -> void:
 func test_result_carries_diagnostics() -> void:
 	var composer := EncounterComposer.new(_profile())
 	var result := composer.compose(_context(892.7, 1.0, _all()))
-	assert_eq(int(result.source), int(EncounterComposer.Source.SOLVER), "lo resolvió el Simplex")
-	assert_gt(float(result.nodes_explored), 0.0, "se exploró al menos un nodo")
+	assert_eq(int(result.source), int(EncounterComposer.Source.SOLVER), "lo decidió el mecanismo")
+	assert_gt(float(result.combinations_visited), 0.0, "se recorrió el espacio de búsqueda")
+	assert_gt(float(result.feasible_count), 0.0, "y hubo combinaciones viables")
+	assert_eq(result.score_terms.size(), 5, "con el desglose de puntuación")
 	assert_eq(result.total(), result.counts[0] + result.counts[1] + result.counts[2], "total")
 	assert_eq(result.count_for(&"enemy_militiaman"), result.counts[1], "acceso por arquetipo")
 	assert_eq(result.count_for(&"no_existe"), 0, "arquetipo desconocido")

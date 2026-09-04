@@ -50,8 +50,12 @@ func make_character(archetype: StringName, team: Character.Team) -> Character:
 	return c
 
 
-## Instancia `character.tscn` (malla + 3 formas de colisión nombradas) para
-## las pruebas que sí necesitan raycasts reales.
+## Instancia `character.tscn` (malla + 3 formas de colisión nombradas). Útil
+## para pruebas de resolución de zona por forma (`hit_zones.gd`), que no
+## necesitan raycast — NO para pruebas que sí lo necesiten: un cuerpo recién
+## creado no es consultable por raycast dentro del mismo tick en que se crea
+## (ver `WeaponSystem.raycast_override`); para eso, usa `make_character` +
+## `raycast_override` en vez de física real.
 func make_full_character(archetype: StringName, team: Character.Team, position: Vector3) -> Character:
 	var scene: PackedScene = load("res://scenes/gameplay/character.tscn")
 	var c := scene.instantiate() as Character
