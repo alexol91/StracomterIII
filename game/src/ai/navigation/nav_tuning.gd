@@ -124,6 +124,12 @@ const COVER_GRID_CELL_M: float = 4.0
 ## consulta no escale con el tamaño de la nube.
 ## TODO(arquitecto): mover a datos.
 const COVER_SEARCH_RADIUS_M: float = 20.0
+## Tope de candidatos que se puntúan en una consulta. El índice los recoge en
+## anillos, así que los descartados son siempre los más lejanos. Sin tope, un
+## radio de 20 m sobre una nube densa devuelve ~500 candidatos y la consulta
+## se va a milisegundos.
+## TODO(arquitecto): mover a datos.
+const COVER_MAX_CANDIDATES: int = 96
 ## Radio máximo al que se busca un punto horneado para estimar la exposición
 ## de una posición arbitraria.
 ## TODO(arquitecto): mover a datos.

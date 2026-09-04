@@ -40,6 +40,22 @@ func register(name: String, help: String, min_args: int, callable: Callable) -> 
 	_commands[name] = Command.new(name, help, min_args, callable)
 
 
+## Retira un comando. Necesario porque los sistemas registran `Callable`
+## ligados a su instancia: si el nodo se libera sin retirarlos, la consola
+## conserva referencias colgantes y el siguiente `help` revienta.
+func unregister(name: String) -> void:
+	_commands.erase(name)
+
+
+## Retira todos los comandos cuyo `Callable` apunte a un objeto ya liberado.
+## Red de seguridad para quien se olvide de llamar a `unregister`.
+func prune_dangling() -> void:
+	for key: String in _commands.keys():
+		var cmd: Command = _commands[key]
+		if not cmd.callable.is_valid():
+			_commands.erase(key)
+
+
 func has_command(name: String) -> bool:
 	return _commands.has(name)
 

@@ -156,10 +156,19 @@ func index_cell_count() -> int:
 
 ## Índices de los puntos dentro de `radius_m` de `center`.
 ##
-## Recorre sólo las celdas que la esfera toca. Con densidad de muestreo fija,
-## el número de candidatos depende del RADIO y no del tamaño de la nube: eso
-## es lo que hace que la consulta no escale linealmente.
-func indices_near(center: Vector3, radius_m: float) -> PackedInt32Array:
+## Recorre las celdas en ANILLOS crecientes alrededor del centro y sólo las que
+## la esfera toca. Con densidad de muestreo fija, el número de candidatos
+## depende del RADIO y no del tamaño de la nube: eso es lo que hace que la
+## consulta no escale linealmente.
+##
+## `max_count` corta la recogida en cuanto hay suficientes. El orden por
+## anillos es lo que hace que ese corte sea honesto: los que se quedan fuera
+## son los MÁS LEJANOS, no los que tocara la rejilla en último lugar. Sin el
+## corte, un radio de 20 m sobre una nube densa devuelve ~500 candidatos y
+## puntuarlos todos cuesta milisegundos — demasiado para 40 bots aunque sólo
+## se consulte al cambiar de comportamiento (ADR-002).
+func indices_near(center: Vector3, radius_m: float,
+		max_count: int = 0) -> PackedInt32Array:
 	if _grid_dirty:
 		rebuild_index()
 	var out := PackedInt32Array()
@@ -168,15 +177,21 @@ func indices_near(center: Vector3, radius_m: float) -> PackedInt32Array:
 	var radius_sq := radius_m * radius_m
 	var span := int(ceilf(radius_m / cell))
 	var origin := _cell_of(center, cell)
-	for dx in range(-span, span + 1):
-		for dz in range(-span, span + 1):
-			var key := Vector2i(origin.x + dx, origin.y + dz)
-			if not _grid.has(key):
-				continue
-			for i: int in _grid[key]:
-				stat_last_candidates += 1
-				if positions[i].distance_squared_to(center) <= radius_sq:
-					out.append(i)
+	for ring in range(span + 1):
+		for dx in range(-ring, ring + 1):
+			for dz in range(-ring, ring + 1):
+				# Sólo el borde del anillo; el interior ya se recorrió.
+				if ring > 0 and absi(dx) != ring and absi(dz) != ring:
+					continue
+				var key := Vector2i(origin.x + dx, origin.y + dz)
+				if not _grid.has(key):
+					continue
+				for i: int in _grid[key]:
+					stat_last_candidates += 1
+					if positions[i].distance_squared_to(center) <= radius_sq:
+						out.append(i)
+		if max_count > 0 and out.size() >= max_count:
+			break
 	return out
 
 

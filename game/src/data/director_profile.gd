@@ -34,6 +34,62 @@ extends Resource
 @export var weight_squad_losses: float = 0.10
 @export var weight_cover_usage: float = 0.10
 
+@export_group("Composición objetivo")
+## Cuota mínima y máxima de cada arquetipo sobre el total. El mínimo es lo que
+## hace **imposible por construcción** la degeneración del original, donde el
+## óptimo entero daba ~26 enemigos del mismo tipo.
+@export var min_share_per_archetype: float = 0.12
+@export var max_share_per_archetype: float = 0.55
+## Cuánto desplaza la forma del mapa a la composición objetivo (0 = nada).
+@export var shape_gain: float = 0.5
+## Cuánto desplaza la forma del mapa a los presupuestos.
+@export var budget_shape_gain: float = 0.35
+
+@export_group("Puntuación de composición")
+## Pesos de los cinco términos de la búsqueda. Son balanceo puro: subir
+## `weight_variety` produce encuentros más mezclados, subir `weight_novelty`
+## produce oleadas que se parecen menos entre sí.
+@export var weight_target: float = 1.0
+@export var weight_variety: float = 0.6
+@export var weight_novelty: float = 0.4
+@export var weight_budget: float = 0.8
+@export var weight_map_fit: float = 0.9
+
+@export_group("Referencias del modelo de habilidad")
+## Daño por minuto que se considera rendimiento neutro.
+@export var reference_damage_per_minute: float = 60.0
+## Tiempo esperado de limpieza: base más un término por enemigo. NO se compara
+## con la mediana observada: si la referencia se moviera con el jugador, tardar
+## más subiría el listón y jugar peor acabaría dando más amenaza, rompiendo el
+## invariante de monotonía. La mediana observada se conserva solo como
+## diagnóstico.
+@export var expected_clear_time_base_s: float = 20.0
+@export var expected_clear_time_per_enemy_s: float = 4.0
+## Uso de cobertura que se considera neutro.
+@export var reference_cover_usage: float = 0.45
+## Puntuación de un jugador del que aún no se sabe nada.
+@export var neutral_score: float = 0.5
+
+@export_group("Ritmo de oleadas")
+@export var rise_wave_count: int = 3
+@export var peak_wave_count: int = 1
+@export var relief_wave_count: int = 1
+## Segundos mínimos entre oleadas.
+@export var min_wave_interval_s: float = 8.0
+## Hostiles vivos por debajo de los cuales se lanza la siguiente oleada.
+@export var max_hostiles_for_next_wave: int = 6
+## Ídem, más estricto, para entrar en la fase de pico.
+@export var max_hostiles_for_peak: int = 3
+
+@export_group("Aparición: ponderación")
+## Semiángulo del cono de visión del jugador usado para vetar apariciones.
+## Debería derivarse del FOV real de la cámara cuando la UI lo fije.
+@export var player_fov_half_angle_deg: float = 55.0
+## Distancia de camino a la que la ponderación de un punto cae a la mitad.
+@export var path_distance_falloff_m: float = 25.0
+## Multiplicador de peso para los accesos reales (puertas, escaleras).
+@export var entry_point_weight_bonus: float = 2.0
+
 @export_group("Curva de tensión")
 ## Fracción del presupuesto liberada en cada fase: ascenso, pico, alivio.
 @export var phase_budget_fractions: PackedFloat32Array = PackedFloat32Array([0.45, 0.45, 0.10])

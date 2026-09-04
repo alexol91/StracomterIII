@@ -74,7 +74,8 @@ func query(from: Vector3, threats: Array[Vector3], objective: Vector3,
 	if _cloud == null or _cloud.is_empty() or k <= 0:
 		return out
 
-	var candidates := _cloud.indices_near(from, _search_radius_m)
+	var candidates := _cloud.indices_near(from, _search_radius_m,
+		NavTuning.COVER_MAX_CANDIDATES)
 	stat_last_candidates = _cloud.stat_last_candidates
 	if candidates.is_empty():
 		return out

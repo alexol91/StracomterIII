@@ -279,11 +279,19 @@ dificultad_efectiva = dificultad_planta · f(perfil_jugador)
 
 perfil_jugador ← media móvil de:
     precisión de disparo            (aciertos / disparos)
-    daño recibido por minuto
-    tiempo de limpieza por zona vs. mediana
+    daño recibido por minuto        vs. referencia fija
+    tiempo de limpieza por zona     vs. tiempo ESPERADO por tamaño del encuentro
     bajas de la escuadra
     uso de coberturas y de habilidad de clase
 ```
+
+> **Corrección de esta especificación.** La primera versión comparaba el tiempo de
+> limpieza con la **mediana observada** del propio jugador. Eso es un lazo de
+> realimentación positiva que rompe el invariante: si la referencia se mueve con el
+> jugador, tardar más sube el listón, el jugador pasa a parecer "normal", y **jugar peor
+> acabaría dando más amenaza**. La referencia tiene que ser fija —un tiempo esperado en
+> función del tamaño del encuentro— para que el modelo sea monótono. La mediana
+> observada se conserva, pero solo como diagnóstico.
 
 Y las restricciones dejan de ser tres presupuestos fijos para incorporar la **forma del
 mapa**: densidad de coberturas, longitud media de línea de visión y número de accesos
@@ -297,7 +305,9 @@ total no aparece de golpe, se libera con una curva de tensión de cuatro fases
 
 * **Ascenso:** oleadas pequeñas mientras el jugador avanza.
 * **Pico:** se gasta el resto del presupuesto de golpe.
-* **Alivio:** se dejan de generar enemigos, se permite recoger botín.
+* **Alivio:** se reduce la generación al mínimo (~10 % del presupuesto, rezagados) y
+  se permite recoger botín. No un corte seco: un mundo que deja de producir enemigos de
+  golpe se siente apagado, y un goteo de rezagados mantiene la tensión sin presionar.
 * **Descanso:** silencio forzado de 20-40 s antes de la siguiente zona.
 
 **Reglas de aparición (spawn).** Aleatorio pero nunca injusto:
