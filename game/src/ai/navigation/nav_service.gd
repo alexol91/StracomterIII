@@ -20,7 +20,6 @@ extends WorldQuery
 ## NO decide dónde ponerse un bot: eso es `CoverProviderBaked`.
 ## NO decide por dónde flanquear: eso es `RoutePlanner`.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
 
 ## Localizador del servicio activo del nivel en curso. Lo necesitan los nodos
 ## de escena (`DoorNavLink`) que no pueden recibir el servicio por inyección
@@ -91,8 +90,8 @@ func setup(existing_map: RID = RID()) -> void:
 		_map = NavigationServer3D.map_create()
 		_owns_map = true
 		NavigationServer3D.map_set_up(_map, Vector3.UP)
-		NavigationServer3D.map_set_cell_size(_map, Tuning.CELL_SIZE_M)
-		NavigationServer3D.map_set_cell_height(_map, Tuning.CELL_HEIGHT_M)
+		NavigationServer3D.map_set_cell_size(_map, NavTuning.CELL_SIZE_M)
+		NavigationServer3D.map_set_cell_height(_map, NavTuning.CELL_HEIGHT_M)
 		# Iteraciones síncronas: sin esto el mapa sólo se sincroniza al final
 		# del frame físico y todo lo que consulte en el mismo frame en que se
 		# hornea (las pruebas, y el arranque de nivel) ve un mapa vacío.
@@ -102,7 +101,16 @@ func setup(existing_map: RID = RID()) -> void:
 	_connect_event_bus()
 
 
+## Libera regiones, mapa y suscripciones.
+##
+## Desconectar del EventBus NO es opcional: `connect` guarda un `Callable` que
+## referencia a este objeto, y `NavService` es `RefCounted`. Sin esto el
+## servicio nunca se destruye, y con él se quedan vivos el mapa de navegación,
+## las regiones y los navmesh horneados. Se ve al salir como "RID allocations
+## were leaked".
 func dispose() -> void:
+	_disconnect_event_bus()
+	_cached_planner = null
 	for region_id: StringName in _regions:
 		if not _adopted.get(region_id, false):
 			NavigationServer3D.free_rid(_regions[region_id])
@@ -148,7 +156,7 @@ func space() -> PhysicsDirectSpaceState3D:
 func bake_region(region_id: StringName,
 		source: NavigationMeshSourceGeometryData3D) -> NavigationMesh:
 	var mesh := NavigationMesh.new()
-	Tuning.configure_navigation_mesh(mesh)
+	NavTuning.configure_navigation_mesh(mesh)
 	NavigationServer3D.bake_from_source_geometry_data(mesh, source)
 	_sources[region_id] = source
 	_install_region(region_id, mesh)
@@ -159,9 +167,9 @@ func bake_region(region_id: StringName,
 ## Usa colisionadores y no mallas visuales: parsear mallas en ejecución obliga
 ## a traer la geometría de vuelta de la GPU y el motor avisa de ello.
 func bake_region_from_scene(region_id: StringName, root: Node,
-		collision_mask: int = Tuning.WORLD_COLLISION_MASK) -> NavigationMesh:
+		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> NavigationMesh:
 	var mesh := NavigationMesh.new()
-	Tuning.configure_navigation_mesh(mesh)
+	NavTuning.configure_navigation_mesh(mesh)
 	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
 	mesh.geometry_collision_mask = collision_mask
 	mesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
@@ -239,7 +247,7 @@ func rebake_aabb(aabb: AABB) -> bool:
 		if not source.get_bounds().intersects(aabb):
 			continue
 		var mesh := NavigationMesh.new()
-		Tuning.configure_navigation_mesh(mesh)
+		NavTuning.configure_navigation_mesh(mesh)
 		NavigationServer3D.bake_from_source_geometry_data(mesh, source)
 		_install_region(region_id, mesh)
 		touched = true
@@ -293,7 +301,7 @@ func _install_region(region_id: StringName, mesh: NavigationMesh) -> void:
 # ---------------------------------------------------------------------------
 
 func has_line_of_sight(from: Vector3, to: Vector3,
-		collision_mask: int = Tuning.WORLD_COLLISION_MASK) -> bool:
+		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> bool:
 	if _space == null:
 		return true
 	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask)
@@ -302,7 +310,7 @@ func has_line_of_sight(from: Vector3, to: Vector3,
 
 
 func raycast(from: Vector3, to: Vector3,
-		collision_mask: int = Tuning.WORLD_COLLISION_MASK) -> Vector3:
+		collision_mask: int = NavTuning.WORLD_COLLISION_MASK) -> Vector3:
 	if _space == null:
 		return Vector3.INF
 	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask)
@@ -316,7 +324,7 @@ func snap_to_navmesh(point: Vector3) -> Vector3:
 	if not _map.is_valid():
 		return Vector3.INF
 	var closest := NavigationServer3D.map_get_closest_point(_map, point)
-	if closest.distance_to(point) > Tuning.NAVMESH_SNAP_TOLERANCE_M:
+	if closest.distance_to(point) > NavTuning.NAVMESH_SNAP_TOLERANCE_M:
 		return Vector3.INF
 	return closest
 
@@ -440,7 +448,7 @@ func invalidate_cache() -> void:
 
 ## Invalida sólo los caminos cuyos extremos caen en la zona afectada.
 func invalidate_cache_in(aabb: AABB) -> void:
-	var grown := aabb.grow(Tuning.NAVMESH_SNAP_TOLERANCE_M)
+	var grown := aabb.grow(NavTuning.NAVMESH_SNAP_TOLERANCE_M)
 	for key: StringName in _path_cache.keys():
 		var route: PackedVector3Array = _path_cache[key]
 		var affected := false
@@ -457,7 +465,7 @@ func invalidate_cache_in(aabb: AABB) -> void:
 func _enqueue(key: StringName, from: Vector3, to: Vector3) -> void:
 	if _queued_keys.has(key):
 		return
-	if _queue.size() >= Tuning.PATH_QUEUE_MAX:
+	if _queue.size() >= NavTuning.PATH_QUEUE_MAX:
 		var dropped: PendingRequest = _queue.pop_front()
 		_queued_keys.erase(dropped.key)
 		stat_queue_drops += 1
@@ -487,7 +495,7 @@ func _raw_path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	# cuando origen y destino están en islas distintas. Sin esta comprobación
 	# un bot "llega" a una sala a la que no hay paso.
 	var target := NavigationServer3D.map_get_closest_point(_map, to)
-	if route[route.size() - 1].distance_to(target) > Tuning.NAVMESH_SNAP_TOLERANCE_M:
+	if route[route.size() - 1].distance_to(target) > NavTuning.NAVMESH_SNAP_TOLERANCE_M:
 		return PackedVector3Array()
 	return route
 
@@ -496,7 +504,7 @@ func _store(key: StringName, route: PackedVector3Array) -> void:
 	_path_cache[key] = route
 	_cost_cache[key] = _polyline_length(route) if not route.is_empty() else INF
 	_cache_order.append(key)
-	while _cache_order.size() > Tuning.PATH_CACHE_MAX_ENTRIES:
+	while _cache_order.size() > NavTuning.PATH_CACHE_MAX_ENTRIES:
 		var oldest: StringName = _cache_order.pop_front()
 		_path_cache.erase(oldest)
 		_cost_cache.erase(oldest)
@@ -527,7 +535,7 @@ func _cache_key(from: Vector3, to: Vector3) -> StringName:
 
 
 func _quantize(p: Vector3) -> Vector3i:
-	var c := Tuning.PATH_CACHE_CELL_M
+	var c := NavTuning.PATH_CACHE_CELL_M
 	return Vector3i(roundi(p.x / c), roundi(p.y / c), roundi(p.z / c))
 
 
@@ -550,6 +558,16 @@ func _connect_event_bus() -> void:
 		bus.connect(&"door_state_changed", _on_door_state_changed)
 	if not bus.is_connected(&"level_topology_changed", _on_level_topology_changed):
 		bus.connect(&"level_topology_changed", _on_level_topology_changed)
+
+
+func _disconnect_event_bus() -> void:
+	var bus := _event_bus()
+	if bus == null:
+		return
+	if bus.is_connected(&"door_state_changed", _on_door_state_changed):
+		bus.disconnect(&"door_state_changed", _on_door_state_changed)
+	if bus.is_connected(&"level_topology_changed", _on_level_topology_changed):
+		bus.disconnect(&"level_topology_changed", _on_level_topology_changed)
 
 
 func _event_bus() -> Node:

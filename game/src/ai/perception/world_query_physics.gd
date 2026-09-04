@@ -14,7 +14,11 @@ extends WorldQuery
 ## Tolerancia al comparar el final de una ruta con el destino pedido, en
 ## metros. Por debajo se considera que la ruta llega; por encima,
 ## `NavigationServer3D` ha devuelto un camino parcial y no hay ruta real.
-## TODO(arquitecto): mover a datos si hace falta afinarlo por nivel.
+##
+## Las tres constantes de este bloque NO son balanceo y por eso no viven en
+## `PerceptionProfile`: describen el margen numérico del navmesh y el tamaño de
+## una caché. Cambiarlas no hace a un enemigo mejor ni peor, solo más o menos
+## exacto al leer el motor.
 const PATH_ARRIVAL_TOLERANCE_M: float = 1.0
 ## Entradas máximas de la caché de coste de camino.
 const PATH_COST_CACHE_LIMIT: int = 128

@@ -46,10 +46,11 @@ class Client:
 	var world_position: Vector3 = Vector3.ZERO
 	## Si el cliente está visible en cámara (se atiende a tasa completa).
 	var on_screen: bool = false
-	## Momento (ms) del último tick de percepción de ESTE cliente. El reparto
-	## es por cliente, no global: es lo que impide que unos pocos bots
-	## acaparen el presupuesto y el resto no perciba nunca.
-	var _last_perception_msec: int = -100000
+	## Momento (en tiempo SIMULADO, segundos) del último tick de percepción de
+	## ESTE cliente. Lo fija el planificador al registrarlo. El reparto es por
+	## cliente, no global: es lo que impide que unos pocos bots acaparen el
+	## presupuesto y el resto no perciba nunca.
+	var _last_perception_s: float = 0.0
 
 	## Percepción. Debe devolver cuántos raycasts consumió.
 	func tick_perception(_delta: float) -> int:
@@ -70,6 +71,12 @@ var _decision_accum: float = 0.0
 var _behavior_accum: float = 0.0
 var _decision_cursor: int = 0
 var _perception_cursor: int = 0
+## Reloj propio, acumulado del delta del motor. NO se usa Time.get_ticks_msec():
+## el reloj de pared no respeta Engine.time_scale, no se detiene con la pausa y
+## avanza a su aire en una simulación a paso fijo. Un planificador que depende
+## del reloj de pared no es determinista, y todo el argumento de testeabilidad
+## de ADR-002 se apoya en que sí lo sea.
+var _clock_s: float = 0.0
 var _raycasts_this_frame: int = 0
 var _path_requests_this_frame: int = 0
 ## Referencia opcional al jugador, para calcular prioridades.
@@ -83,8 +90,14 @@ var stat_decisions_last_tick: int = 0
 
 
 func register(client: Client) -> void:
-	if not _clients.has(client):
-		_clients.append(client)
+	if _clients.has(client):
+		return
+	# Se le da vencimiento inmediato pero con un delta de exactamente un periodo.
+	# Sin esto, el primer tick de un cliente recién registrado llegaría con el
+	# delta acotado al máximo (1 s) y su memoria decaería de golpe nada más
+	# aparecer, que es justo lo contrario de lo que debe pasar.
+	client._last_perception_s = _clock_s - (1.0 / PERCEPTION_HZ)
+	_clients.append(client)
 
 
 func unregister(client: Client) -> void:
@@ -95,6 +108,7 @@ func clear() -> void:
 	_clients.clear()
 	_decision_cursor = 0
 	_perception_cursor = 0
+	_clock_s = 0.0
 
 
 ## Punto de referencia para la prioridad (normalmente el jugador).
@@ -123,6 +137,8 @@ func _process(delta: float) -> void:
 	if not _enabled or _clients.is_empty():
 		return
 
+	_clock_s += delta
+
 	# La percepción se reparte ENTRE FRAMES, no se ejecuta de golpe cada 100 ms.
 	# Hacerlo de golpe con un techo de rayos significaba que los mismos bots de
 	# mayor prioridad se llevaban todo el presupuesto y el resto no percibía
@@ -150,8 +166,7 @@ func _process(delta: float) -> void:
 func _run_perception_slice() -> void:
 	_refresh_priorities()
 	var count := _clients.size()
-	var now := Time.get_ticks_msec()
-	var base_period_ms := int(1000.0 / PERCEPTION_HZ)
+	var base_period_s := 1.0 / PERCEPTION_HZ
 
 	# Se recorre como mucho una vuelta completa por frame.
 	var visited := 0
@@ -160,19 +175,19 @@ func _run_perception_slice() -> void:
 		_perception_cursor += 1
 		visited += 1
 
-		var period_ms := base_period_ms
+		var period_s := base_period_s
 		if _is_degraded(client):
-			period_ms *= FAR_FREQUENCY_DIVISOR
-		var since_ms := now - client._last_perception_msec
-		if since_ms < period_ms:
+			period_s *= float(FAR_FREQUENCY_DIVISOR)
+		var since_s := _clock_s - client._last_perception_s
+		if since_s < period_s:
 			continue
 
-		# Se pasa el tiempo REAL transcurrido, no el periodo nominal: si el
+		# Se pasa el tiempo SIMULADO transcurrido, no el periodo nominal: si el
 		# techo de rayos retrasó a este cliente, su memoria debe decaer por lo
 		# que de verdad ha pasado. Acotado para que el primer tick de un
 		# cliente recién registrado no llegue con un delta enorme.
-		var elapsed_s := clampf(float(since_ms) / 1000.0, 0.0, MAX_PERCEPTION_DELTA_S)
-		client._last_perception_msec = now
+		var elapsed_s := clampf(since_s, 0.0, MAX_PERCEPTION_DELTA_S)
+		client._last_perception_s = _clock_s
 		_raycasts_this_frame += client.tick_perception(elapsed_s)
 
 

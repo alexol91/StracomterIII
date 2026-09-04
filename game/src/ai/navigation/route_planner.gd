@@ -20,8 +20,6 @@ extends RefCounted
 ## se vuelve a buscar. La exclusión dura garantiza que no haya tramo
 ## compartido; la penalización blanda sólo lo haría probable.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
-const Sampler := preload("res://src/ai/navigation/navmesh_sampler.gd")
 
 ## Muestreo al validar que un tramo suavizado sigue dentro del corredor.
 const CORRIDOR_VALIDATION_STEP_M: float = 0.5
@@ -124,7 +122,7 @@ func disjoint_routes(from: Vector3, to: Vector3,
 	if start < 0 or goal < 0:
 		return out
 
-	var wanted := clampi(max_routes, 1, Tuning.ROUTE_MAX_ROUTES)
+	var wanted := clampi(max_routes, 1, NavTuning.ROUTE_MAX_ROUTES)
 	var excluded: Dictionary[int, bool] = {}
 	for _i in wanted:
 		var corridor := _astar(start, goal, excluded)
@@ -136,7 +134,7 @@ func disjoint_routes(from: Vector3, to: Vector3,
 		out.append(route)
 		# Los extremos son forzosamente comunes: si se excluyeran, la segunda
 		# ruta no podría ni salir del sitio ni llegar al destino.
-		var keep := Tuning.ROUTE_ENDPOINT_KEEP_RADIUS_M
+		var keep := NavTuning.ROUTE_ENDPOINT_KEEP_RADIUS_M
 		for poly_index: int in corridor:
 			var c := _centroids[poly_index]
 			if c.distance_to(from) <= keep or c.distance_to(to) <= keep:
@@ -148,8 +146,8 @@ func disjoint_routes(from: Vector3, to: Vector3,
 ## ¿Comparten tramo dos rutas? Se ignoran los entornos de origen y destino,
 ## que son comunes por construcción.
 static func routes_share_segment(a: PackedVector3Array, b: PackedVector3Array,
-		clearance_m: float = Tuning.ROUTE_DISJOINT_CLEARANCE_M,
-		endpoint_radius_m: float = Tuning.ROUTE_ENDPOINT_KEEP_RADIUS_M) -> bool:
+		clearance_m: float = NavTuning.ROUTE_DISJOINT_CLEARANCE_M,
+		endpoint_radius_m: float = NavTuning.ROUTE_ENDPOINT_KEEP_RADIUS_M) -> bool:
 	if a.size() < 2 or b.size() < 2:
 		return false
 	var start := a[0]
@@ -190,7 +188,7 @@ func _astar(start: int, goal: int, excluded: Dictionary[int, bool]) -> PackedInt
 		stat_last_expansions += 1
 		if current == goal:
 			return _reconstruct(came_from, goal, start)
-		if stat_last_expansions > Tuning.ROUTE_MAX_EXPANSIONS:
+		if stat_last_expansions > NavTuning.ROUTE_MAX_EXPANSIONS:
 			break
 		var current_g: float = g_score[current]
 		for neighbor: int in _neighbors[current]:
@@ -360,7 +358,7 @@ func _point_in_corridor(p: Vector3, corridor: PackedInt32Array) -> bool:
 
 
 func _point_in_polygon(p: Vector3, poly_index: int) -> bool:
-	return Sampler.point_in_polygon(p, _polygons[poly_index], _vertices, POLYGON_EPSILON)
+	return NavmeshSampler.point_in_polygon(p, _polygons[poly_index], _vertices, POLYGON_EPSILON)
 
 
 ## Índice del polígono que contiene el punto; si ninguno, el centroide más
@@ -370,7 +368,7 @@ func _locate(point: Vector3) -> int:
 		if _point_in_polygon(point, i):
 			return i
 	var best := -1
-	var best_d := Tuning.NAVMESH_SNAP_TOLERANCE_M * Tuning.NAVMESH_SNAP_TOLERANCE_M
+	var best_d := NavTuning.NAVMESH_SNAP_TOLERANCE_M * NavTuning.NAVMESH_SNAP_TOLERANCE_M
 	for i in _centroids.size():
 		var d := _centroids[i].distance_squared_to(point)
 		if d < best_d:

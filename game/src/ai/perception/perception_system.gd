@@ -15,31 +15,24 @@ extends AIScheduler.Client
 ## PUREZA: todo lo que decide sale de `(BotState, pizarra, WorldQuery)`. El
 ## mundo entra por `WorldQuery` y los candidatos por `target_provider`, ambos
 ## inyectables, y por eso esto corre en `--headless` sin escena.
-
-# TODO(arquitecto): mover a datos (CharacterStats o un PerceptionProfile).
-
-## Techo de raycasts que un solo bot puede gastar en un tick. Con 40 bots a
-## 10 Hz y 48 rayos/frame, ningún bot puede acaparar el presupuesto: los
-## sobrantes se los queda el que está más cerca del jugador, que es quien
-## importa.
-const MAX_RAYCASTS_PER_TICK: int = 3
-## Ruidos procesados por tick. Cada uno cuesta una consulta de camino.
-const MAX_NOISE_EVENTS_PER_TICK: int = 3
-## Confianza mínima para difundir un contacto a la escuadra. Por debajo es una
-## corazonada, y una corazonada no moviliza a cuatro personas.
-const MIN_BROADCAST_CONFIDENCE: float = 0.35
-## Segundos que un punto de ruido sigue siendo interesante para investigar.
-const NOISE_INTEREST_S: float = 8.0
-## Confianza que aporta recibir un disparo desde una posición.
-const DAMAGE_CONFIDENCE: float = 0.6
+##
+## Todo el afinado vive en `CharacterStats.perception` (un `PerceptionProfile`)
+## y se reparte a los cuatro subsistemas: ningún número de balanceo vive en
+## este fichero (ADR-005). Cambiar de perfil convierte a un sicario en un
+## veterano sin tocar una línea de código.
 
 
-## Identidad del bot.
+## Identidad del bot. Debe ser el MISMO id con el que `gameplay/` emite
+## `character_damaged` (allí es `get_instance_id()`); si no coinciden, un bot
+## herido nunca sabrá quién le disparó.
 var bot_id: int = 0
 var squad_id: int = 0
 var team: int = 0
 ## Estadísticas del arquetipo: alcance, conos y retardo de reacción.
 var stats: CharacterStats = null
+## Afinado del sensor. Sale de `stats.perception`; si el arquetipo no trae
+## perfil, se usan los valores por defecto del recurso.
+var profile: PerceptionProfile = null
 ## Consulta al mundo. Inyectable: física real en juego, sintética en pruebas.
 var world: WorldQuery = null
 ## Instantánea del bot. La percepción RELLENA sus campos de percepción; el
@@ -67,7 +60,7 @@ var stat_visible_targets: int = 0
 
 var _targets: Array[VisionSensor.Target] = []
 var _registered: bool = false
-var _noise_connected: bool = false
+var _events_connected: bool = false
 
 
 func _init(
@@ -93,6 +86,14 @@ func configure(p_stats: CharacterStats) -> void:
 	_apply_stats()
 
 
+## Perfil de percepción de unas estadísticas, con reserva a los valores por
+## defecto del recurso si el arquetipo no trae uno.
+static func resolve_profile(p_stats: CharacterStats) -> PerceptionProfile:
+	if p_stats != null and p_stats.perception != null:
+		return p_stats.perception
+	return PerceptionProfile.new()
+
+
 # ---- Registro en el scheduler (ADR-002) ----
 
 ## Se registra en el `AIScheduler`. NINGÚN bot debe llamar a
@@ -111,21 +112,24 @@ func unregister() -> void:
 	_registered = false
 
 
-## Se suscribe a `EventBus.noise_emitted` para alimentar el oído. Separado del
-## constructor a propósito: sin llamar a esto, la clase no toca autoloads y se
-## puede instanciar en una prueba.
-func connect_noise_events() -> void:
-	if _noise_connected:
+## Se suscribe a las señales del mundo que alimentan la percepción: el ruido
+## (oído) y el daño recibido (cola de atacantes). Separado del constructor a
+## propósito: sin llamar a esto, la clase no toca autoloads y se puede
+## instanciar en una prueba.
+func connect_events() -> void:
+	if _events_connected:
 		return
 	EventBus.noise_emitted.connect(_on_noise_emitted)
-	_noise_connected = true
+	EventBus.character_damaged.connect(_on_character_damaged)
+	_events_connected = true
 
 
-func disconnect_noise_events() -> void:
-	if not _noise_connected:
+func disconnect_events() -> void:
+	if not _events_connected:
 		return
 	EventBus.noise_emitted.disconnect(_on_noise_emitted)
-	_noise_connected = false
+	EventBus.character_damaged.disconnect(_on_character_damaged)
+	_events_connected = false
 
 
 ## Entrada del oído. Pública para poder inyectar ruidos en pruebas sin bus.
@@ -141,7 +145,9 @@ func hear_noise(position: Vector3, intensity: float, radius_m: float, source_id:
 func report_damage_from(attacker_id: int, attacker_team: int, from_position: Vector3) -> void:
 	if attacker_id == bot_id or attacker_team == team:
 		return
-	memory.reinforce_damage(attacker_id, attacker_team, from_position, DAMAGE_CONFIDENCE)
+	memory.reinforce_damage(
+		attacker_id, attacker_team, from_position, effective_profile().damage_confidence
+	)
 
 
 ## Incorpora a la memoria los contactos que han reportado los COMPAÑEROS.
@@ -189,9 +195,10 @@ func tick_perception(delta: float) -> int:
 	# 1. Envejecer lo que ya se sabía. Siempre antes de los refuerzos: si no,
 	#    un contacto refrescado este tick nacería ya viejo.
 	memory.update(delta)
+	var tuning := effective_profile()
 	if not is_inf(last_noise_age_s):
 		last_noise_age_s += delta
-		if last_noise_age_s > NOISE_INTEREST_S:
+		if last_noise_age_s > tuning.noise_interest_s:
 			last_noise_position = Vector3.INF
 			last_noise_age_s = INF
 			last_noise_loudness = 0.0
@@ -205,7 +212,7 @@ func tick_perception(delta: float) -> int:
 		_targets,
 		world,
 		delta,
-		MAX_RAYCASTS_PER_TICK
+		tuning.max_raycasts_per_tick
 	)
 	for sighting: VisionSensor.Sighting in vision_result.sightings:
 		if not sighting.detected:
@@ -216,7 +223,7 @@ func tick_perception(delta: float) -> int:
 		)
 
 	# 3. Oído, atenuado por coste de camino.
-	var heard_list := hearing.process(state.position, world, MAX_NOISE_EVENTS_PER_TICK)
+	var heard_list := hearing.process(state.position, world, tuning.max_noise_events_per_tick)
 	for heard: HearingSensor.Heard in heard_list:
 		_absorb_noise(heard)
 
@@ -227,7 +234,7 @@ func tick_perception(delta: float) -> int:
 	#    se detecta en este tick no puede llegar a la pizarra en este tick.
 	broadcaster.update(delta)
 	for entry: ContactMemory.Entry in memory.entries():
-		if entry.confidence >= MIN_BROADCAST_CONFIDENCE:
+		if entry.confidence >= tuning.min_broadcast_confidence:
 			broadcaster.submit(
 				squad_id, entry.target_id, entry.team, entry.believed_position, entry.confidence
 			)
@@ -241,12 +248,21 @@ func tick_perception(delta: float) -> int:
 
 # ---- Interno ----
 
+## Perfil en uso, resuelto una sola vez y repartido a los cuatro subsistemas.
+func effective_profile() -> PerceptionProfile:
+	if profile == null:
+		_apply_stats()
+	return profile
+
+
 func _apply_stats() -> void:
-	if stats == null:
-		return
-	broadcaster.reaction_delay_s = maxf(
-		stats.reaction_delay_s, ContactBroadcaster.MIN_REACTION_DELAY_S
-	)
+	profile = resolve_profile(stats)
+	vision.profile = profile
+	hearing.profile = profile
+	memory.profile = profile
+	broadcaster.profile = profile
+	if stats != null:
+		broadcaster.reaction_delay_s = stats.reaction_delay_s
 
 
 func _refresh_targets() -> void:
@@ -267,7 +283,7 @@ func _refresh_targets() -> void:
 
 
 func _absorb_noise(heard: HearingSensor.Heard) -> void:
-	var confidence := HearingSensor.confidence_from(heard.loudness)
+	var confidence := HearingSensor.confidence_from(heard.loudness, effective_profile())
 	var known := _known_target(heard.source_id)
 	if known != null and known.team != team:
 		memory.reinforce_sound(known.target_id, known.team, heard.estimated_position, confidence)
@@ -315,3 +331,20 @@ func _on_noise_emitted(
 	position: Vector3, intensity: float, radius_m: float, source_id: int
 ) -> void:
 	hear_noise(position, intensity, radius_m, source_id)
+
+
+## Cierra la cola de atacantes del legacy (`Bot::atackers`, análisis §3.5): un
+## bot herido por la espalda no ve a quien le dispara, pero sabe de dónde vino
+## el tiro y a quién responder. En el original esto solo lo consumía Patrol y
+## se acumulaba sin límite en los demás estados; aquí entra en la misma memoria
+## de contactos que todo lo demás, y por tanto también decae.
+func _on_character_damaged(
+	character_id: int,
+	_amount: float,
+	from_position: Vector3,
+	attacker_id: int,
+	attacker_team: int
+) -> void:
+	if character_id != bot_id:
+		return
+	report_damage_from(attacker_id, attacker_team, from_position)

@@ -151,7 +151,11 @@ func test_a_tick_never_exceeds_the_per_bot_raycast_budget() -> void:
 	for i: int in 12:
 		_add_target(Vector3(float(i) * 0.4 - 2.0, 0.0, -7.0), 100 + i)
 	var used := system.tick_perception(0.1)
-	assert_eq(used, PerceptionSystem.MAX_RAYCASTS_PER_TICK, "gasta su presupuesto, ni uno más")
+	assert_eq(
+		used,
+		system.effective_profile().max_raycasts_per_tick,
+		"gasta su presupuesto, ni uno más"
+	)
 	assert_eq(world.raycast_count, used, "y lo declara con exactitud al scheduler")
 
 
@@ -242,3 +246,67 @@ func test_scheduler_hints_are_kept_up_to_date() -> void:
 	system.sync_scheduler_hints(Vector3(4.0, 0.0, -2.0), true)
 	assert_eq(system.world_position, Vector3(4.0, 0.0, -2.0), "el scheduler prioriza por posición")
 	assert_true(system.on_screen, "y por visibilidad en cámara (ADR-002)")
+
+
+func test_a_bot_shot_in_the_back_learns_who_shot_it() -> void:
+	# Cierra la cola de atacantes del legacy (`Bot::atackers`, análisis §3.5).
+	# El atacante está a 180°: imposible de ver, pero el bot sabe de dónde vino
+	# el tiro y a quién responder.
+	var attacker_position := Vector3(0.0, 0.0, 6.0)
+	system.tick_perception(0.1)
+	assert_eq(state.known_threat_count, 0, "de espaldas no ve nada")
+
+	system.report_damage_from(77, 0, attacker_position)
+	system.tick_perception(0.1)
+
+	var entry := system.memory.get_entry(77)
+	assert_not_null(entry, "el atacante entra en la memoria de contactos")
+	if entry == null:
+		return
+	assert_eq(entry.source, ContactMemory.Source.DAMAGE, "y consta que se supo por el dolor")
+	assert_lt(
+		entry.believed_position.distance_to(attacker_position),
+		0.001,
+		"con la posición desde la que llegó el disparo"
+	)
+	assert_false(state.has_line_of_sight, "sin verlo, que es lo importante")
+	assert_gt(state.target_confidence, 0.0, "pero ya sabe a quién responder")
+
+
+func test_damage_from_the_event_bus_reaches_the_memory() -> void:
+	# La señal lleva ahora los ids del atacante, así que el bot no necesita que
+	# nadie se los pase a mano.
+	system.connect_events()
+	EventBus.character_damaged.emit(system.bot_id, 12.0, Vector3(0.0, 0.0, 5.0), 88, 0)
+	assert_true(system.memory.has(88), "el bot herido apunta a quien le disparó")
+
+	EventBus.character_damaged.emit(9999, 12.0, Vector3(0.0, 0.0, 5.0), 89, 0)
+	assert_false(system.memory.has(89), "y no se entera de los tiros que reciben otros")
+	system.disconnect_events()
+
+
+func test_damage_from_an_ally_is_ignored() -> void:
+	system.report_damage_from(55, system.team, Vector3(0.0, 0.0, 5.0))
+	assert_false(system.memory.has(55), "el fuego amigo no crea un enemigo")
+
+
+func test_every_archetype_profile_reaches_the_four_subsystems() -> void:
+	var stats: CharacterStats = Balance.character(&"enemy_thug")
+	assert_not_null(stats, "falta el sicario en los datos")
+	if stats == null:
+		return
+	assert_not_null(stats.perception, "el sicario debe traer perfil de percepción")
+	system.configure(stats)
+	assert_eq(system.profile, stats.perception, "el perfil del arquetipo manda")
+	assert_eq(system.vision.profile, stats.perception, "y llega a la vista")
+	assert_eq(system.hearing.profile, stats.perception, "al oído")
+	assert_eq(system.memory.profile, stats.perception, "a la memoria")
+	assert_eq(system.broadcaster.profile, stats.perception, "y a la difusión")
+
+
+func test_a_stats_without_profile_falls_back_to_defaults_instead_of_crashing() -> void:
+	var bare := CharacterStats.new()
+	bare.vision_range_m = 24.0
+	system.configure(bare)
+	assert_not_null(system.profile, "sin perfil en datos se usan los valores por defecto")
+	assert_gt(float(system.effective_profile().max_raycasts_per_tick), 0.0)

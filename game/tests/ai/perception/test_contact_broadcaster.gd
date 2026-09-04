@@ -16,6 +16,7 @@ func before_each() -> void:
 	published_squads = []
 	fake_clock_msec = 0
 	broadcaster = ContactBroadcaster.new()
+	broadcaster.profile = PerceptionProfile.new()
 	broadcaster.reporter_id = 11
 	broadcaster.report_sink = _record
 	broadcaster.clock_msec = _clock

@@ -22,7 +22,6 @@ extends NavigationLink3D
 ## `start_position` y `end_position` a un lado y otro del vano, dentro de sus
 ## respectivas regiones.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
 
 ## Identificador que emite `EventBus.door_state_changed`. Debe coincidir con
 ## el de la puerta de `gameplay/`.

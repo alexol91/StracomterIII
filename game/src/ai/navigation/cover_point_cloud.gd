@@ -18,7 +18,6 @@ extends Resource
 ## El índice espacial NO se serializa: se reconstruye al cargar. Es más rápido
 ## que leerlo y no puede quedar desincronizado con los puntos.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
 
 ## Sube cuando cambia el formato o el significado de las calidades. Un
 ## `.tres` con versión distinta se considera caducado y hay que rehornearlo.
@@ -27,9 +26,9 @@ const FORMAT_VERSION: int = 1
 @export var map_id: StringName = &""
 @export var format_version: int = FORMAT_VERSION
 ## Parámetros con los que se horneó, para poder detectar que ya no valen.
-@export var baked_agent_radius_m: float = Tuning.AGENT_RADIUS_M
-@export var baked_sample_spacing_m: float = Tuning.COVER_SAMPLE_SPACING_M
-@export var grid_cell_m: float = Tuning.COVER_GRID_CELL_M
+@export var baked_agent_radius_m: float = NavTuning.AGENT_RADIUS_M
+@export var baked_sample_spacing_m: float = NavTuning.COVER_SAMPLE_SPACING_M
+@export var grid_cell_m: float = NavTuning.COVER_GRID_CELL_M
 
 @export var positions: PackedVector3Array = PackedVector3Array()
 ## 8 bytes por punto: calidad por sector a altura de PECHO (bot agachado).
@@ -70,8 +69,8 @@ func clear() -> void:
 ## Añade un punto. `chest` y `head` deben tener DIRECTION_COUNT elementos.
 func append_point(position: Vector3, chest: PackedByteArray,
 		head: PackedByteArray, room_id: int = -1) -> void:
-	assert(chest.size() == Tuning.DIRECTION_COUNT)
-	assert(head.size() == Tuning.DIRECTION_COUNT)
+	assert(chest.size() == NavTuning.DIRECTION_COUNT)
+	assert(head.size() == NavTuning.DIRECTION_COUNT)
 	positions.append(position)
 	chest_qualities.append_array(chest)
 	head_qualities.append_array(head)
@@ -90,11 +89,11 @@ func room_at(index: int) -> int:
 
 
 func chest_quality(index: int, sector: int) -> CoverProvider.Quality:
-	return chest_qualities[index * Tuning.DIRECTION_COUNT + sector] as CoverProvider.Quality
+	return chest_qualities[index * NavTuning.DIRECTION_COUNT + sector] as CoverProvider.Quality
 
 
 func head_quality(index: int, sector: int) -> CoverProvider.Quality:
-	return head_qualities[index * Tuning.DIRECTION_COUNT + sector] as CoverProvider.Quality
+	return head_qualities[index * NavTuning.DIRECTION_COUNT + sector] as CoverProvider.Quality
 
 
 ## Construye el objeto del contrato `CoverProvider.CoverPoint` para un índice.
@@ -104,8 +103,8 @@ func make_point(index: int) -> CoverProvider.CoverPoint:
 	point.position = positions[index]
 	var chest: Array[CoverProvider.Quality] = []
 	var head: Array[CoverProvider.Quality] = []
-	var base := index * Tuning.DIRECTION_COUNT
-	for s in Tuning.DIRECTION_COUNT:
+	var base := index * NavTuning.DIRECTION_COUNT
+	for s in NavTuning.DIRECTION_COUNT:
 		chest.append(chest_qualities[base + s] as CoverProvider.Quality)
 		head.append(head_qualities[base + s] as CoverProvider.Quality)
 	point.chest = chest
@@ -128,9 +127,9 @@ func quality_against(index: int, threat_position: Vector3,
 ## Sector de una dirección. Réplica exacta de la fórmula del contrato.
 static func sector_of(dir: Vector3) -> int:
 	var angle := atan2(dir.z, dir.x)
-	var sector := int(roundf(angle / (TAU / float(Tuning.DIRECTION_COUNT)))) % Tuning.DIRECTION_COUNT
+	var sector := int(roundf(angle / (TAU / float(NavTuning.DIRECTION_COUNT)))) % NavTuning.DIRECTION_COUNT
 	if sector < 0:
-		sector += Tuning.DIRECTION_COUNT
+		sector += NavTuning.DIRECTION_COUNT
 	return sector
 
 
@@ -237,9 +236,9 @@ func remove_in_aabb(aabb: AABB) -> int:
 			removed += 1
 			continue
 		kept_positions.append(positions[i])
-		var base := i * Tuning.DIRECTION_COUNT
-		kept_chest.append_array(chest_qualities.slice(base, base + Tuning.DIRECTION_COUNT))
-		kept_head.append_array(head_qualities.slice(base, base + Tuning.DIRECTION_COUNT))
+		var base := i * NavTuning.DIRECTION_COUNT
+		kept_chest.append_array(chest_qualities.slice(base, base + NavTuning.DIRECTION_COUNT))
+		kept_head.append_array(head_qualities.slice(base, base + NavTuning.DIRECTION_COUNT))
 		kept_rooms.append(room_ids[i])
 	positions = kept_positions
 	chest_qualities = kept_chest

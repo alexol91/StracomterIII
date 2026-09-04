@@ -8,11 +8,14 @@ extends TestCase
 const WorldQueryFake := preload("res://tests/ai/perception/world_query_fake.gd")
 
 var sensor: HearingSensor = null
+var profile: PerceptionProfile = null
 
 
 func before_each() -> void:
 	sensor = HearingSensor.new()
 	sensor.listener_id = 7
+	profile = PerceptionProfile.new()
+	sensor.profile = profile
 
 
 func _open_world() -> WorldQueryFake:
@@ -75,10 +78,12 @@ func test_straight_corridor_sounds_close() -> void:
 func test_attenuation_falls_monotonically_with_path_cost() -> void:
 	var previous := 1.1
 	for cost: int in range(0, 20):
-		var value := HearingSensor.attenuation(float(cost), 20.0)
+		var value := HearingSensor.attenuation(float(cost), 20.0, profile)
 		assert_lt(value, previous, "la atenuación debe caer con el coste")
 		previous = value
-	assert_almost_eq(HearingSensor.attenuation(25.0, 20.0), 0.0, 0.0001, "más allá del radio, nada")
+	assert_almost_eq(
+		HearingSensor.attenuation(25.0, 20.0, profile), 0.0, 0.0001, "más allá del radio, nada"
+	)
 
 
 func test_noise_beyond_radius_is_not_heard() -> void:
@@ -106,10 +111,12 @@ func test_without_navmesh_route_the_sound_is_muffled_not_silenced() -> void:
 
 
 func test_localization_error_shrinks_as_the_sound_gets_louder() -> void:
-	assert_almost_eq(HearingSensor.localization_error_m(1.0), 0.0, 0.0001, "a bocajarro, sin error")
+	assert_almost_eq(
+		HearingSensor.localization_error_m(1.0, profile), 0.0, 0.0001, "a bocajarro, sin error"
+	)
 	assert_gt(
-		HearingSensor.localization_error_m(0.1),
-		HearingSensor.localization_error_m(0.9),
+		HearingSensor.localization_error_m(0.1, profile),
+		HearingSensor.localization_error_m(0.9, profile),
 		"cuanto más flojo, peor se localiza"
 	)
 
@@ -140,9 +147,9 @@ func test_queue_is_consumed_within_the_tick_budget() -> void:
 
 func test_hearing_never_gives_the_certainty_of_seeing() -> void:
 	assert_almost_eq(
-		HearingSensor.confidence_from(1.0),
-		HearingSensor.MAX_SOUND_CONFIDENCE,
+		HearingSensor.confidence_from(1.0, profile),
+		profile.max_sound_confidence,
 		0.0001,
 		"oír a alguien no es verlo"
 	)
-	assert_lt(HearingSensor.confidence_from(1.0), 1.0, "y nunca da confianza plena")
+	assert_lt(HearingSensor.confidence_from(1.0, profile), 1.0, "y nunca da confianza plena")

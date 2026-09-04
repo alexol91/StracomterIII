@@ -12,6 +12,7 @@ const WorldQueryFake := preload("res://tests/ai/perception/world_query_fake.gd")
 var world: WorldQueryFake = null
 var sensor: VisionSensor = null
 var stats: CharacterStats = null
+var profile: PerceptionProfile = null
 
 
 func before_each() -> void:
@@ -23,6 +24,9 @@ func before_each() -> void:
 	stats.vision_range_m = 24.0
 	stats.vision_fov_primary_deg = 35.0
 	stats.vision_fov_secondary_deg = 70.0
+	profile = PerceptionProfile.new()
+	stats.perception = profile
+	sensor.profile = profile
 
 
 ## Bot en el origen mirando a -Z (convenio de Godot).
@@ -146,17 +150,51 @@ func test_awareness_decays_when_line_of_sight_is_lost() -> void:
 
 func test_cone_for_is_pure_and_deterministic() -> void:
 	var a := VisionSensor.cone_for(
-		Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -5.0), 24.0, 35.0, 70.0
+		Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -5.0), stats, profile
 	)
 	var b := VisionSensor.cone_for(
-		Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -5.0), 24.0, 35.0, 70.0
+		Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -5.0), stats, profile
 	)
 	assert_eq(a, b, "misma entrada, misma salida")
 	assert_eq(a, VisionSensor.Cone.PRIMARY)
 	assert_eq(
 		VisionSensor.cone_for(
-			Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -100.0), 24.0, 35.0, 70.0
+			Vector3.ZERO, Vector3.FORWARD, Vector3(0.0, 0.0, -100.0), stats, profile
 		),
 		VisionSensor.Cone.NONE,
 		"fuera de alcance"
+	)
+
+
+func test_the_profile_is_what_separates_a_thug_from_a_veteran() -> void:
+	# La misma geometría, dos perfiles: el dato manda sobre el código (ADR-005).
+	var targets: Array[VisionSensor.Target] = [_target_at(Vector3(0.0, 0.0, -8.0))]
+	var veteran: PerceptionProfile = load("res://src/data/perception/veteran.tres")
+	var sloppy: PerceptionProfile = load("res://src/data/perception/sloppy.tres")
+	assert_not_null(veteran, "falta el perfil del veterano en los datos")
+	assert_not_null(sloppy, "falta el perfil del sicario en los datos")
+	if veteran == null or sloppy == null:
+		return
+
+	sensor.profile = veteran
+	stats.perception = veteran
+	var veteran_ticks := 0
+	while veteran_ticks < 60:
+		veteran_ticks += 1
+		if sensor.evaluate(Vector3.ZERO, Vector3.FORWARD, stats, targets, world, 0.1, 8).sightings[0].detected:
+			break
+
+	sensor.reset()
+	sensor.profile = sloppy
+	stats.perception = sloppy
+	var sloppy_ticks := 0
+	while sloppy_ticks < 60:
+		sloppy_ticks += 1
+		if sensor.evaluate(Vector3.ZERO, Vector3.FORWARD, stats, targets, world, 0.1, 8).sightings[0].detected:
+			break
+
+	assert_lt(
+		float(veteran_ticks),
+		float(sloppy_ticks),
+		"el veterano debe adquirir antes que el sicario, y sin tocar una línea de código"
 	)

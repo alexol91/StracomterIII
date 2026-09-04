@@ -27,19 +27,16 @@ extends RefCounted
 ## horneado se prueba con geometría sintética descrita a mano, sin escena y
 ## sin física, que es exactamente la costura que pide la arquitectura.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
-const Sampler := preload("res://src/ai/navigation/navmesh_sampler.gd")
-
 
 ## Parámetros del horneado. Todo lo que no se toque usa `NavTuning`.
 class Options:
 	extends RefCounted
 
 	var map_id: StringName = &""
-	var sample_spacing_m: float = Tuning.COVER_SAMPLE_SPACING_M
-	var probe_distance_m: float = Tuning.COVER_PROBE_DISTANCE_M
-	var lateral_offsets_m: Array[float] = Tuning.COVER_LATERAL_OFFSETS_M
-	var collision_mask: int = Tuning.WORLD_COLLISION_MASK
+	var sample_spacing_m: float = NavTuning.COVER_SAMPLE_SPACING_M
+	var probe_distance_m: float = NavTuning.COVER_PROBE_DISTANCE_M
+	var lateral_offsets_m: Array[float] = NavTuning.COVER_LATERAL_OFFSETS_M
+	var collision_mask: int = NavTuning.WORLD_COLLISION_MASK
 	## Cajas de sala del mapa, para etiquetar cada punto. Opcional.
 	var room_aabbs: Array[AABB] = []
 	## Si es true, se guardan también los puntos sin ninguna cobertura. Por
@@ -63,7 +60,7 @@ func bake(mesh: NavigationMesh, world: WorldQuery,
 	cloud.format_version = CoverPointCloud.FORMAT_VERSION
 	cloud.baked_agent_radius_m = mesh.agent_radius
 	cloud.baked_sample_spacing_m = opts.sample_spacing_m
-	cloud.grid_cell_m = Tuning.COVER_GRID_CELL_M
+	cloud.grid_cell_m = NavTuning.COVER_GRID_CELL_M
 	_bake_into(cloud, mesh, world, opts, AABB())
 	cloud.rebuild_index()
 	return cloud
@@ -90,18 +87,18 @@ func _bake_into(cloud: CoverPointCloud, mesh: NavigationMesh, world: WorldQuery,
 	if lateral.is_empty():
 		lateral = [0.0] as Array[float]
 
-	for position: Vector3 in Sampler.sample_grid(mesh, opts.sample_spacing_m, area):
+	for position: Vector3 in NavmeshSampler.sample_grid(mesh, opts.sample_spacing_m, area):
 		stat_sampled += 1
 		var floor_y := _find_floor(world, position, opts.collision_mask)
 		var chest := PackedByteArray()
 		var head := PackedByteArray()
 		var covers := false
-		for sector in Tuning.DIRECTION_COUNT:
-			var dir := Tuning.sector_direction(sector)
+		for sector in NavTuning.DIRECTION_COUNT:
+			var dir := NavTuning.sector_direction(sector)
 			var chest_ratio := _blocked_ratio(
-				world, position, floor_y + Tuning.CHEST_HEIGHT_M, dir, lateral, opts)
+				world, position, floor_y + NavTuning.CHEST_HEIGHT_M, dir, lateral, opts)
 			var head_ratio := _blocked_ratio(
-				world, position, floor_y + Tuning.HEAD_HEIGHT_M, dir, lateral, opts)
+				world, position, floor_y + NavTuning.HEAD_HEIGHT_M, dir, lateral, opts)
 			var chest_q := _classify_chest(chest_ratio)
 			var head_q := _classify_head(chest_ratio, head_ratio)
 			chest.append(int(chest_q))
@@ -120,9 +117,9 @@ func _bake_into(cloud: CoverPointCloud, mesh: NavigationMesh, world: WorldQuery,
 ## Calidad para un bot AGACHADO: sólo asoma hasta la altura de pecho, así que
 ## un obstáculo que llegue al pecho lo cubre entero.
 static func _classify_chest(chest_ratio: float) -> CoverProvider.Quality:
-	if chest_ratio >= Tuning.COVER_FULL_RATIO:
+	if chest_ratio >= NavTuning.COVER_FULL_RATIO:
 		return CoverProvider.Quality.HIGH
-	if chest_ratio >= Tuning.COVER_PARTIAL_RATIO:
+	if chest_ratio >= NavTuning.COVER_PARTIAL_RATIO:
 		return CoverProvider.Quality.LOW
 	return CoverProvider.Quality.NONE
 
@@ -132,9 +129,9 @@ static func _classify_chest(chest_ratio: float) -> CoverProvider.Quality:
 ## medias, tiene que agacharse—; nada es nada.
 static func _classify_head(chest_ratio: float,
 		head_ratio: float) -> CoverProvider.Quality:
-	if head_ratio >= Tuning.COVER_FULL_RATIO and chest_ratio >= Tuning.COVER_FULL_RATIO:
+	if head_ratio >= NavTuning.COVER_FULL_RATIO and chest_ratio >= NavTuning.COVER_FULL_RATIO:
 		return CoverProvider.Quality.HIGH
-	if head_ratio >= Tuning.COVER_PARTIAL_RATIO or chest_ratio >= Tuning.COVER_FULL_RATIO:
+	if head_ratio >= NavTuning.COVER_PARTIAL_RATIO or chest_ratio >= NavTuning.COVER_FULL_RATIO:
 		return CoverProvider.Quality.LOW
 	return CoverProvider.Quality.NONE
 
@@ -158,8 +155,8 @@ func _blocked_ratio(world: WorldQuery, position: Vector3, height_y: float,
 ## encima de la geometría; medir pecho y cabeza desde ahí mete 0,4 m de error,
 ## que es justo la diferencia entre una mesa y un muro bajo.
 func _find_floor(world: WorldQuery, position: Vector3, mask: int) -> float:
-	var from := position + Vector3.UP * Tuning.COVER_FLOOR_PROBE_UP_M
-	var to := position - Vector3.UP * Tuning.COVER_FLOOR_PROBE_DOWN_M
+	var from := position + Vector3.UP * NavTuning.COVER_FLOOR_PROBE_UP_M
+	var to := position - Vector3.UP * NavTuning.COVER_FLOOR_PROBE_DOWN_M
 	stat_rays += 1
 	var hit := world.raycast(from, to, mask)
 	if hit.is_finite():

@@ -17,8 +17,6 @@ extends CoverProvider
 ## El índice espacial es obligatorio; recorrer miles de puntos por consulta es
 ## exactamente el error que hundiría el frame con 40 bots.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
-
 
 ## Candidato puntuado. Clase interna para no crear diccionarios por punto.
 class Scored:
@@ -36,7 +34,7 @@ var _cloud: CoverPointCloud = null
 ## Opcional. Si está, los K finalistas se reordenan con coste de camino REAL
 ## en lugar de con distancia euclídea.
 var _world: WorldQuery = null
-var _search_radius_m: float = Tuning.COVER_SEARCH_RADIUS_M
+var _search_radius_m: float = NavTuning.COVER_SEARCH_RADIUS_M
 
 ## Candidatos examinados en la última consulta. Es la medida objetiva de que
 ## la consulta no escala con el tamaño de la nube.
@@ -95,7 +93,7 @@ func query(from: Vector3, threats: Array[Vector3], objective: Vector3,
 
 	# Refinamiento: sólo los finalistas pagan un coste de camino real. Pedir
 	# una ruta por candidato reventaría el techo de 4 peticiones por frame.
-	var finalists := mini(scored.size(), k * Tuning.SCORE_REFINE_FACTOR)
+	var finalists := mini(scored.size(), k * NavTuning.SCORE_REFINE_FACTOR)
 	if _world != null and finalists > 0:
 		for i in finalists:
 			var entry := scored[i]
@@ -134,12 +132,12 @@ func exposure_at(point: Vector3, threats: Array[Vector3],
 		return 1.0
 	if threats.is_empty():
 		return 0.0
-	var index := _cloud.nearest_index(point, Tuning.EXPOSURE_SNAP_RADIUS_M)
+	var index := _cloud.nearest_index(point, NavTuning.EXPOSURE_SNAP_RADIUS_M)
 	if index < 0:
 		return 1.0
 	var total := 0.0
 	for threat: Vector3 in threats:
-		total += Tuning.quality_weight(_cloud.quality_against(index, threat, crouched))
+		total += NavTuning.quality_weight(_cloud.quality_against(index, threat, crouched))
 	return clampf(1.0 - total / float(threats.size()), 0.0, 1.0)
 
 
@@ -157,8 +155,8 @@ func _score(index: int, from: Vector3, threats: Array[Vector3],
 	var protection := 0.0
 	var exposure := 0.0
 	for threat: Vector3 in threats:
-		var w := Tuning.quality_weight(_cloud.quality_against(index, threat, crouched))
-		if w >= Tuning.COVER_EFFECTIVE_PROTECTION:
+		var w := NavTuning.quality_weight(_cloud.quality_against(index, threat, crouched))
+		if w >= NavTuning.COVER_EFFECTIVE_PROTECTION:
 			protection += w
 		else:
 			exposure += 1.0 - w
@@ -166,16 +164,16 @@ func _score(index: int, from: Vector3, threats: Array[Vector3],
 	entry.protection = protection / divisor
 	entry.exposure = exposure / divisor
 
-	entry.travel = travel_cost / Tuning.SCORE_REFERENCE_DISTANCE_M
+	entry.travel = travel_cost / NavTuning.SCORE_REFERENCE_DISTANCE_M
 	entry.progress = 0.0
 	if has_objective:
 		entry.progress = (from_to_objective - position.distance_to(objective)) \
-			/ Tuning.SCORE_REFERENCE_DISTANCE_M
+			/ NavTuning.SCORE_REFERENCE_DISTANCE_M
 
 	entry.score = (
-		Tuning.SCORE_PROTECTION_WEIGHT * entry.protection
-		- Tuning.SCORE_EXPOSURE_WEIGHT * entry.exposure
-		- Tuning.SCORE_PATH_COST_WEIGHT * entry.travel
-		+ Tuning.SCORE_PROGRESS_WEIGHT * entry.progress
+		NavTuning.SCORE_PROTECTION_WEIGHT * entry.protection
+		- NavTuning.SCORE_EXPOSURE_WEIGHT * entry.exposure
+		- NavTuning.SCORE_PATH_COST_WEIGHT * entry.travel
+		+ NavTuning.SCORE_PROGRESS_WEIGHT * entry.progress
 	)
 	return entry

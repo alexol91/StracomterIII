@@ -1,6 +1,7 @@
+class_name NavmeshSampler
 extends RefCounted
-## Muestreo de un `NavigationMesh` en rejilla. Sin `class_name` a propósito:
-## es una utilidad interna de `ai/navigation`, se usa con `preload`.
+## Muestreo de un `NavigationMesh` en rejilla. Utilidad interna de
+## `ai/navigation`.
 ##
 ## Sustituye a `Map::getTriCenters(minArea)` del legacy, que devolvía los
 ## incentros de los triángulos de área ≥ 2000 px² (análisis §5.3). Aquel

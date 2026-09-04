@@ -1,0 +1,181 @@
+extends GameplayFixture
+## Habilidades activas de clase (E-01) y auras pasivas de escuadra (paridad
+## [P05]). Ninguna de las cuatro habilidades implementa la escuadra ni la
+## navegación: solo se comprueba que emiten la señal/marca correcta.
+
+func before_each() -> void:
+	Blackboard.clear()
+
+
+func test_ability_disables_itself_for_the_wrong_archetype() -> void:
+	var technician := make_character(&"technician", Character.Team.PLAYER)
+	var ability := AbilityCaptainOrders.new()
+	ability.required_archetype = &"captain"
+	technician.add_child(ability)
+	assert_false(ability.is_physics_processing(),
+		"la habilidad de otra clase debe autodesactivarse, no dispararse por error")
+
+
+func test_captain_orders_marks_hostile_target_in_sight() -> void:
+	var captain := make_full_character(&"captain", Character.Team.PLAYER, Vector3(0, 0, 0))
+	var enemy := make_full_character(&"enemy_thug", Character.Team.ENEMY, Vector3(5, 0, 0))
+	var ability := AbilityCaptainOrders.new()
+	captain.add_child(ability)
+
+	var received: Array = []
+	ability.target_marked.connect(func(pos: Vector3, id: int) -> void: received.append([pos, id]))
+	captain.intent_look_at = enemy.eye_position()
+	captain.use_ability()
+	ability._physics_process(0.016)
+
+	assert_size(received, 1, "Órdenes debe marcar exactamente un objetivo")
+	assert_eq(received[0][1], enemy.get_instance_id(), "el objetivo marcado es el enemigo apuntado")
+
+
+func test_captain_orders_does_not_mark_allies() -> void:
+	var captain := make_full_character(&"captain", Character.Team.PLAYER, Vector3(0, 0, 0))
+	var companion := make_full_character(&"technician", Character.Team.COMPANION, Vector3(5, 0, 0))
+	var ability := AbilityCaptainOrders.new()
+	captain.add_child(ability)
+
+	var received: Array = []
+	ability.target_marked.connect(func(pos: Vector3, id: int) -> void: received.append(id))
+	captain.intent_look_at = companion.eye_position()
+	captain.use_ability()
+	ability._physics_process(0.016)
+
+	assert_size(received, 0, "no debe marcar a un compañero como objetivo")
+
+
+func test_technician_hack_opens_a_nearby_closed_door() -> void:
+	var technician := make_character(&"technician", Character.Team.PLAYER)
+	technician.global_position = Vector3.ZERO
+	var door_scene: PackedScene = load("res://scenes/gameplay/door.tscn")
+	var door := door_scene.instantiate() as Door
+	spawn(door)
+	door.global_position = Vector3(2, 0, 0)
+	var ability := AbilityTechnicianHack.new()
+	ability.hack_radius_m = 10.0
+	technician.add_child(ability)
+
+	technician.use_ability()
+	ability._physics_process(0.016)
+
+	assert_true(door.is_open, "Hackeo debe abrir las puertas cerradas al alcance")
+
+
+func test_technician_hack_ignores_doors_out_of_range() -> void:
+	var technician := make_character(&"technician", Character.Team.PLAYER)
+	technician.global_position = Vector3.ZERO
+	var door_scene: PackedScene = load("res://scenes/gameplay/door.tscn")
+	var door := door_scene.instantiate() as Door
+	spawn(door)
+	door.global_position = Vector3(50, 0, 0)
+	var ability := AbilityTechnicianHack.new()
+	ability.hack_radius_m = 10.0
+	technician.add_child(ability)
+
+	technician.use_ability()
+	ability._physics_process(0.016)
+
+	assert_false(door.is_open, "fuera del radio de Hackeo, la puerta sigue cerrada")
+
+
+func test_specialist_suppression_marks_blackboard_and_sustains_fire() -> void:
+	var specialist := make_character(&"specialist", Character.Team.PLAYER)
+	specialist.squad_id = 3
+	var ws := attach_weapon_system(specialist)
+	var ability := AbilitySpecialistSuppression.new()
+	specialist.add_child(ability)
+
+	specialist.intent_look_at = specialist.global_position + Vector3(0, 0, -10)
+	specialist.use_ability()
+	ability._physics_process(0.016)
+
+	assert_true(Blackboard.has_active_suppression(3),
+		"activar Supresión debe marcar la pizarra compartida (no la escuadra directamente)")
+
+	var starting_ammo := specialist.ammo
+	ws._physics_process(0.016)
+	assert_lt(float(specialist.ammo), float(starting_ammo),
+		"Supresión es fuego SOSTENIDO: debe llegar a disparar de verdad")
+
+
+func test_demolition_breach_emits_level_topology_changed() -> void:
+	var demolition := make_character(&"demolition", Character.Team.PLAYER)
+	var ability := AbilityDemolitionBreach.new()
+	demolition.add_child(ability)
+
+	var received: Array = []
+	var callback := func(aabb: AABB) -> void: received.append(aabb)
+	EventBus.level_topology_changed.connect(callback)
+	demolition.intent_look_at = demolition.global_position + Vector3(0, 0, -5)
+	demolition.use_ability()
+	ability._physics_process(0.016)
+	EventBus.level_topology_changed.disconnect(callback)
+
+	assert_size(received, 1, "Demolición debe emitir exactamente un level_topology_changed")
+
+
+# --- Auras pasivas (paridad [P05], radio documentado como desviación) ---
+
+func test_captain_heal_aura_heals_nearby_allies() -> void:
+	var captain := make_character(&"captain", Character.Team.PLAYER)
+	var companion := make_character(&"technician", Character.Team.COMPANION)
+	companion.global_position = Vector3(3, 0, 0) # dentro de los 8 m del aura
+	companion.health = 10.0
+	var aura := AuraEmitter.new()
+	aura.kind = AuraEmitter.Kind.HEAL
+	aura.required_archetype = &"captain"
+	aura.radius_m = 8.0
+	aura.amount = 1.0
+	aura.interval_s = 2.0
+	captain.add_child(aura)
+
+	aura._physics_process(2.0) # cumple el intervalo de una sola vez
+
+	assert_almost_eq(companion.health, 11.0, 0.0001, "+1 HP por intervalo, valor exacto del legacy")
+
+
+func test_captain_heal_aura_ignores_allies_out_of_radius() -> void:
+	var captain := make_character(&"captain", Character.Team.PLAYER)
+	var companion := make_character(&"technician", Character.Team.COMPANION)
+	companion.global_position = Vector3(50, 0, 0) # muy fuera de los 8 m
+	companion.health = 10.0
+	var aura := AuraEmitter.new()
+	aura.kind = AuraEmitter.Kind.HEAL
+	aura.required_archetype = &"captain"
+	aura.radius_m = 8.0
+	captain.add_child(aura)
+
+	aura._physics_process(aura.interval_s)
+
+	assert_almost_eq(companion.health, 10.0, 0.0001, "fuera de radio, el aura no cura")
+
+
+func test_specialist_ammo_aura_gives_ammo_to_allies() -> void:
+	var specialist := make_character(&"specialist", Character.Team.PLAYER)
+	var companion := make_character(&"captain", Character.Team.COMPANION)
+	companion.global_position = Vector3(2, 0, 0)
+	companion.consume_ammo(30)
+	var aura := AuraEmitter.new()
+	aura.kind = AuraEmitter.Kind.AMMO
+	aura.required_archetype = &"specialist"
+	aura.radius_m = 8.0
+	aura.amount = 10.0
+	aura.interval_s = 4.0
+	specialist.add_child(aura)
+
+	aura._physics_process(4.0)
+
+	assert_eq(companion.ammo, companion.stats.max_ammo - 30 + 10,
+		"+10 balas por intervalo, valor exacto del legacy")
+
+
+func test_aura_disables_itself_for_the_wrong_archetype() -> void:
+	var technician := make_character(&"technician", Character.Team.PLAYER)
+	var aura := AuraEmitter.new()
+	aura.required_archetype = &"captain"
+	technician.add_child(aura)
+	assert_false(aura.is_physics_processing(),
+		"un técnico no lleva aura del capitán: debe autodesactivarse")

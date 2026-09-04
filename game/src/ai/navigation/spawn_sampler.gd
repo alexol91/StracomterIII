@@ -24,8 +24,6 @@ extends RefCounted
 ## (`sample`, `is_fair`, `rejection_reason`) está pensada para encajar en ella
 ## sin cambios de firma. Ver el informe al arquitecto.
 
-const Tuning := preload("res://src/ai/navigation/nav_tuning.gd")
-const Sampler := preload("res://src/ai/navigation/navmesh_sampler.gd")
 
 ## Separación de la rejilla de candidatos. Más gruesa que la de cobertura:
 ## aquí no hace falta resolución fina, hace falta cubrir el mapa.
@@ -76,7 +74,7 @@ func setup(nav: NavService, world: WorldQuery = null) -> void:
 ## Construye el conjunto de candidatos a partir del navmesh del nivel.
 func build_candidates(mesh: NavigationMesh,
 		spacing_m: float = CANDIDATE_SPACING_M) -> int:
-	_candidates = Sampler.sample_grid(mesh, spacing_m)
+	_candidates = NavmeshSampler.sample_grid(mesh, spacing_m)
 	return _candidates.size()
 
 
@@ -148,7 +146,7 @@ func sample(count: int, player_position: Vector3, player_forward: Vector3,
 		var picked := pool[chosen].position
 		var filtered: Array[Candidate] = []
 		for c: Candidate in pool:
-			if c.position.distance_to(picked) >= Tuning.SPAWN_MIN_SEPARATION_M:
+			if c.position.distance_to(picked) >= NavTuning.SPAWN_MIN_SEPARATION_M:
 				filtered.append(c)
 		pool = filtered
 		if pool.is_empty():
@@ -165,7 +163,7 @@ func is_fair(position: Vector3, player_position: Vector3,
 ## Primer motivo por el que un punto no vale, o NONE si vale.
 func rejection_reason(position: Vector3, player_position: Vector3,
 		player_forward: Vector3) -> Rejection:
-	if position.distance_to(player_position) < Tuning.SPAWN_MIN_PLAYER_DISTANCE_M:
+	if position.distance_to(player_position) < NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M:
 		return Rejection.TOO_CLOSE
 	if is_inside_view_cone(position, player_position, player_forward):
 		return Rejection.IN_VIEW_CONE
@@ -174,9 +172,9 @@ func rejection_reason(position: Vector3, player_position: Vector3,
 	var cost := _path_distance(player_position, position)
 	if is_inf(cost):
 		return Rejection.UNREACHABLE
-	if cost < Tuning.SPAWN_MIN_PLAYER_DISTANCE_M:
+	if cost < NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M:
 		return Rejection.TOO_CLOSE
-	if cost > Tuning.SPAWN_MAX_PATH_DISTANCE_M:
+	if cost > NavTuning.SPAWN_MAX_PATH_DISTANCE_M:
 		return Rejection.TOO_FAR
 	return Rejection.NONE
 
@@ -195,7 +193,7 @@ static func is_inside_view_cone(position: Vector3, player_position: Vector3,
 	if forward.length_squared() < 0.0001:
 		return false
 	var angle := rad_to_deg(forward.normalized().angle_to(to_point.normalized()))
-	return angle <= Tuning.SPAWN_PLAYER_CONE_HALF_ANGLE_DEG
+	return angle <= NavTuning.SPAWN_PLAYER_CONE_HALF_ANGLE_DEG
 
 
 func _viable_candidates(player_position: Vector3, player_forward: Vector3,
@@ -205,7 +203,7 @@ func _viable_candidates(player_position: Vector3, player_forward: Vector3,
 	# que es el caro, sólo para los que ya han pasado.
 	var cheap: Array[Vector3] = []
 	for position: Vector3 in _candidates:
-		if position.distance_to(player_position) < Tuning.SPAWN_MIN_PLAYER_DISTANCE_M:
+		if position.distance_to(player_position) < NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M:
 			_reject(Rejection.TOO_CLOSE)
 			continue
 		if is_inside_view_cone(position, player_position, player_forward):
@@ -228,10 +226,10 @@ func _viable_candidates(player_position: Vector3, player_forward: Vector3,
 		if is_inf(cost):
 			_reject(Rejection.UNREACHABLE)
 			continue
-		if cost < Tuning.SPAWN_MIN_PLAYER_DISTANCE_M:
+		if cost < NavTuning.SPAWN_MIN_PLAYER_DISTANCE_M:
 			_reject(Rejection.TOO_CLOSE)
 			continue
-		if cost > Tuning.SPAWN_MAX_PATH_DISTANCE_M:
+		if cost > NavTuning.SPAWN_MAX_PATH_DISTANCE_M:
 			_reject(Rejection.TOO_FAR)
 			continue
 		var candidate := Candidate.new()
@@ -241,17 +239,17 @@ func _viable_candidates(player_position: Vector3, player_forward: Vector3,
 		# Ponderación por distancia de CAMINO: cuanto más lejos por el
 		# navmesh, menos probable, porque el refuerzo tarda más en llegar y
 		# el encuentro se muere de aburrimiento esperándolo.
-		var closeness := Tuning.SPAWN_MAX_PATH_DISTANCE_M - cost
+		var closeness := NavTuning.SPAWN_MAX_PATH_DISTANCE_M - cost
 		candidate.weight = maxf(closeness, 0.01)
 		if candidate.is_access:
-			candidate.weight *= Tuning.SPAWN_ACCESS_POINT_BONUS
+			candidate.weight *= NavTuning.SPAWN_ACCESS_POINT_BONUS
 		out.append(candidate)
 	return out
 
 
 func _is_access(position: Vector3) -> bool:
 	for access: Vector3 in _access_points:
-		if access.distance_to(position) <= Tuning.SPAWN_ACCESS_RADIUS_M:
+		if access.distance_to(position) <= NavTuning.SPAWN_ACCESS_RADIUS_M:
 			return true
 	return false
 
@@ -260,9 +258,9 @@ func _has_line_of_sight_to_player(position: Vector3,
 		player_position: Vector3) -> bool:
 	if _world == null:
 		return false
-	var eye := player_position + Vector3.UP * Tuning.SPAWN_EYE_HEIGHT_M
-	var target := position + Vector3.UP * Tuning.SPAWN_EYE_HEIGHT_M
-	return _world.has_line_of_sight(eye, target, Tuning.WORLD_COLLISION_MASK)
+	var eye := player_position + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M
+	var target := position + Vector3.UP * NavTuning.SPAWN_EYE_HEIGHT_M
+	return _world.has_line_of_sight(eye, target, NavTuning.WORLD_COLLISION_MASK)
 
 
 ## Distancia de camino, no euclídea. Se pide directamente al servicio: el

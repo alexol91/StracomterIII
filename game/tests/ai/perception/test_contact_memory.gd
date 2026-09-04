@@ -7,10 +7,13 @@ extends TestCase
 ## buscarte donde cree que estás y se equivoca de forma creíble.
 
 var memory: ContactMemory = null
+var profile: PerceptionProfile = null
 
 
 func before_each() -> void:
 	memory = ContactMemory.new()
+	profile = PerceptionProfile.new()
+	memory.profile = profile
 
 
 func test_confidence_decays_monotonically_without_new_contacts() -> void:
@@ -26,18 +29,18 @@ func test_confidence_decays_monotonically_without_new_contacts() -> void:
 
 
 func test_decay_is_pure_and_strictly_decreasing() -> void:
-	var a := ContactMemory.decay(1.0, 0.5)
-	var b := ContactMemory.decay(1.0, 0.5)
+	var a := ContactMemory.decay(1.0, 0.5, profile)
+	var b := ContactMemory.decay(1.0, 0.5, profile)
 	assert_eq(a, b, "misma entrada, misma salida")
 	assert_lt(a, 1.0, "medio segundo ya resta confianza")
 	assert_gt(a, 0.0, "pero no se olvida de golpe")
-	assert_almost_eq(ContactMemory.decay(0.0, 10.0), 0.0, 0.0001, "de cero no se baja")
-	assert_almost_eq(ContactMemory.decay(0.8, 0.0), 0.8, 0.0001, "sin tiempo no hay olvido")
+	assert_almost_eq(ContactMemory.decay(0.0, 10.0, profile), 0.0, 0.0001, "de cero no se baja")
+	assert_almost_eq(ContactMemory.decay(0.8, 0.0, profile), 0.8, 0.0001, "sin tiempo no hay olvido")
 
 
 func test_a_moving_target_is_forgotten_faster() -> void:
-	var still := ContactMemory.decay(1.0, 1.0, 0.0)
-	var running := ContactMemory.decay(1.0, 1.0, 6.0)
+	var still := ContactMemory.decay(1.0, 1.0, profile, 0.0)
+	var running := ContactMemory.decay(1.0, 1.0, profile, 6.0)
 	assert_lt(running, still, "si corría, su última posición envejece antes")
 
 
@@ -67,17 +70,17 @@ func test_believed_position_extrapolates_and_then_freezes() -> void:
 	var frozen := memory.get_entry(1).believed_position
 	assert_lt(
 		frozen.x,
-		ContactMemory.MAX_EXTRAPOLATION_S * 4.0 + 0.001,
+		profile.max_extrapolation_s * 4.0 + 0.001,
 		"pero deja de extrapolar: no persigue un fantasma que se aleja para siempre"
 	)
 
 
 func test_extrapolate_is_pure() -> void:
-	var a := ContactMemory.extrapolate(Vector3.ZERO, Vector3(2.0, 0.0, 0.0), 0.5)
-	var b := ContactMemory.extrapolate(Vector3.ZERO, Vector3(2.0, 0.0, 0.0), 0.5)
+	var a := ContactMemory.extrapolate(Vector3.ZERO, Vector3(2.0, 0.0, 0.0), 0.5, profile)
+	var b := ContactMemory.extrapolate(Vector3.ZERO, Vector3(2.0, 0.0, 0.0), 0.5, profile)
 	assert_eq(a, b)
 	assert_eq(
-		ContactMemory.extrapolate(Vector3.ONE, Vector3.ZERO, 5.0),
+		ContactMemory.extrapolate(Vector3.ONE, Vector3.ZERO, 5.0, profile),
 		Vector3.ONE,
 		"sin velocidad conocida no se inventa movimiento"
 	)
