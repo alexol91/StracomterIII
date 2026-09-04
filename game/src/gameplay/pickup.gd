@@ -25,28 +25,6 @@ enum PickupClass {
 
 const ROTATE_AXIS := Vector3.UP
 
-## Valores EXACTOS del original (`Object::Apply`, `Object.cc:49-63`; recompensas
-## de zona en `GameStatus::selectZona`, `GameStatus.cc:225-247`). No existe un
-## recurso de datos para pickups en `src/data/` — fuera del ámbito de este
-## agente (`game/src/gameplay/**` solamente) — así que quedan como constantes
-## citadas en vez de números sueltos.
-## TODO(arquitecto): mover a datos, p. ej. un `PickupStats` en `src/data/`.
-const HEALTH_AMOUNTS: Dictionary[PickupClass, float] = {
-	PickupClass.HEALTH_PACK_1: 20.0,
-	PickupClass.HEALTH_PACK_2: 50.0,
-	PickupClass.HEALTH_PACK_3: 100.0,
-}
-const AMMO_AMOUNTS: Dictionary[PickupClass, int] = {
-	PickupClass.AMMO_PACK_1: 20,
-	PickupClass.AMMO_PACK_2: 50,
-	PickupClass.AMMO_PACK_3: 100,
-}
-## Arma que concede el pickup `sniper`. El original NUNCA lo implementó
-## (`Object.cc:67-69` imprimía `"Próximamente"`); aquí sí, porque el GDD lo
-## lista como recompensa real de zona junto a los packs, y `sniper.tres` ya
-## existe en `src/data/weapons/`.
-const SNIPER_WEAPON_ID: StringName = &"sniper"
-
 
 func _ready() -> void:
 	add_to_group(&"pickups")
@@ -72,27 +50,40 @@ func _on_body_entered(body: Node) -> void:
 	queue_free()
 
 
+## Valores EXACTOS del original (`Object::Apply`, `Object.cc:49-63`;
+## recompensas de zona en `GameStatus::selectZona`, `GameStatus.cc:225-247`):
+## de `PickupStats`/`Balance.pickup()`, nunca repetidos aquí como literales.
 func _apply_to(character: Character) -> void:
-	if HEALTH_AMOUNTS.has(pickup_class):
-		character.heal(HEALTH_AMOUNTS[pickup_class])
-	elif AMMO_AMOUNTS.has(pickup_class):
-		character.add_ammo(AMMO_AMOUNTS[pickup_class])
-	elif pickup_class == PickupClass.SNIPER:
-		character.equip_weapon(SNIPER_WEAPON_ID)
+	var stats := Balance.pickup(id_name())
+	if stats == null:
+		push_error("Pickup: falta PickupStats para '%s'." % id_name())
+		return
+	match stats.effect:
+		PickupStats.Effect.HEAL:
+			character.heal(stats.amount)
+		PickupStats.Effect.AMMO:
+			character.add_ammo(int(stats.amount))
+		PickupStats.Effect.WEAPON:
+			# El original NUNCA implementó el pickup `sniper`
+			# (`Object.cc:67-69` imprimía "Próximamente"); aquí sí equipa el
+			# arma, porque el GDD lo lista como recompensa real de zona.
+			character.equip_weapon(stats.weapon_id)
 
 
 ## Id de recompensa de zona (`&"health_pack_1"`, `&"ammo_pack_2"`...), el
-## mismo vocabulario que usa `FloorConfig.zone_rewards`.
+## mismo vocabulario que usa `FloorConfig.zone_rewards` y `Balance.pickup()`.
 func id_name() -> StringName:
-	return StringName(PickupClass.keys()[pickup_class].to_lower())
+	return id_name_for(pickup_class)
+
+
+static func id_name_for(p_class: PickupClass) -> StringName:
+	return StringName(PickupClass.keys()[p_class].to_lower())
 
 
 ## Cantidad aplicada por esta clase de pickup. `0.0` para `SNIPER` (no es una
 ## cantidad, es un cambio de arma). Expuesto para que los tests no dupliquen
-## la tabla de valores.
+## la tabla de valores — leen `Balance.pickup()`, la misma fuente que usa
+## `_apply_to`.
 static func amount_for(p_class: PickupClass) -> float:
-	if HEALTH_AMOUNTS.has(p_class):
-		return HEALTH_AMOUNTS[p_class]
-	if AMMO_AMOUNTS.has(p_class):
-		return float(AMMO_AMOUNTS[p_class])
-	return 0.0
+	var stats := Balance.pickup(id_name_for(p_class))
+	return stats.amount if stats != null else 0.0

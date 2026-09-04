@@ -45,18 +45,5 @@ required_archetype = &"specialist"
 script = ExtResource("8")
 required_archetype = &"demolition"
 
-[node name="CaptainHealAura" type="Node" parent="."]
+[node name="AuraEmitter" type="Node" parent="."]
 script = ExtResource("9")
-required_archetype = &"captain"
-kind = 0
-radius_m = 8.0
-amount = 1.0
-interval_s = 2.0
-
-[node name="SpecialistAmmoAura" type="Node" parent="."]
-script = ExtResource("9")
-required_archetype = &"specialist"
-kind = 1
-radius_m = 8.0
-amount = 10.0
-interval_s = 4.0

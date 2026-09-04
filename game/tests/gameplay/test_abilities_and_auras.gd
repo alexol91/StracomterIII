@@ -131,33 +131,26 @@ func test_demolition_breach_emits_level_topology_changed() -> void:
 func test_captain_heal_aura_heals_nearby_allies() -> void:
 	var captain := make_character(&"captain", Character.Team.PLAYER)
 	var companion := make_character(&"technician", Character.Team.COMPANION)
-	companion.global_position = Vector3(3, 0, 0) # dentro de los 8 m del aura
+	companion.global_position = Vector3(3, 0, 0) # dentro de los CharacterStats.aura_radius_m
 	companion.health = 10.0
 	var aura := AuraEmitter.new()
-	aura.kind = AuraEmitter.Kind.HEAL
-	aura.required_archetype = &"captain"
-	aura.radius_m = 8.0
-	aura.amount = 1.0
-	aura.interval_s = 2.0
 	captain.add_child(aura)
 
-	aura._physics_process(2.0) # cumple el intervalo de una sola vez
+	aura._physics_process(captain.stats.aura_interval_s) # cumple el intervalo de una sola vez
 
-	assert_almost_eq(companion.health, 11.0, 0.0001, "+1 HP por intervalo, valor exacto del legacy")
+	assert_almost_eq(companion.health, 10.0 + captain.stats.aura_amount, 0.0001,
+		"+1 HP por intervalo (CharacterStats.aura_amount del capitán)")
 
 
 func test_captain_heal_aura_ignores_allies_out_of_radius() -> void:
 	var captain := make_character(&"captain", Character.Team.PLAYER)
 	var companion := make_character(&"technician", Character.Team.COMPANION)
-	companion.global_position = Vector3(50, 0, 0) # muy fuera de los 8 m
+	companion.global_position = Vector3(50, 0, 0) # muy fuera de CharacterStats.aura_radius_m
 	companion.health = 10.0
 	var aura := AuraEmitter.new()
-	aura.kind = AuraEmitter.Kind.HEAL
-	aura.required_archetype = &"captain"
-	aura.radius_m = 8.0
 	captain.add_child(aura)
 
-	aura._physics_process(aura.interval_s)
+	aura._physics_process(captain.stats.aura_interval_s)
 
 	assert_almost_eq(companion.health, 10.0, 0.0001, "fuera de radio, el aura no cura")
 
@@ -168,23 +161,19 @@ func test_specialist_ammo_aura_gives_ammo_to_allies() -> void:
 	companion.global_position = Vector3(2, 0, 0)
 	companion.consume_ammo(30)
 	var aura := AuraEmitter.new()
-	aura.kind = AuraEmitter.Kind.AMMO
-	aura.required_archetype = &"specialist"
-	aura.radius_m = 8.0
-	aura.amount = 10.0
-	aura.interval_s = 4.0
 	specialist.add_child(aura)
 
-	aura._physics_process(4.0)
+	aura._physics_process(specialist.stats.aura_interval_s)
 
-	assert_eq(companion.ammo, companion.stats.max_ammo - 30 + 10,
-		"+10 balas por intervalo, valor exacto del legacy")
+	assert_eq(companion.ammo, companion.stats.max_ammo - 30 + int(specialist.stats.aura_amount),
+		"+10 balas por intervalo (CharacterStats.aura_amount del especialista)")
 
 
-func test_aura_disables_itself_for_the_wrong_archetype() -> void:
+func test_aura_does_not_emit_for_an_archetype_with_zero_aura_amount() -> void:
 	var technician := make_character(&"technician", Character.Team.PLAYER)
+	assert_eq(technician.stats.aura_amount, 0.0,
+		"fijación de la prueba: el técnico no tiene aura en los datos")
 	var aura := AuraEmitter.new()
-	aura.required_archetype = &"captain"
 	technician.add_child(aura)
 	assert_false(aura.is_physics_processing(),
-		"un técnico no lleva aura del capitán: debe autodesactivarse")
+		"aura_amount == 0.0 debe autodesactivar el aura, sin mirar el arquetipo")

@@ -8,10 +8,6 @@ extends Ability
 ## `Blackboard.has_active_suppression(squad_id)` para decidir si puede asaltar
 ## (GDD §8.4: "nadie asalta sin supresión activa de un compañero").
 
-## Duración del fuego sostenido al activarse. No existe en `CharacterStats`.
-## TODO(arquitecto): mover a datos (p. ej. `CharacterStats.suppression_duration_s`).
-@export var sustain_s: float = 2.5
-
 var _sustain_remaining_s: float = 0.0
 
 
@@ -26,5 +22,8 @@ func _on_tick(delta: float) -> void:
 
 
 func _activate() -> void:
-	_sustain_remaining_s = sustain_s
-	Blackboard.mark_suppression(character.squad_id, sustain_s)
+	# Duración del fuego sostenido: de `CharacterStats.suppression_duration_s`
+	# (dato exclusivo del Especialista; el resto de clases lo dejan a 0).
+	var duration := character.stats.suppression_duration_s
+	_sustain_remaining_s = duration
+	Blackboard.mark_suppression(character.squad_id, duration)

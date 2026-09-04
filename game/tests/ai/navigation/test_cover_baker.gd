@@ -20,13 +20,13 @@ const WALL_HEIGHT_M: float = 3.0
 ## (1,6 m). Es justo el caso que obliga a hornear dos alturas.
 const TABLE_HEIGHT_M: float = 1.2
 
-var _fixture: NavTestUtil.Fixture = null
+var _world: NavSyntheticWorld = null
 
 
 func after_each() -> void:
-	if _fixture != null:
-		_fixture.dispose()
-		_fixture = null
+	if _world != null:
+		_world.dispose()
+		_world = null
 
 
 func _bake_with(obstacle_height_m: float) -> CoverPointCloud:
@@ -34,16 +34,16 @@ func _bake_with(obstacle_height_m: float) -> CoverPointCloud:
 		NavTestUtil.floor_box(10.0),
 		NavTestUtil.slab_x(WALL_X, WALL_THICKNESS_M, obstacle_height_m, -3.0, 3.0),
 	]
-	_fixture = NavTestUtil.fixture(boxes)
+	_world = NavTestUtil.fixture(boxes)
 	var baker := CoverBaker.new()
 	var options := CoverBaker.Options.new()
 	options.map_id = &"test_cover"
-	return baker.bake(_fixture.mesh, _fixture.world, options)
+	return baker.bake(_world.mesh, _world, options)
 
 
 func test_navmesh_horneado_no_esta_vacio() -> void:
 	var cloud := _bake_with(WALL_HEIGHT_M)
-	assert_gt(float(_fixture.mesh.get_polygon_count()), 0.0,
+	assert_gt(float(_world.mesh.get_polygon_count()), 0.0,
 		"sin navmesh no hay nada que muestrear (¿bobinado de las caras?)")
 	assert_gt(float(cloud.size()), 0.0, "la nube de cobertura salió vacía")
 
@@ -109,9 +109,9 @@ func test_quality_against_usa_la_misma_convencion_de_sectores() -> void:
 func test_sin_geometria_no_se_hornea_ningun_punto() -> void:
 	# Una explanada sin nada no tiene puntos de cobertura, y eso es correcto:
 	# guardar los puntos descubiertos multiplicaría la nube sin aportar nada.
-	_fixture = NavTestUtil.fixture([NavTestUtil.floor_box(10.0)] as Array[AABB])
+	_world = NavTestUtil.fixture([NavTestUtil.floor_box(10.0)] as Array[AABB])
 	var baker := CoverBaker.new()
-	var cloud := baker.bake(_fixture.mesh, _fixture.world)
+	var cloud := baker.bake(_world.mesh, _world)
 	assert_gt(float(baker.stat_sampled), 0.0, "debería haber muestreado el suelo")
 	assert_eq(cloud.size(), 0, "sin obstáculos no puede haber puntos de cobertura")
 
@@ -128,9 +128,9 @@ func test_rehorneado_parcial_solo_toca_la_zona_indicada() -> void:
 	assert_gt(float(inside_before), 0.0, "la zona elegida debía tener puntos")
 
 	# Se quita el muro del mundo y se rehornea sólo esa zona.
-	_fixture.world.boxes = [NavTestUtil.floor_box(10.0)] as Array[AABB]
+	_world.boxes = [NavTestUtil.floor_box(10.0)] as Array[AABB]
 	var baker := CoverBaker.new()
-	baker.rebake_area(cloud, _fixture.mesh, _fixture.world, area)
+	baker.rebake_area(cloud, _world.mesh, _world, area)
 	assert_eq(_count_in(cloud, area), 0,
 		"quitado el muro, la zona rehorneada no debe conservar cobertura")
 	assert_eq(cloud.size(), before - inside_before,
