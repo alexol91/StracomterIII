@@ -42,14 +42,14 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 2.2 | Oído propagado por navmesh + eventos sonoros | E-04 | `ai-percepcion` | ✅ |
 | 2.3 | Memoria de contactos con confianza decreciente | P07 | `ai-percepcion` | ✅ |
 | 2.4 | Difusión de contactos con retardo de reacción | — | `ai-percepcion` | ✅ |
-| 2.5 | Selector por utilidad + histéresis | — | `ai-comportamiento` | 🟨 |
-| 2.6 | Árboles de comportamiento y ejecución | — | `ai-comportamiento` | 🟨 |
-| 2.7 | Arquetipos como tablas de pesos | P02 | `ai-comportamiento` | 🟨 |
+| 2.5 | Selector por utilidad + histéresis | — | `ai-comportamiento` | ✅ |
+| 2.6 | Árboles de comportamiento y ejecución | — | `ai-comportamiento` | ✅ |
+| 2.7 | Arquetipos como tablas de pesos | P02 | `ai-comportamiento` | ✅ |
 | 2.8 | Horneado y puntuación de puntos de cobertura | P09 | `ai-navegacion` | ✅ |
 | 2.9 | Rutas alternativas disjuntas para flanqueo | — | `ai-navegacion` | ✅ |
-| 2.10 | `SquadDirector`, roles, supresión, repliegue | — | `ai-escuadra` | 🟨 |
-| 2.11 | Compañeros + moral + órdenes del jugador | P05 | `ai-escuadra` | 🟨 |
-| 2.12 | Escenarios de comportamiento con aserciones (GDD §12) | — | `qa-tests` | 🟨 |
+| 2.10 | `SquadDirector`, roles, supresión, repliegue | — | `ai-escuadra` | ✅ |
+| 2.11 | Compañeros + moral + órdenes del jugador | P05 | `ai-escuadra` | ✅ |
+| 2.12 | Escenarios de comportamiento con aserciones (GDD §12) | — | `qa-tests` | ✅ |
 
 ## Hito 3 — Director de encuentros
 
@@ -60,22 +60,22 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 3.3 | Restricciones sensibles a la forma del mapa | E-03 | `director-encuentros` | ✅ |
 | 3.4 | Curva de tensión y oleadas | E-03 | `director-encuentros` | ✅ |
 | 3.5 | Reglas justas de aparición | — | `director-encuentros` | ✅ |
-| 3.6 | Tests del director (determinismo, monotonía, justicia) | — | `qa-tests` | ⬜ |
+| 3.6 | Tests del director (determinismo, monotonía, justicia) | — | `qa-tests` | ✅ |
 
 ## Hito 4 — Progresión, torre y UI
 
 | # | Tarea | Paridad | Agente | Estado |
 |---|---|---|---|---|
-| 4.1 | Máquina de estados de juego: Menú/Estrategia/Acción/Créditos | P14 | `godot-arquitecto` | ⬜ |
-| 4.2 | 8 plantas × 6 zonas + tabla de selección de mapa | P03 | `godot-arquitecto` | ⬜ |
-| 4.3 | Recompensas por zona | P04 | `godot-gameplay` | ⬜ |
-| 4.4 | Guardado/carga en JSON versionado | P12 | `godot-arquitecto` | ⬜ |
-| 4.5 | HUD completo | — | `ui-ux` | ⬜ |
-| 4.6 | **Pantalla de Estrategia** (el hueco del original) | P14 | `ui-ux` | ⬜ |
-| 4.7 | Menús, pausa, game over, victoria, créditos | P14 | `ui-ux` | ⬜ |
-| 4.8 | Consola de comandos | P13 | `ui-ux` | ⬜ |
-| 4.9 | Accesibilidad + i18n ES/EN | — | `ui-ux` | ⬜ |
-| 4.10 | Puertas, obstáculos, pickups como escenas | P08 P09 | `godot-gameplay` | ⬜ |
+| 4.1 | Máquina de estados de juego: Menú/Estrategia/Acción/Créditos | P14 | `godot-arquitecto` | ✅ |
+| 4.2 | 8 plantas × 6 zonas + tabla de selección de mapa | P03 | `godot-arquitecto` | ✅ |
+| 4.3 | Recompensas por zona | P04 | `godot-gameplay` | ✅ |
+| 4.4 | Guardado/carga en JSON versionado | P12 | `godot-arquitecto` | ✅ |
+| 4.5 | HUD completo | — | `ui-ux` | ✅ |
+| 4.6 | **Pantalla de Estrategia** (el hueco del original) | P14 | `ui-ux` | ✅ |
+| 4.7 | Menús, pausa, game over, victoria, créditos | P14 | `ui-ux` | ✅ |
+| 4.8 | Consola de comandos | P13 | `ui-ux` | ✅ |
+| 4.9 | Accesibilidad + i18n ES/EN | — | `ui-ux` | ✅ |
+| 4.10 | Puertas, obstáculos, pickups como escenas | P08 P09 | `godot-gameplay` | ✅ |
 
 ## Hito 5 — Contenido y presentación
 
@@ -89,16 +89,16 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 5.6 | MiniBoss y MegaBoss con fases | P02 | `ai-comportamiento` | ⬜ |
 | 5.7 | Planta 9 (azotea) y combate final | — | `level-procedural` | ⬜ |
 | 5.8 | Generador procedural de plantas | E-02 | `level-procedural` | ⬜ |
-| 5.9 | Habilidades de clase | E-01 | `godot-gameplay` | ⬜ |
+| 5.9 | Habilidades de clase | E-01 | `godot-gameplay` | ✅ |
 | 5.10 | Revisión adversarial de rutas críticas | — | `revisor-critico` | ⬜ |
 
 ## Deuda técnica conocida
 
 | # | Asunto | Dueño | Estado |
 |---|---|---|---|
-| D.1 | `finalMap` tabicado al 46 % y otros 5 mapas parcialmente desconectados: la geometría de colisión del conversor sella zonas | `level-conversor` | 🟨 |
-| D.2 | El validador del conversor usa una rejilla propia y no el navmesh que usa el juego, así que su visto bueno no garantiza nada | `level-conversor` | ⬜ |
-| D.3 | Los obstáculos de los mapas son marcadores sin colisión, así que el horneado de cobertura solo ve muros y ninguna mesa produce cobertura baja | pendiente de asignar | ⬜ |
+| D.1 | ~~Mapas tabicados~~ — resuelto: bobinado de colisión invertido y perímetro fundido en el trimesh. 24 de 24 jugables al 100 % | `level-conversor` | ✅ |
+| D.2 | ~~Validador con rejilla propia~~ — resuelto: las pruebas de mapas hornean contra física real | `ai-navegacion` | ✅ |
+| D.3 | ~~Obstáculos sin colisión~~ — resuelto: `LevelLoader` instancia las escenas reales sobre los marcadores | `godot-arquitecto` | ✅ |
 | D.4 | `NavTuning` sigue en código. La mayoría son presupuestos de ingeniería y no balanceo, pero las de geometría de cobertura sí lo son | `godot-arquitecto` | ⬜ |
 | D.5 | El criterio de CI (`grep -iE "error"`) marca falsos positivos: casa con nombres de test que contienen la palabra | `devops-ci` | ⬜ |
 
