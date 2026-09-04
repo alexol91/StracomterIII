@@ -219,8 +219,8 @@ func test_shape_references_come_from_the_profile() -> void:
 		"con la referencia laxa, 30 m es cerrado y encaja el Sicario")
 
 
-## Los pesos de afinidad también son dato: intercambiarlos invierte a qué
-## geometría responde cada arquetipo.
+## Los pesos de afinidad también son dato: moverlos cambia a qué geometría
+## responde cada arquetipo, y por tanto la composición de la misma zona.
 func test_affinity_weights_come_from_the_profile() -> void:
 	var hall := _context(892.7, 1.0, _all())
 	hall.mean_line_of_sight_m = 40.0
@@ -229,16 +229,14 @@ func test_affinity_weights_come_from_the_profile() -> void:
 
 	var normal := EncounterComposer.new(_profile()).compose(hall)
 
-	var swapped := _profile()
-	# Se le da al Sicario la afinidad por espacios abiertos y al Veterano la
-	# contraria: la nave diáfana debería pasar a pedir Sicarios.
-	swapped.thug_tightness_weight = 0.0
-	swapped.thug_entry_weight = 0.0
-	swapped.veteran_openness_weight = 0.0
-	swapped.veteran_cover_weight = 0.0
-	var inverted := EncounterComposer.new(swapped).compose(hall)
+	var tuned := _profile()
+	# Al Sicario se le sube lo que le atrae de esta zona (los accesos) y al
+	# Veterano se le baja (las líneas de tiro largas).
+	tuned.thug_entry_weight = 1.0
+	tuned.veteran_openness_weight = 0.1
+	var retuned := EncounterComposer.new(tuned).compose(hall)
 
-	assert_gt(float(normal.counts[2]), float(inverted.counts[2]),
-		"sin afinidad por lo abierto, el Veterano deja de dominar la nave")
-	assert_gt(inverted.share(0), normal.share(0),
-		"y el Sicario gana peso relativo")
+	assert_gt(retuned.share(0), normal.share(0),
+		"subir la afinidad del Sicario por los accesos le da más peso")
+	assert_lt(retuned.share(2), normal.share(2),
+		"bajar la del Veterano por lo diáfano se lo quita")
