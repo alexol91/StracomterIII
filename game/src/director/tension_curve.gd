@@ -28,22 +28,10 @@ enum Phase {
 	DONE,
 }
 
-# TODO(arquitecto): estas constantes son ritmo, es decir balanceo, y deberían
-# vivir en DirectorProfile junto a `phase_budget_fractions`.
-
-## Número de oleadas en que se reparte el presupuesto de cada fase.
-const RISE_WAVE_COUNT: int = 3
-const PEAK_WAVE_COUNT: int = 1
-const RELIEF_WAVE_COUNT: int = 1
-## Segundos mínimos entre dos oleadas de la misma fase.
-const MIN_WAVE_INTERVAL_S: float = 8.0
-## Hostiles vivos por debajo de los cuales se suelta la oleada siguiente. Sin
-## este techo, un jugador lento acumularía las cuatro oleadas a la vez.
-const MAX_HOSTILES_FOR_NEXT_WAVE: int = 6
-## Hostiles vivos por debajo de los cuales se pasa de ascenso a pico.
-const MAX_HOSTILES_FOR_PEAK: int = 3
-## Rango del silencio forzado que exige el GDD §7. El valor del perfil se
-## recorta a este rango: 5 s de descanso no serían un descanso.
+## Rango del silencio forzado que exige el GDD §7. El `rest_duration_s` del
+## perfil se recorta a este rango: 5 s de descanso no serían un descanso, y
+## 300 s no serían un juego. No es balanceo ajustable, es el contrato de la
+## fase.
 const REST_DURATION_MIN_S: float = 20.0
 const REST_DURATION_MAX_S: float = 40.0
 
@@ -102,7 +90,9 @@ func plan(composition: EncounterComposer.Composition) -> Array[Wave]:
 	_waves = []
 	var per_phase := split_by_phase(composition.counts, phase_fractions())
 	var phases: Array[Phase] = [Phase.RISE, Phase.PEAK, Phase.RELIEF]
-	var wave_counts: Array[int] = [RISE_WAVE_COUNT, PEAK_WAVE_COUNT, RELIEF_WAVE_COUNT]
+	var wave_counts: Array[int] = [
+		_profile.rise_wave_count, _profile.peak_wave_count, _profile.relief_wave_count,
+	]
 	for phase_index: int in phases.size():
 		var counts: Array[int] = per_phase[phase_index]
 		var waves := _split_into_waves(counts, wave_counts[phase_index])
@@ -219,7 +209,7 @@ static func largest_remainder(total: int, fractions: Array[float]) -> Array[int]
 func begin() -> void:
 	_phase = Phase.RISE
 	_time_in_phase_s = 0.0
-	_time_since_wave_s = MIN_WAVE_INTERVAL_S
+	_time_since_wave_s = _profile.min_wave_interval_s
 	_next_wave = 0
 	_started = true
 
@@ -236,7 +226,7 @@ func advance(delta_s: float, hostiles_alive: int) -> Phase:
 
 	match _phase:
 		Phase.RISE:
-			if not _has_pending_in(Phase.RISE) and hostiles_alive <= MAX_HOSTILES_FOR_PEAK:
+			if not _has_pending_in(Phase.RISE) and hostiles_alive <= _profile.max_hostiles_for_peak:
 				_enter(Phase.PEAK)
 		Phase.PEAK:
 			if not _has_pending_in(Phase.PEAK) and hostiles_alive <= 0:
@@ -263,11 +253,11 @@ func take_wave(hostiles_alive: int) -> Wave:
 	var wave := _waves[_next_wave]
 	if wave.phase != _phase:
 		return null
-	if _time_since_wave_s < MIN_WAVE_INTERVAL_S:
+	if _time_since_wave_s < _profile.min_wave_interval_s:
 		return null
 	# En el pico se suelta todo de golpe; en ascenso y alivio se espera a que
 	# la presión baje, para que las oleadas no se apilen.
-	if _phase != Phase.PEAK and hostiles_alive > MAX_HOSTILES_FOR_NEXT_WAVE:
+	if _phase != Phase.PEAK and hostiles_alive > _profile.max_hostiles_for_next_wave:
 		return null
 	_next_wave += 1
 	_time_since_wave_s = 0.0
@@ -304,7 +294,7 @@ func _enter(next_phase: Phase) -> void:
 	_time_in_phase_s = 0.0
 	# Al entrar en una fase su primera oleada puede salir ya: el intervalo
 	# mínimo es entre oleadas de la misma fase, no entre fases.
-	_time_since_wave_s = MIN_WAVE_INTERVAL_S
+	_time_since_wave_s = _profile.min_wave_interval_s
 
 
 func _has_pending_in(target: Phase) -> bool:

@@ -30,21 +30,6 @@ const TERM_NOVELTY: StringName = &"novedad"
 const TERM_BUDGET: StringName = &"presupuesto"
 const TERM_MAP_FIT: StringName = &"forma"
 
-# TODO(arquitecto): los cinco pesos son balanceo puro y deberían vivir en
-# DirectorProfile, en un grupo "Puntuación de composición".
-
-## Cercanía a la composición objetivo de la planta.
-const WEIGHT_TARGET: float = 1.0
-## Variedad de la mezcla (entropía). Es el término que el Simplex no podía
-## expresar y el que impide la degeneración del original.
-const WEIGHT_VARIETY: float = 0.6
-## Diferencia con la composición anterior: evita dos zonas seguidas iguales.
-const WEIGHT_NOVELTY: float = 0.4
-## Aprovechamiento del presupuesto: penaliza dejar amenaza sin gastar.
-const WEIGHT_BUDGET: float = 0.8
-## Ajuste a la forma del mapa.
-const WEIGHT_MAP_FIT: float = 0.9
-
 ## Tope duro de combinaciones. Si se alcanza, la búsqueda se corta y lo
 ## declara: más vale una composición peor que un tirón de un segundo.
 const MAX_COMBINATIONS: int = 400000
@@ -80,8 +65,41 @@ class Request:
 	## Cuántas composiciones devolver ordenadas.
 	var top_k: int = 10
 
+	## Pesos de los cinco términos. Son balanceo: viven en `DirectorProfile` y
+	## los rellena `apply_profile`. En crudo valen cero para que nadie los
+	## herede por accidente de un valor inventado aquí.
+	var weight_target: float = 0.0
+	var weight_variety: float = 0.0
+	var weight_novelty: float = 0.0
+	var weight_budget: float = 0.0
+	var weight_map_fit: float = 0.0
+
 	func archetype_count() -> int:
 		return lower.size()
+
+	## Copia del perfil todo lo que es balanceo: los pesos de la puntuación y
+	## los coeficientes de coste de los tres presupuestos. Lo demás (cotas,
+	## presupuestos, objetivo, afinidades) lo calcula el composer por zona.
+	func apply_profile(profile: DirectorProfile) -> void:
+		weight_target = profile.weight_target
+		weight_variety = profile.weight_variety
+		weight_novelty = profile.weight_novelty
+		weight_budget = profile.weight_budget
+		weight_map_fit = profile.weight_map_fit
+		damage_coefficients = _floats_of(profile.damage_coefficients)
+		health_coefficients = _floats_of(profile.health_coefficients)
+		speed_coefficients = _floats_of(profile.speed_coefficients)
+
+	## Suma de los cinco pesos. Si es cero, la puntuación no significa nada y
+	## `run` lo dice en vez de devolver ceros con cara de resultado.
+	func weight_sum() -> float:
+		return weight_target + weight_variety + weight_novelty + weight_budget + weight_map_fit
+
+	static func _floats_of(values: PackedFloat32Array) -> Array[float]:
+		var out: Array[float] = []
+		for index: int in 3:
+			out.append(values[index] if index < values.size() else 0.0)
+		return out
 
 
 ## Una composición puntuada, con el desglose que la explica.
@@ -219,9 +237,18 @@ static func run(request: Request) -> Result:
 	var inverse_damage := 0.0 if budget_damage <= 0.0 else 1.0 / budget_damage
 	var inverse_health := 0.0 if budget_health <= 0.0 else 1.0 / budget_health
 	var inverse_speed := 0.0 if budget_speed <= 0.0 else 1.0 / budget_speed
-	var inverse_weight := 1.0 / (
-		WEIGHT_TARGET + WEIGHT_VARIETY + WEIGHT_NOVELTY + WEIGHT_BUDGET + WEIGHT_MAP_FIT
-	)
+	# Los pesos se leen del perfil UNA vez, aquí: dentro del bucle serían
+	# cinco accesos a propiedad por candidato, y hay decenas de miles.
+	var weight_target := request.weight_target
+	var weight_variety := request.weight_variety
+	var weight_novelty := request.weight_novelty
+	var weight_budget := request.weight_budget
+	var weight_map_fit := request.weight_map_fit
+	var total_weight := request.weight_sum()
+	if total_weight <= 0.0:
+		push_error("CompositionSearch: los pesos suman cero; ¿falta apply_profile()?")
+		return result
+	var inverse_weight := 1.0 / total_weight
 
 	var wanted := maxi(request.top_k, 1)
 	var best_scores: Array[float] = []
@@ -312,11 +339,11 @@ static func run(request: Request) -> Result:
 				var term_budget := occupancy * budget_divisor
 
 				var score := inverse_weight * (
-					WEIGHT_TARGET * term_target
-					+ WEIGHT_VARIETY * term_variety
-					+ WEIGHT_NOVELTY * term_novelty
-					+ WEIGHT_BUDGET * term_budget
-					+ WEIGHT_MAP_FIT * term_fit
+					weight_target * term_target
+					+ weight_variety * term_variety
+					+ weight_novelty * term_novelty
+					+ weight_budget * term_budget
+					+ weight_map_fit * term_fit
 				)
 				scratch[0] = x0
 				scratch[1] = x1
@@ -402,11 +429,11 @@ static func evaluate(counts: Array[int], request: Request) -> Candidate:
 	candidate.terms = score_terms(counts, request)
 
 	var weights: Dictionary[StringName, float] = {
-		TERM_TARGET: WEIGHT_TARGET,
-		TERM_VARIETY: WEIGHT_VARIETY,
-		TERM_NOVELTY: WEIGHT_NOVELTY,
-		TERM_BUDGET: WEIGHT_BUDGET,
-		TERM_MAP_FIT: WEIGHT_MAP_FIT,
+		TERM_TARGET: request.weight_target,
+		TERM_VARIETY: request.weight_variety,
+		TERM_NOVELTY: request.weight_novelty,
+		TERM_BUDGET: request.weight_budget,
+		TERM_MAP_FIT: request.weight_map_fit,
 	}
 	var total_weight: float = 0.0
 	var total_score: float = 0.0

@@ -105,7 +105,7 @@ func test_map_shape_modulates_budgets_within_its_gain() -> void:
 	var enemy_total := composer.max_enemies(open_zone)
 	var open_budgets := composer.budgets_for(open_zone, enemy_total)
 	var tight_budgets := composer.budgets_for(tight, enemy_total)
-	var gain := EncounterComposer.BUDGET_SHAPE_GAIN
+	var gain := _profile().budget_shape_gain
 	var base: Array[float] = [93.3333, 51.6667, 46.6667]
 	for row: int in 3:
 		var nominal := base[row] * float(enemy_total)

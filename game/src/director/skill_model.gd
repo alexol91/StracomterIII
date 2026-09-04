@@ -26,20 +26,6 @@ extends RefCounted
 ## La mediana observada se conserva, pero como diagnóstico
 ## (`observed_median_clear_time_s`). Ver el informe al arquitecto.
 
-# TODO(arquitecto): estas cinco referencias son balanceo y deberían vivir en
-# DirectorProfile (src/data/ no es ámbito del director).
-
-## Daño por minuto que se considera "encajar lo normal". Recibir esto o más
-## puntúa 0 en esa señal.
-const REFERENCE_DAMAGE_PER_MINUTE: float = 60.0
-## Tiempo esperado de limpieza: una parte fija más otra por enemigo.
-const EXPECTED_CLEAR_TIME_BASE_S: float = 20.0
-const EXPECTED_CLEAR_TIME_PER_ENEMY_S: float = 4.0
-## Fracción de tiempo a cubierto que se considera uso pleno de la cobertura.
-const REFERENCE_COVER_USAGE: float = 0.45
-## Puntuación que corresponde a un jugador neutro; ahí el multiplicador vale
-## exactamente 1.0 y la dificultad es la de la planta.
-const NEUTRAL_SCORE: float = 0.5
 ## Efectivos de escuadra que se suponen si nadie los dice. El valor real lo
 ## pasa el director desde `GameState.squad`; esto solo evita dividir por cero.
 const DEFAULT_SQUAD_SIZE: int = 3
@@ -93,7 +79,7 @@ var _squad_losses: int = 0
 var _squad_size: int = DEFAULT_SQUAD_SIZE
 var _cover_time_s: float = 0.0
 var _elapsed_s: float = 0.0
-var _expected_clear_time_s: float = EXPECTED_CLEAR_TIME_BASE_S
+var _expected_clear_time_s: float = 0.0
 var _connected: bool = false
 
 
@@ -139,7 +125,7 @@ func begin_encounter(enemy_count: int, squad_size: int = DEFAULT_SQUAD_SIZE) -> 
 	_squad_size = maxi(squad_size, 1)
 	_cover_time_s = 0.0
 	_elapsed_s = 0.0
-	_expected_clear_time_s = expected_clear_time_s(enemy_count)
+	_expected_clear_time_s = expected_clear_time_s(enemy_count, _profile)
 
 
 ## Avance de tiempo del encuentro. `in_cover` alimenta el uso de cobertura,
@@ -193,7 +179,7 @@ func skill_multiplier() -> float:
 ## Puntuación media de la ventana, 0..1. 0.5 si no hay muestras.
 func current_score() -> float:
 	if _samples.is_empty():
-		return NEUTRAL_SCORE
+		return _profile.neutral_score
 	var total: float = 0.0
 	for sample: EncounterSample in _samples:
 		total += score_of(sample, _profile)
@@ -226,8 +212,15 @@ func profile() -> DirectorProfile:
 # ---- Funciones puras ----
 
 ## Tiempo esperado de limpieza para un encuentro de `enemy_count` enemigos.
-static func expected_clear_time_s(enemy_count: int) -> float:
-	return EXPECTED_CLEAR_TIME_BASE_S + EXPECTED_CLEAR_TIME_PER_ENEMY_S * float(maxi(enemy_count, 0))
+##
+## Es la referencia con la que se puntúa el tiempo real, y NO es la mediana
+## observada del jugador a propósito: una referencia que sube cuando el
+## jugador tarda más haría que tardar más mejorase la puntuación de los
+## encuentros siguientes, y el invariante de monotonía se rompería. El GDD
+## §7 decía lo contrario y se corrigió.
+static func expected_clear_time_s(enemy_count: int, profile: DirectorProfile) -> float:
+	return (profile.expected_clear_time_base_s
+		+ profile.expected_clear_time_per_enemy_s * float(maxi(enemy_count, 0)))
 
 
 ## Puntuación de una muestra, 0..1. Mayor = jugó mejor.
@@ -237,13 +230,14 @@ static func expected_clear_time_s(enemy_count: int) -> float:
 static func score_of(sample: EncounterSample, profile: DirectorProfile) -> float:
 	var accuracy := clampf(sample.accuracy, 0.0, 1.0)
 	var damage := 1.0 - clampf(
-		sample.damage_taken_per_minute / REFERENCE_DAMAGE_PER_MINUTE, 0.0, 1.0)
+		sample.damage_taken_per_minute / maxf(profile.reference_damage_per_minute, 0.0001),
+		0.0, 1.0)
 	# El doble del tiempo esperado puntúa 0; la mitad, 0,75.
 	var reference_time := maxf(sample.expected_clear_time_s, 0.0001)
 	var time := 1.0 - clampf(sample.clear_time_s / (2.0 * reference_time), 0.0, 1.0)
 	var squad := 1.0 - clampf(
 		float(sample.squad_losses) / float(maxi(sample.squad_size, 1)), 0.0, 1.0)
-	var cover := clampf(sample.cover_usage / REFERENCE_COVER_USAGE, 0.0, 1.0)
+	var cover := clampf(sample.cover_usage / maxf(profile.reference_cover_usage, 0.0001), 0.0, 1.0)
 
 	var weights: Array[float] = [
 		maxf(profile.weight_accuracy, 0.0),
@@ -259,7 +253,7 @@ static func score_of(sample: EncounterSample, profile: DirectorProfile) -> float
 		total += weights[index] * values[index]
 		weight_sum += weights[index]
 	if weight_sum <= 0.0:
-		return NEUTRAL_SCORE
+		return profile.neutral_score
 	return clampf(total / weight_sum, 0.0, 1.0)
 
 
@@ -269,10 +263,11 @@ static func score_of(sample: EncounterSample, profile: DirectorProfile) -> float
 static func multiplier_for_score(score: float, profile: DirectorProfile) -> float:
 	var low := profile.skill_multiplier_min
 	var high := profile.skill_multiplier_max
+	var neutral := clampf(profile.neutral_score, 0.0001, 0.9999)
 	var clamped := clampf(score, 0.0, 1.0)
-	if clamped <= NEUTRAL_SCORE:
-		return clampf(lerpf(low, 1.0, clamped / NEUTRAL_SCORE), low, high)
-	var upper := (clamped - NEUTRAL_SCORE) / (1.0 - NEUTRAL_SCORE)
+	if clamped <= neutral:
+		return clampf(lerpf(low, 1.0, clamped / neutral), low, high)
+	var upper := (clamped - neutral) / (1.0 - neutral)
 	return clampf(lerpf(1.0, high, upper), low, high)
 
 

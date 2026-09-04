@@ -139,8 +139,9 @@ func test_new_formulation_respects_archetype_bounds() -> void:
 		var context := _context(area, 15.0, 3.0, 2)
 		var result := composer.compose(context)
 		var enemy_total := result.max_enemies
-		var minimum := int(floorf(EncounterComposer.MIN_SHARE_PER_ARCHETYPE * float(enemy_total)))
-		var maximum := int(ceilf(EncounterComposer.MAX_SHARE_PER_ARCHETYPE * float(enemy_total)))
+		var profile := Balance.director_profile()
+		var minimum := int(floorf(profile.min_share_per_archetype * float(enemy_total)))
+		var maximum := int(ceilf(profile.max_share_per_archetype * float(enemy_total)))
 		for index: int in 3:
 			assert_between(float(result.counts[index]), float(minimum), float(maximum),
 				"área %.0f: arquetipo %d dentro de sus cotas" % [area, index])
@@ -153,10 +154,11 @@ func test_new_formulation_respects_archetype_bounds() -> void:
 ## permite.
 func test_legacy_optimum_violates_the_bounds_the_new_one_enforces() -> void:
 	var enemy_total := 30
-	var maximum := int(ceilf(EncounterComposer.MAX_SHARE_PER_ARCHETYPE * float(enemy_total)))
+	var profile := Balance.director_profile()
+	var maximum := int(ceilf(profile.max_share_per_archetype * float(enemy_total)))
 	assert_gt(float(SKEWED[1]), float(maximum),
 		"(3, 26, 0) supera la cota máxima por arquetipo (%d)" % maximum)
-	var minimum := int(floorf(EncounterComposer.MIN_SHARE_PER_ARCHETYPE * float(enemy_total)))
+	var minimum := int(floorf(profile.min_share_per_archetype * float(enemy_total)))
 	assert_lt(float(SKEWED[2]), float(minimum),
 		"(3, 26, 0) incumple la cota mínima por arquetipo (%d)" % minimum)
 	assert_true(_fits(SKEWED), "y aun así es factible y óptimo para el objetivo original")
@@ -185,9 +187,7 @@ func test_search_and_simplex_over_the_same_budgets() -> void:
 	request.lower = [0, 0, 0]
 	request.upper = [30, 30, 30]
 	request.budgets = [float(BUDGET_DAMAGE), float(BUDGET_HEALTH), float(BUDGET_SPEED)]
-	request.damage_coefficients = [60.0, 100.0, 120.0]
-	request.health_coefficients = [45.0, 50.0, 65.0]
-	request.speed_coefficients = [60.0, 45.0, 35.0]
+	request.apply_profile(Balance.director_profile())
 	request.target_counts = [10.0, 10.0, 10.0]
 	request.affinity_shares = [0.3334, 0.3333, 0.3333]
 	request.max_total = 30

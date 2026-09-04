@@ -26,10 +26,10 @@ class FakeProvider:
 
 func _request() -> SpawnPointProvider.SpawnRequest:
 	var request := SpawnPointProvider.SpawnRequest.new()
+	# Las reglas de justicia salen del perfil, como en el juego.
+	request.apply_profile(Balance.director_profile())
 	request.player_position = Vector3.ZERO
 	request.player_forward = Vector3(0.0, 0.0, -1.0)
-	request.player_fov_half_angle_deg = 55.0
-	request.min_distance_m = 12.0
 	request.count = 4
 	return request
 
@@ -166,7 +166,7 @@ func test_weighting_prefers_close_paths_and_real_entrances() -> void:
 	var entrance := _candidate(Vector3(0.0, 0.0, 20.0), 15.0, false, true, true)
 	assert_almost_eq(
 		SpawnPointProvider.weight_of(entrance, request),
-		SpawnPointProvider.weight_of(near, request) * SpawnPointProvider.ENTRY_POINT_WEIGHT_BONUS,
+		SpawnPointProvider.weight_of(near, request) * request.entry_point_weight_bonus,
 		0.000001,
 		"un acceso real pesa el doble")
 
@@ -215,3 +215,21 @@ func test_base_provider_is_an_empty_contract() -> void:
 	fake.candidates = [_candidate(Vector3(0.0, 0.0, 20.0), 25.0, false)]
 	assert_true(fake.is_ready(), "el doble sí está listo")
 	assert_size(fake.sample_candidates(_request()), 1, "y propone su candidato")
+
+
+## Una petición sin perfil aplicado no genera NADA. El valor por defecto de
+## una regla de justicia no puede ser permisivo.
+func test_unconfigured_request_spawns_nothing() -> void:
+	var raw := SpawnPointProvider.SpawnRequest.new()
+	raw.count = 4
+	var candidate := _candidate(Vector3(0.0, 0.0, 40.0), 45.0, false)
+	assert_false(raw.configured, "la petición en crudo no está configurada")
+	assert_false(SpawnPointProvider.is_fair(candidate, raw),
+		"y por tanto ningún punto le parece justo")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	assert_size(SpawnPointProvider.select([candidate], raw, rng), 0, "no elige nada")
+
+	raw.apply_profile(Balance.director_profile())
+	assert_true(raw.configured, "aplicando el perfil sí queda configurada")
+	assert_true(SpawnPointProvider.is_fair(candidate, raw), "y el punto pasa")

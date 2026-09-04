@@ -220,3 +220,80 @@ static func quality_in_sector(sector: int,
 	for s in NavTuning.DIRECTION_COUNT:
 		out.append(int(quality) if s == sector else int(CoverProvider.Quality.NONE))
 	return out
+
+
+## Geometría de origen para hornear el navmesh de una escena de mapa
+## convertida, LEÍDA SIN ÁRBOL DE ESCENA.
+##
+## `NavigationServer3D.parse_source_geometry_data` exige que el nodo raíz esté
+## dentro del árbol, y las pruebas corren dentro del `_ready` del ejecutor,
+## donde `add_child` está prohibido. Como el conversor exporta la geometría en
+## propiedades de texto (`floor_vertices`/`floor_indices` y los `BoxShape3D` de
+## cada muro), se puede leer directamente: menos cómodo, pero determinista y
+## sin depender del ciclo de vida de los nodos.
+static func source_from_map(root: Node) -> NavigationMeshSourceGeometryData3D:
+	var source := NavigationMeshSourceGeometryData3D.new()
+	var floor_node := root.get_node_or_null(^"Floor")
+	if floor_node != null:
+		var vertices: PackedVector3Array = floor_node.get(&"floor_vertices")
+		var indices: PackedInt32Array = floor_node.get(&"floor_indices")
+		var faces := PackedVector3Array()
+		for i in range(0, indices.size() - 2, 3):
+			_emit_upward(faces, vertices[indices[i]], vertices[indices[i + 1]],
+				vertices[indices[i + 2]])
+		if not faces.is_empty():
+			source.add_faces(faces, Transform3D.IDENTITY)
+	for entry: Array in collect_map_boxes(root):
+		var transform: Transform3D = entry[0]
+		var size: Vector3 = entry[1]
+		source.add_faces(box_faces(AABB(-size * 0.5, size)), transform)
+	return source
+
+
+## Emite un triángulo con la normal hacia ARRIBA. El conversor ya orienta el
+## suelo, pero Recast descarta en silencio las caras que miran hacia abajo, así
+## que no se da por supuesto.
+static func _emit_upward(out: PackedVector3Array, a: Vector3, b: Vector3,
+		c: Vector3) -> void:
+	if ((a - c).cross(a - b)).y >= 0.0:
+		out.append_array(PackedVector3Array([a, b, c]))
+	else:
+		out.append_array(PackedVector3Array([a, c, b]))
+
+
+## Todos los `BoxShape3D` de la escena, con su transformada acumulada. Es la
+## geometría que bloquea rayos y navegación en los mapas convertidos.
+static func collect_map_boxes(root: Node) -> Array[Array]:
+	var out: Array[Array] = []
+	_collect_boxes_into(out, root, Transform3D.IDENTITY)
+	return out
+
+
+static func _collect_boxes_into(out: Array[Array], node: Node,
+		parent_transform: Transform3D) -> void:
+	var transform := parent_transform
+	var spatial := node as Node3D
+	if spatial != null:
+		transform = parent_transform * spatial.transform
+	var collision := node as CollisionShape3D
+	if collision != null:
+		var box := collision.shape as BoxShape3D
+		if box != null:
+			out.append([transform, box.size])
+	for child: Node in node.get_children():
+		_collect_boxes_into(out, child, transform)
+
+
+## Mundo sintético equivalente a una escena de mapa: los muros como cajas
+## orientadas y una losa de suelo bajo el navmesh, para que la sonda vertical
+## del horneado de cobertura encuentre el suelo real.
+static func world_from_map(root: Node, mesh: NavigationMesh) -> NavSyntheticWorld:
+	var world := NavSyntheticWorld.new()
+	world.mesh = mesh
+	var bounds := NavmeshSampler.bounds_of(mesh).grow(2.0)
+	world.boxes = [AABB(
+		Vector3(bounds.position.x, -0.5, bounds.position.z),
+		Vector3(bounds.size.x, 0.5, bounds.size.z))] as Array[AABB]
+	for entry: Array in collect_map_boxes(root):
+		world.add_oriented_box(entry[0] as Transform3D, entry[1] as Vector3)
+	return world

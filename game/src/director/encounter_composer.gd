@@ -35,6 +35,24 @@ extends RefCounted
 ## problema, son los tres presupuestos y sus coeficientes: siguen siendo las
 ## restricciones duras, ahora moduladas por la forma del mapa.
 ##
+## [b]A cada arquetipo lo limita un presupuesto distinto[/b]
+##
+## No es casualidad de los coeficientes de 2012, es lo que hace que las tres
+## restricciones signifiquen algo, y quien rebalancee dentro de un año no lo
+## va a deducir solo:
+##
+## | Arquetipo | Daño | Vida | Velocidad | Le limita |
+## |---|---|---|---|---|
+## | Sicario    |  60 | 45 | [b]60[/b]  | la VELOCIDAD: es el más caro de la tercera fila |
+## | Miliciano  | 100 | 50 | 45         | ninguno en particular: por eso es el relleno |
+## | Veterano   | [b]120[/b] | 65 | 35 | el DAÑO: es el más caro de la primera fila |
+##
+## La fila de velocidad va al revés que las otras dos (60/45/35, descendente),
+## así que una misma zona sostiene casi los mismos Sicarios que Veteranos —29
+## y 29 con 2 000 m²— aunque el Veterano cueste el doble en daño. Subir el
+## presupuesto de velocidad abre la puerta a más Sicarios; subir el de daño, a
+## más Veteranos. Fijado en `test_each_archetype_is_limited_by_a_different_budget`.
+##
 ## Los tres modos conviven a propósito (ver [enum Mode]): el Simplex se queda
 ## como pieza histórica y como evidencia de por qué se sustituyó.
 
@@ -63,25 +81,15 @@ enum Mode {
 	GOAL_SIMPLEX,
 }
 
-# ---- Constantes de diseño pendientes de mover a datos ----
-# TODO(arquitecto): todo este bloque debería vivir en DirectorProfile
-# (src/data/ no es ámbito del director). Ver el informe: la propuesta es un
-# grupo "Composición objetivo" con estos mismos nombres.
+# ---- Constantes de forma del mapa ----
+# TODO(arquitecto): estas nueve siguen en código porque no tienen sitio en
+# DirectorProfile todavía. Son las referencias con las que se normaliza la
+# geometría de una zona y los pesos con los que cada arquetipo se lleva bien
+# con ella. Propuesta: un grupo "Afinidad con la geometría".
 
-## Cota inferior por arquetipo, como fracción de MaxEnemies. Evita que un
-## arquetipo desaparezca del encuentro.
-const MIN_SHARE_PER_ARCHETYPE: float = 0.12
-## Cota superior por arquetipo, como fracción de MaxEnemies. Es la cota que
-## acota el espacio de búsqueda y, con el término de variedad, la que hace
-## imposible por construcción la degeneración del original.
-const MAX_SHARE_PER_ARCHETYPE: float = 0.55
-## Cuánto puede desviar la forma del mapa la composición objetivo respecto al
-## reparto uniforme (solo en `GOAL_SIMPLEX`; en `SEARCH` la geometría entra
-## por su propio término de puntuación).
-const SHAPE_GAIN: float = 0.5
-## Cuánto puede desviar la forma del mapa los tres presupuestos.
-const BUDGET_SHAPE_GAIN: float = 0.15
-## Referencias de normalización de la forma del mapa.
+## Referencias de normalización de la forma del mapa. Una zona con líneas de
+## tiro de 30 m o más se considera completamente diáfana; una con 6 puntos de
+## cobertura por 100 m², completamente parapetada.
 const REFERENCE_LINE_OF_SIGHT_M: float = 30.0
 const REFERENCE_COVER_PER_100M2: float = 6.0
 const REFERENCE_ENTRY_COUNT: float = 4.0
@@ -328,7 +336,8 @@ func target_shares(context: EncounterContext) -> Array[float]:
 			continue
 		# Factor en [1 − ganancia, 1 + ganancia]: la geometría inclina el
 		# reparto, no lo dicta.
-		var factor := 1.0 - SHAPE_GAIN + 2.0 * SHAPE_GAIN * affinities[index]
+		var gain := _profile.shape_gain
+		var factor := 1.0 - gain + 2.0 * gain * affinities[index]
 		raw[index] = factor / float(allowed_count)
 		total += raw[index]
 	if total <= 0.0:
@@ -398,12 +407,12 @@ func _compose_by_search(
 	_allowed: Array[bool]
 ) -> void:
 	var request := CompositionSearch.Request.new()
+	# Pesos y coeficientes salen del perfil; cotas, presupuestos y objetivo
+	# los calcula esta clase para cada zona.
+	request.apply_profile(_profile)
 	request.lower = _to_int_array(lower)
 	request.upper = _to_int_array(upper)
 	request.budgets = Rational.array_to_floats(budgets)
-	request.damage_coefficients = _coefficient_floats(0)
-	request.health_coefficients = _coefficient_floats(1)
-	request.speed_coefficients = _coefficient_floats(2)
 	request.affinity_shares = affinity_shares(context)
 	request.previous_counts = _previous_counts.duplicate()
 	request.max_total = result.max_enemies
@@ -487,10 +496,11 @@ func _budgets(context: EncounterContext, enemy_total: int) -> Array[Rational]:
 	var openness := clampf(context.mean_line_of_sight_m / REFERENCE_LINE_OF_SIGHT_M, 0.0, 1.0)
 	var cover := clampf(context.cover_points_per_100m2 / REFERENCE_COVER_PER_100M2, 0.0, 1.0)
 	var entries := clampf(float(context.entry_count) / REFERENCE_ENTRY_COUNT, 0.0, 1.0)
+	var gain := _profile.budget_shape_gain
 	var modulation: Array[float] = [
-		1.0 + BUDGET_SHAPE_GAIN * (cover - 0.5) * 2.0,
-		1.0 + BUDGET_SHAPE_GAIN * (openness - 0.5) * 2.0,
-		1.0 + BUDGET_SHAPE_GAIN * (entries - 0.5) * 2.0,
+		1.0 + gain * (cover - 0.5) * 2.0,
+		1.0 + gain * (openness - 0.5) * 2.0,
+		1.0 + gain * (entries - 0.5) * 2.0,
 	]
 	var budgets: Array[Rational] = []
 	for index: int in base.size():
@@ -606,7 +616,7 @@ func _allowed_count(allowed: Array[bool]) -> int:
 
 func _lower_bounds(enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
 	var bounds := PackedInt64Array()
-	var share := minf(MIN_SHARE_PER_ARCHETYPE, 1.0 / float(maxi(_allowed_count(allowed), 1)))
+	var share := minf(_profile.min_share_per_archetype, 1.0 / float(maxi(_allowed_count(allowed), 1)))
 	for index: int in ARCHETYPE_ORDER.size():
 		bounds.append(int(floorf(share * float(enemy_total))) if allowed[index] else 0)
 	return bounds
@@ -616,7 +626,7 @@ func _upper_bounds(enemy_total: int, allowed: Array[bool]) -> PackedInt64Array:
 	var bounds := PackedInt64Array()
 	# Con un solo arquetipo permitido la cota máxima no puede ser una
 	# fracción: no habría con qué completar el encuentro.
-	var share := maxf(MAX_SHARE_PER_ARCHETYPE, 1.0 / float(maxi(_allowed_count(allowed), 1)))
+	var share := maxf(_profile.max_share_per_archetype, 1.0 / float(maxi(_allowed_count(allowed), 1)))
 	for index: int in ARCHETYPE_ORDER.size():
 		bounds.append(int(ceilf(share * float(enemy_total))) if allowed[index] else 0)
 	return bounds

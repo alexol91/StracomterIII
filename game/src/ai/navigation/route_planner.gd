@@ -131,16 +131,98 @@ func disjoint_routes(from: Vector3, to: Vector3,
 		var route := _corridor_to_path(corridor, from, to)
 		if route.size() < 2:
 			break
+		# Garantía dura: sólo se devuelve lo que de verdad no comparte tramo.
+		# Excluir polígonos hace la disjunción PROBABLE; comprobarla la hace
+		# CIERTA, y es la diferencia entre un flanqueo y dos bots en fila.
+		var overlaps := false
+		for previous: PackedVector3Array in out:
+			if routes_share_segment(route, previous):
+				overlaps = true
+				break
+		if overlaps:
+			break
 		out.append(route)
+
 		# Los extremos son forzosamente comunes: si se excluyeran, la segunda
 		# ruta no podría ni salir del sitio ni llegar al destino.
+		#
+		# Se preservan los polígonos de origen y destino POR ÍNDICE y no sólo
+		# por distancia al centroide: Recast produce polígonos grandes e
+		# irregulares y el centroide de aquel en el que está el bot puede caer
+		# lejos de él; con el criterio de distancia a secas la segunda búsqueda
+		# arrancaba encerrada y el flanqueo desaparecía en silencio.
 		var keep := NavTuning.ROUTE_ENDPOINT_KEEP_RADIUS_M
+		var newly_excluded := 0
 		for poly_index: int in corridor:
+			if poly_index == start or poly_index == goal:
+				continue
+			if excluded.has(poly_index):
+				continue
 			var c := _centroids[poly_index]
 			if c.distance_to(from) <= keep or c.distance_to(to) <= keep:
 				continue
 			excluded[poly_index] = true
+			newly_excluded += 1
+		# Si la ruta no ha aportado ni un polígono que excluir (un pasillo
+		# recto de un solo polígono), la siguiente búsqueda devolvería
+		# exactamente lo mismo. Mejor una ruta menos que una ruta repetida.
+		if newly_excluded == 0:
+			break
 	return out
+
+
+## Componentes conexas del navmesh: conjuntos de polígonos entre los que
+## existe camino. Un nivel bien construido tiene UNA, más las azoteas y
+## repisas a las que no se sube. Dos componentes grandes a ras de suelo son
+## una zona a la que no se puede llegar, y eso es un fallo de nivel.
+func connected_components() -> Array[PackedInt32Array]:
+	var out: Array[PackedInt32Array] = []
+	var seen: Dictionary[int, bool] = {}
+	for i in _polygons.size():
+		if seen.has(i):
+			continue
+		var component := PackedInt32Array()
+		var stack := PackedInt32Array([i])
+		seen[i] = true
+		while not stack.is_empty():
+			var current := stack[stack.size() - 1]
+			stack.remove_at(stack.size() - 1)
+			component.append(current)
+			for neighbor: int in _neighbors[current]:
+				if not seen.has(neighbor):
+					seen[neighbor] = true
+					stack.append(neighbor)
+		out.append(component)
+	return out
+
+
+## Área de un polígono proyectada en XZ, en m².
+func polygon_area(index: int) -> float:
+	var poly := _polygons[index]
+	var total := 0.0
+	for i in poly.size():
+		var a := _vertices[poly[i]]
+		var b := _vertices[poly[(i + 1) % poly.size()]]
+		total += a.x * b.z - b.x * a.z
+	return absf(total) * 0.5
+
+
+## Altura media de un polígono. Sirve para distinguir el suelo de una azotea.
+func polygon_height(index: int) -> float:
+	var poly := _polygons[index]
+	var total := 0.0
+	for vi: int in poly:
+		total += _vertices[vi].y
+	return total / float(poly.size())
+
+
+## Polígono que CONTIENE el punto, o -1. A diferencia de la localización
+## interna, no cae al centroide más cercano: aquí interesa la pertenencia.
+func polygon_containing(point: Vector3) -> int:
+	for i in _polygons.size():
+		if _point_in_polygon(point, i):
+			return i
+	return -1
 
 
 ## ¿Comparten tramo dos rutas? Se ignoran los entornos de origen y destino,
@@ -230,38 +312,17 @@ func _corridor_to_path(corridor: PackedInt32Array, from: Vector3,
 	if corridor.size() == 1:
 		return PackedVector3Array([start, end])
 
-	var left := PackedVector3Array()
-	var right := PackedVector3Array()
+	# Base: los puntos medios de los portales. Están DENTRO del corredor por
+	# construcción, así que el camino de partida siempre es válido aunque feo.
+	var waypoints := PackedVector3Array([start])
 	for i in range(corridor.size() - 1):
-		var pa := corridor[i]
-		var pb := corridor[i + 1]
-		var portal := _portal_between(pa, pb)
+		var portal := _portal_between(corridor[i], corridor[i + 1])
 		if portal.is_empty():
 			return PackedVector3Array()
-		var travel := _centroids[pb] - _centroids[pa]
-		var p0 := _vertices[portal[0]]
-		var p1 := _vertices[portal[1]]
-		# Orientación por dirección de avance, no por bobinado: no hace falta
-		# suponer nada sobre cómo Recast ordena los índices.
-		var right_dir := travel.cross(Vector3.UP)
-		if (p0 - p1).dot(right_dir) > 0.0:
-			right.append(p0)
-			left.append(p1)
-		else:
-			right.append(p1)
-			left.append(p0)
-
-	var pulled := _funnel(start, end, left, right)
-	if _path_inside_corridor(pulled, corridor):
-		return pulled
-	# Red de seguridad: si el suavizado se sale del corredor (portales casi
-	# degenerados), se devuelven los puntos medios de los portales, que están
-	# dentro por construcción.
-	var fallback := PackedVector3Array([start])
-	for i in left.size():
-		fallback.append((left[i] + right[i]) * 0.5)
-	fallback.append(end)
-	return fallback
+		waypoints.append((_vertices[portal[0]] + _vertices[portal[1]]) * 0.5)
+	waypoints.append(end)
+	_last_corridor_hit = -1
+	return _string_pull(waypoints, corridor)
 
 
 func _portal_between(pa: int, pb: int) -> PackedInt32Array:
@@ -272,87 +333,59 @@ func _portal_between(pa: int, pb: int) -> PackedInt32Array:
 	return PackedInt32Array()
 
 
-## Algoritmo del embudo (string pulling) en el plano XZ.
-func _funnel(start: Vector3, end: Vector3, left: PackedVector3Array,
-		right: PackedVector3Array) -> PackedVector3Array:
-	var portal_count := left.size() + 1
-	var out := PackedVector3Array([start])
-	var apex := start
-	var portal_left := start
-	var portal_right := start
-	var apex_index := 0
-	var left_index := 0
-	var right_index := 0
-
-	var i := 1
-	while i < portal_count:
-		var l := left[i - 1] if i - 1 < left.size() else end
-		var r := right[i - 1] if i - 1 < right.size() else end
-		if i == portal_count - 1:
-			l = end
-			r = end
-
-		if _tri_area(apex, portal_right, r) <= 0.0:
-			if apex.is_equal_approx(portal_right) or _tri_area(apex, portal_left, r) > 0.0:
-				portal_right = r
-				right_index = i
-			else:
-				out.append(portal_left)
-				apex = portal_left
-				apex_index = left_index
-				portal_left = apex
-				portal_right = apex
-				left_index = apex_index
-				right_index = apex_index
-				i = apex_index + 1
-				continue
-
-		if _tri_area(apex, portal_left, l) >= 0.0:
-			if apex.is_equal_approx(portal_left) or _tri_area(apex, portal_right, l) < 0.0:
-				portal_left = l
-				left_index = i
-			else:
-				out.append(portal_right)
-				apex = portal_right
-				apex_index = right_index
-				portal_left = apex
-				portal_right = apex
-				left_index = apex_index
-				right_index = apex_index
-				i = apex_index + 1
-				continue
-		i += 1
-
-	if out.is_empty() or not out[out.size() - 1].is_equal_approx(end):
-		out.append(end)
+## Tensado del camino: se salta todo waypoint intermedio mientras el atajo
+## siga DENTRO del corredor de polígonos.
+##
+## Es la misma idea que `Pathfinder::smoothPath` del legacy (`Pathfinder.cc:
+## 242-261`), que borraba `p[i+1]` si había visión de `p[i]` a `p[i+2]`. Dos
+## diferencias: la comprobación es la pertenencia al corredor y no un rayo
+## contra geometría expandida a mano, y el avance es voraz de verdad (el
+## legacy sólo saltaba de uno en uno).
+##
+## Se prefiere esto al algoritmo del embudo por una razón práctica: el embudo
+## depende de acertar el signo del área con signo y de orientar cada portal a
+## izquierda y derecha; equivocarse produce caminos en zigzag que aun así
+## "parecen" caminos y pasan cualquier prueba de que el destino se alcanza.
+## Aquí, si el atajo no cabe, no se toma — y eso es verificable punto por
+## punto, que es justo lo que hace la prueba `test_las_rutas_se_quedan_sobre_
+## el_navmesh`.
+func _string_pull(points: PackedVector3Array,
+		corridor: PackedInt32Array) -> PackedVector3Array:
+	if points.size() <= 2:
+		return points
+	var out := PackedVector3Array([points[0]])
+	var anchor := 0
+	while anchor < points.size() - 1:
+		var target := anchor + 1
+		while target + 1 < points.size() \
+				and _segment_in_corridor(points[anchor], points[target + 1], corridor):
+			target += 1
+		out.append(points[target])
+		anchor = target
 	return out
 
 
-## Área con signo del triángulo (a, b, c) proyectado en XZ. Positiva cuando c
-## queda a la IZQUIERDA de a→b con Y hacia arriba.
-static func _tri_area(a: Vector3, b: Vector3, c: Vector3) -> float:
-	return (c.x - a.x) * (b.z - a.z) - (b.x - a.x) * (c.z - a.z)
-
-
-func _path_inside_corridor(path: PackedVector3Array,
+func _segment_in_corridor(a: Vector3, b: Vector3,
 		corridor: PackedInt32Array) -> bool:
-	if path.size() < 2:
-		return false
-	for i in range(path.size() - 1):
-		var a := path[i]
-		var b := path[i + 1]
-		var length := a.distance_to(b)
-		var steps := maxi(1, int(ceilf(length / CORRIDOR_VALIDATION_STEP_M)))
-		for s in range(steps + 1):
-			var p := a.lerp(b, float(s) / float(steps))
-			if not _point_in_corridor(p, corridor):
-				return false
+	var steps := maxi(1, int(ceilf(a.distance_to(b) / CORRIDOR_VALIDATION_STEP_M)))
+	for s in range(steps + 1):
+		if not _point_in_corridor(a.lerp(b, float(s) / float(steps)), corridor):
+			return false
 	return true
 
 
+## Coherencia temporal: al recorrer un segmento, cada muestra cae casi siempre
+## en el mismo polígono que la anterior. Probar ese primero convierte una
+## búsqueda lineal por muestra en una sola comprobación.
+var _last_corridor_hit: int = -1
+
+
 func _point_in_corridor(p: Vector3, corridor: PackedInt32Array) -> bool:
+	if _last_corridor_hit >= 0 and _point_in_polygon(p, _last_corridor_hit):
+		return true
 	for poly_index: int in corridor:
 		if _point_in_polygon(p, poly_index):
+			_last_corridor_hit = poly_index
 			return true
 	return false
 

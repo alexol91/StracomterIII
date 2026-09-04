@@ -16,8 +16,32 @@ extends WorldQuery
 ## "ObjectDB instances were leaked at exit". Verificado en 4.7.2.
 
 var boxes: Array[AABB] = []
+## Cajas con rotación (los muros de los mapas convertidos no están alineados
+## con los ejes). Se guardan la transformada y el tamaño; el rayo se lleva al
+## espacio local de la caja y se resuelve ahí con el mismo test de rodajas.
+var oriented_transforms: Array[Transform3D] = []
+var oriented_sizes: PackedVector3Array = PackedVector3Array()
+## AABB envolvente de cada caja orientada, para descartarlas a coste cero.
+var _oriented_bounds: Array[AABB] = []
+
 var nav: NavService = null
 var mesh: NavigationMesh = null
+
+
+## Añade una caja orientada (transformada + tamaño local centrado en el
+## origen), que es como vienen los `BoxShape3D` de las escenas de mapa.
+func add_oriented_box(transform: Transform3D, size: Vector3) -> void:
+	oriented_transforms.append(transform)
+	oriented_sizes.append(size)
+	var local := AABB(-size * 0.5, size)
+	var bounds := AABB(transform * local.position, Vector3.ZERO)
+	for i in 8:
+		bounds = bounds.expand(transform * local.get_endpoint(i))
+	_oriented_bounds.append(bounds)
+
+
+func oriented_box_count() -> int:
+	return oriented_transforms.size()
 
 
 func dispose() -> void:
@@ -42,6 +66,23 @@ func raycast(from: Vector3, to: Vector3, _collision_mask: int = 1) -> Vector3:
 		var t := _ray_box(from, dir, length, box)
 		if t >= 0.0 and t < best:
 			best = t
+	if not oriented_transforms.is_empty():
+		# Envolvente del propio rayo: con sondas de 2 m descarta casi todos los
+		# muros del mapa antes de hacer una sola cuenta.
+		var ray_bounds := AABB(from, Vector3.ZERO).expand(to)
+		for i in oriented_transforms.size():
+			if not _oriented_bounds[i].intersects(ray_bounds):
+				continue
+			var inverse := oriented_transforms[i].affine_inverse()
+			var local_from := inverse * from
+			var size := oriented_sizes[i]
+			var local_box := AABB(-size * 0.5, size)
+			if local_box.has_point(local_from):
+				continue
+			var local_dir := (inverse.basis * dir).normalized()
+			var t := _ray_box(local_from, local_dir, length, local_box)
+			if t >= 0.0 and t < best:
+				best = t
 	if is_inf(best):
 		return Vector3.INF
 	return from + dir * best

@@ -13,12 +13,11 @@ extends TestCase
 
 func _request(maximum: int) -> CompositionSearch.Request:
 	var request := CompositionSearch.Request.new()
+	# Pesos y coeficientes salen del perfil, como en el juego.
+	request.apply_profile(Balance.director_profile())
 	request.lower = [1, 1, 1]
 	request.upper = [maximum, maximum, maximum]
 	request.budgets = [93.3333 * float(maximum), 51.6667 * float(maximum), 46.6667 * float(maximum)]
-	request.damage_coefficients = [60.0, 100.0, 120.0]
-	request.health_coefficients = [45.0, 50.0, 65.0]
-	request.speed_coefficients = [60.0, 45.0, 35.0]
 	var third := float(maximum) / 3.0
 	request.target_counts = [third, third, third]
 	request.affinity_shares = [0.34, 0.33, 0.33]
@@ -151,11 +150,7 @@ func test_breakdown_adds_up_to_the_score() -> void:
 	var request := _request(20)
 	var candidate := CompositionSearch.evaluate([7, 7, 6], request)
 	var total: float = 0.0
-	var weight_total := (
-		CompositionSearch.WEIGHT_TARGET + CompositionSearch.WEIGHT_VARIETY
-		+ CompositionSearch.WEIGHT_NOVELTY + CompositionSearch.WEIGHT_BUDGET
-		+ CompositionSearch.WEIGHT_MAP_FIT
-	)
+	var weight_total := request.weight_sum()
 	for key: StringName in candidate.weighted:
 		total += candidate.weighted[key]
 	assert_almost_eq(candidate.score, total / weight_total, 0.000001,
@@ -231,3 +226,44 @@ func test_search_space_stays_small() -> void:
 	# desarrollo es de unos 50 ms para este caso, y ~5 ms para una zona
 	# normal. Lo que importa es que no se vaya a segundos.
 	assert_lt(float(result.search_usec), 1500000.0, "y se resuelve en mucho menos de un segundo")
+
+
+## Sin pesos no hay puntuación: una petición a la que se le olvidó
+## `apply_profile` no devuelve una composición cualquiera, no devuelve nada.
+func test_request_without_profile_scores_nothing() -> void:
+	var request := CompositionSearch.Request.new()
+	request.lower = [0, 0, 0]
+	request.upper = [10, 10, 10]
+	request.budgets = [1000.0, 1000.0, 1000.0]
+	request.max_total = 10
+	assert_almost_eq(request.weight_sum(), 0.0, 0.000001, "los pesos en crudo son cero")
+	# Se espera un push_error: es deliberado, la alternativa es puntuar con
+	# pesos inventados y que nadie se entere.
+	var found := CompositionSearch.run(request)
+	assert_false(found.has_solution(), "sin pesos no se elige nada")
+
+
+## Los pesos del perfil son los que mandan: subir `weight_variety` produce
+## composiciones más mezcladas. Es el mando de balanceo que el Simplex no
+## podía ofrecer.
+func test_profile_weights_steer_the_result() -> void:
+	var base := Balance.director_profile()
+	var variety_first := base.duplicate() as DirectorProfile
+	variety_first.weight_variety = base.weight_variety * 10.0
+	var target_first := base.duplicate() as DirectorProfile
+	target_first.weight_target = base.weight_target * 10.0
+
+	var request_variety := _request(20)
+	request_variety.apply_profile(variety_first)
+	request_variety.target_counts = [16.0, 2.0, 2.0]
+	var request_target := _request(20)
+	request_target.apply_profile(target_first)
+	request_target.target_counts = [16.0, 2.0, 2.0]
+
+	var mixed := CompositionSearch.run(request_variety).best
+	var obedient := CompositionSearch.run(request_target).best
+	assert_gt(CompositionSearch.variety_term(mixed.counts, request_variety),
+		CompositionSearch.variety_term(obedient.counts, request_target),
+		"con la variedad al mando sale una mezcla más repartida")
+	assert_gt(obedient.counts[0], mixed.counts[0],
+		"con el objetivo al mando se obedece al objetivo sesgado")

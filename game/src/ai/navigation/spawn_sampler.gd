@@ -96,28 +96,37 @@ func access_point_count() -> int:
 ## Recoge los accesos de una escena de mapa. Acepta la estructura del
 ## conversor (`Doors/Door_N` como `Marker3D` con `metadata/type = "door"`) y
 ## cualquier nodo `DoorNavLink`.
+##
+## Las transformadas se acumulan a mano en lugar de leer `global_position`:
+## así funciona también con una escena INSTANCIADA PERO NO AÑADIDA AL ÁRBOL,
+## que es como la miran las herramientas de horneado y las pruebas. Las
+## coordenadas resultantes son relativas al espacio del padre de `root`.
 static func collect_access_points(root: Node) -> PackedVector3Array:
 	var out := PackedVector3Array()
-	if root == null:
-		return out
-	var pending: Array[Node] = [root]
-	while not pending.is_empty():
-		var node: Node = pending.pop_back()
-		for child: Node in node.get_children():
-			pending.append(child)
-		var link := node as DoorNavLink
-		if link != null:
-			out.append(link.global_position)
-			continue
-		var marker := node as Node3D
-		if marker == null:
-			continue
-		if not marker.has_meta(&"type"):
-			continue
-		var kind := StringName(str(marker.get_meta(&"type")))
-		if kind == &"door" or kind == &"stairs" or kind == &"elevator":
-			out.append(marker.global_position)
+	if root != null:
+		_collect_access_into(out, root, Transform3D.IDENTITY)
 	return out
+
+
+static func _collect_access_into(out: PackedVector3Array, node: Node,
+		parent_transform: Transform3D) -> void:
+	var transform := parent_transform
+	var spatial := node as Node3D
+	if spatial != null:
+		transform = parent_transform * spatial.transform
+		if _is_access_node(spatial):
+			out.append(transform.origin)
+	for child: Node in node.get_children():
+		_collect_access_into(out, child, transform)
+
+
+static func _is_access_node(node: Node3D) -> bool:
+	if node is DoorNavLink:
+		return true
+	if not node.has_meta(&"type"):
+		return false
+	var kind := StringName(str(node.get_meta(&"type")))
+	return kind == &"door" or kind == &"stairs" or kind == &"elevator"
 
 
 # ---------------------------------------------------------------------------

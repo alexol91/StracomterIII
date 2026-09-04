@@ -19,23 +19,6 @@ extends RefCounted
 ## candidato CONSUMÍA la iteración, así que aparecían menos enemigos de los
 ## calculados. Las tres cosas se corrigen aquí.
 
-# TODO(arquitecto): estas tres constantes son balanceo y deberían vivir en
-# DirectorProfile, junto a `min_spawn_distance_m`.
-
-## Semiángulo del cono de visión del jugador, en grados. Debería derivarse
-## del FOV real de la cámara.
-const DEFAULT_PLAYER_FOV_HALF_ANGLE_DEG: float = 55.0
-## Distancia de camino a partir de la cual un punto empieza a perder peso.
-## Aparecer a 80 m por camino significa llegar cuando el tiroteo ha acabado.
-const PATH_DISTANCE_FALLOFF_M: float = 25.0
-## Cuánto más probable es un acceso real (puerta, escalera, ascensor) que un
-## punto en mitad de una sala.
-const ENTRY_POINT_WEIGHT_BONUS: float = 2.0
-## Distancia mínima de reserva, solo por si alguien construye una petición a
-## mano. La de verdad es `DirectorProfile.min_spawn_distance_m` y la pone el
-## director en cada petición.
-const FALLBACK_MIN_DISTANCE_M: float = 12.0
-
 ## Lo que el director pide.
 class SpawnRequest:
 	extends RefCounted
@@ -43,9 +26,14 @@ class SpawnRequest:
 	var player_position: Vector3 = Vector3.ZERO
 	## Dirección de la mirada del jugador, normalizada.
 	var player_forward: Vector3 = Vector3.FORWARD
-	var player_fov_half_angle_deg: float = DEFAULT_PLAYER_FOV_HALF_ANGLE_DEG
-	## Distancia mínima al jugador, en metros (`min_spawn_distance_m`).
-	var min_distance_m: float = FALLBACK_MIN_DISTANCE_M
+	## Semiángulo del cono de visión del jugador, en grados.
+	var player_fov_half_angle_deg: float = 0.0
+	## Distancia mínima al jugador, en metros.
+	var min_distance_m: float = 0.0
+	## Distancia de camino a partir de la cual un punto pierde peso.
+	var path_distance_falloff_m: float = 0.0
+	## Cuánto más probable es un acceso real que un punto en mitad de sala.
+	var entry_point_weight_bonus: float = 1.0
 	## Cuántos puntos se necesitan.
 	var count: int = 1
 	## Zona de la que se piden puntos.
@@ -53,6 +41,22 @@ class SpawnRequest:
 	var forbid_in_player_fov: bool = true
 	var forbid_line_of_sight: bool = true
 	var prefer_entry_points: bool = true
+	## Una petición sin perfil aplicado NO produce apariciones. El valor por
+	## defecto de un parámetro de justicia no puede ser permisivo: si alguien
+	## olvida `apply_profile`, lo correcto es no generar nada, no generar en
+	## la cara del jugador.
+	var configured: bool = false
+
+	## Copia del perfil las reglas de aparición justa y la ponderación.
+	func apply_profile(profile: DirectorProfile) -> void:
+		player_fov_half_angle_deg = profile.player_fov_half_angle_deg
+		min_distance_m = profile.min_spawn_distance_m
+		path_distance_falloff_m = profile.path_distance_falloff_m
+		entry_point_weight_bonus = profile.entry_point_weight_bonus
+		forbid_in_player_fov = profile.forbid_spawn_in_player_fov
+		forbid_line_of_sight = profile.forbid_spawn_with_line_of_sight
+		prefer_entry_points = profile.prefer_entry_points
+		configured = true
 
 
 ## Un punto candidato, con todo lo que el proveedor ya midió en el mundo.
@@ -111,6 +115,8 @@ func is_ready() -> bool:
 ## es mayor o igual y por sí sola no protege de un spawn al otro lado de un
 ## tabique.
 static func is_fair(candidate: SpawnCandidate, request: SpawnRequest) -> bool:
+	if not request.configured:
+		return false
 	if not candidate.navigable:
 		return false
 	if candidate.position.distance_to(request.player_position) < request.min_distance_m:
@@ -146,9 +152,10 @@ static func weight_of(candidate: SpawnCandidate, request: SpawnRequest) -> float
 	if not is_finite(candidate.path_distance_m):
 		return 0.0
 	var excess := maxf(candidate.path_distance_m - request.min_distance_m, 0.0)
-	var weight := 1.0 / (1.0 + excess / PATH_DISTANCE_FALLOFF_M)
+	var falloff := request.path_distance_falloff_m
+	var weight := 1.0 if falloff <= 0.0 else 1.0 / (1.0 + excess / falloff)
 	if request.prefer_entry_points and candidate.is_entry_point:
-		weight *= ENTRY_POINT_WEIGHT_BONUS
+		weight *= request.entry_point_weight_bonus
 	return weight
 
 

@@ -155,10 +155,11 @@ func test_window_is_a_moving_average() -> void:
 ## El tiempo esperado crece con el tamaño del encuentro: limpiar 30 enemigos
 ## no puede compararse con limpiar 5.
 func test_expected_clear_time_grows_with_the_encounter() -> void:
-	assert_gt(SkillModel.expected_clear_time_s(30), SkillModel.expected_clear_time_s(5),
-		"más enemigos, más tiempo esperado")
-	assert_almost_eq(SkillModel.expected_clear_time_s(0),
-		SkillModel.EXPECTED_CLEAR_TIME_BASE_S, 0.0001, "encuentro vacío")
+	var profile := _profile()
+	assert_gt(SkillModel.expected_clear_time_s(30, profile),
+		SkillModel.expected_clear_time_s(5, profile), "más enemigos, más tiempo esperado")
+	assert_almost_eq(SkillModel.expected_clear_time_s(0, profile),
+		profile.expected_clear_time_base_s, 0.0001, "encuentro vacío")
 
 
 ## Ciclo completo sin bus: empezar, acumular, cerrar.

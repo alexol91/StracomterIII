@@ -53,16 +53,34 @@ func is_open() -> bool:
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	initialize()
+
+
+## Se suscribe al EventBus y aplica el estado inicial.
+##
+## Es público y separado de `_ready` para que una prueba pueda ejercitar la
+## puerta sin meterla en el árbol de escena: durante el `_ready` de otro nodo,
+## `add_child` sobre la raíz falla ("parent node is busy setting up children"),
+## así que exigir árbol sería exigir que esto no se pudiera probar.
+## Llamarlo dos veces es inofensivo.
+func initialize() -> void:
 	var bus := _event_bus()
 	if bus != null:
-		bus.connect(&"door_state_changed", _on_door_state_changed)
-		bus.connect(&"level_topology_changed", _on_level_topology_changed)
-	_apply(open_on_start)
+		if not bus.is_connected(&"door_state_changed", _on_door_state_changed):
+			bus.connect(&"door_state_changed", _on_door_state_changed)
+		if not bus.is_connected(&"level_topology_changed", _on_level_topology_changed):
+			bus.connect(&"level_topology_changed", _on_level_topology_changed)
+	apply_state(open_on_start)
 
 
 func _exit_tree() -> void:
 	if Engine.is_editor_hint():
 		return
+	shutdown()
+
+
+## Se da de baja del EventBus. Público por la misma razón que `initialize`.
+func shutdown() -> void:
 	var bus := _event_bus()
 	if bus == null:
 		return
@@ -72,14 +90,15 @@ func _exit_tree() -> void:
 		bus.disconnect(&"level_topology_changed", _on_level_topology_changed)
 
 
-## Conmuta la navegación. Público para que las pruebas no dependan del bus.
+## Conmuta la navegación. Público para poder forzar el estado sin pasar por
+## el bus (carga de partida guardada, consola de depuración, pruebas).
 ##
 ## No hay fundido: `NavTuning.DOOR_TRANSITION_S` (los 1000 ms de
 ## `Door.cc:103`) es cosa de la animación y del cuerpo físico. Una puerta que
 ## se está abriendo todavía no se puede cruzar, y una que se está cerrando ya
 ## no: la navegación conmuta cuando `gameplay/` dice que el estado ha
 ## cambiado, ni antes ni después.
-func _apply(is_open: bool) -> void:
+func apply_state(is_open: bool) -> void:
 	_is_open = is_open
 	enabled = is_open
 	for path: NodePath in exclusive_regions:
@@ -91,7 +110,7 @@ func _apply(is_open: bool) -> void:
 func _on_door_state_changed(changed_door_id: int, is_open: bool) -> void:
 	if changed_door_id != door_id:
 		return
-	_apply(is_open)
+	apply_state(is_open)
 
 
 ## La demolición del Explosivo puede abrir un boquete justo al lado del vano.

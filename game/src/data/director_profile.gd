@@ -43,7 +43,25 @@ extends Resource
 ## Cuánto desplaza la forma del mapa a la composición objetivo (0 = nada).
 @export var shape_gain: float = 0.5
 ## Cuánto desplaza la forma del mapa a los presupuestos.
-@export var budget_shape_gain: float = 0.35
+@export var budget_shape_gain: float = 0.15
+
+@export_group("Afinidad con la geometría")
+## Referencias de normalización de la forma de una zona: por encima de ellas,
+## la zona cuenta como abierta / bien cubierta / muy accesible.
+@export var reference_line_of_sight_m: float = 30.0
+@export var reference_cover_per_100m2: float = 6.0
+@export var reference_entry_count: float = 4.0
+## Qué le gusta a cada arquetipo. Los dos pesos de cada uno suman 1 y reparten
+## su afinidad entre dos rasgos de la geometría:
+## * Sicario: espacios cerrados y muchos accesos por los que presionar.
+## * Miliciano: cobertura y distancias medias.
+## * Veterano: líneas de tiro largas y cobertura desde la que suprimir.
+@export var thug_tightness_weight: float = 0.5
+@export var thug_entry_weight: float = 0.5
+@export var militia_cover_weight: float = 0.5
+@export var militia_midrange_weight: float = 0.5
+@export var veteran_openness_weight: float = 0.7
+@export var veteran_cover_weight: float = 0.3
 
 @export_group("Puntuación de composición")
 ## Pesos de los cinco términos de la búsqueda. Son balanceo puro: subir

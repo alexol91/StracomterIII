@@ -34,6 +34,15 @@ signal encounter_finished()
 ## (ADR-002).
 const TICK_HZ: float = 5.0
 
+## Comandos que el director registra en la consola. En una lista para poder
+## retirarlos en bloque al salir del árbol.
+const CONSOLE_COMMANDS: Array[String] = [
+	"director.status",
+	"director.budget",
+	"director.compose",
+	"director.composer",
+]
+
 var composer: EncounterComposer = null
 var skill_model: SkillModel = null
 var curve: TensionCurve = null
@@ -78,6 +87,7 @@ func _exit_tree() -> void:
 		skill_model.disconnect_event_bus()
 	if EventBus.character_died.is_connected(_on_character_died):
 		EventBus.character_died.disconnect(_on_character_died)
+	unregister_console_commands()
 
 
 func _process(delta: float) -> void:
@@ -197,12 +207,11 @@ func _positions_for(count: int) -> Array[Vector3]:
 	if spawn_provider == null or count <= 0:
 		return out
 	var request := SpawnPointProvider.SpawnRequest.new()
+	# Sin `apply_profile` la petición no es válida y no genera nada: las
+	# reglas de justicia no tienen valores por defecto permisivos.
+	request.apply_profile(_profile)
 	request.player_position = _player_position
 	request.player_forward = _player_forward
-	request.min_distance_m = _profile.min_spawn_distance_m
-	request.forbid_in_player_fov = _profile.forbid_spawn_in_player_fov
-	request.forbid_line_of_sight = _profile.forbid_spawn_with_line_of_sight
-	request.prefer_entry_points = _profile.prefer_entry_points
 	request.zone_id = _context.zone if _context != null else 0
 	request.count = count
 	var candidates := spawn_provider.sample_candidates(request)
@@ -252,6 +261,13 @@ func register_console_commands() -> void:
 		0,
 		_cmd_composer
 	)
+
+
+## Retira los comandos del director. Sin esto, la consola se queda con
+## `Callable` que apuntan a un nodo liberado.
+func unregister_console_commands() -> void:
+	for name: String in CONSOLE_COMMANDS:
+		DevConsole.unregister(name)
 
 
 func _cmd_status(_args: Array[String]) -> String:
