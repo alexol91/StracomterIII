@@ -6,8 +6,10 @@
 ; veteado dentro de cada una.
 ;
 ; Es el 70% de lo que se ve en pantalla, así que es la superficie que más tiene
-; que callarse para que los personajes resalten: de ahí el tinte por debajo del
-; medio sobre una textura clara.
+; que callarse para que los personajes resalten: de ahí el tinte MUY por debajo
+; del medio sobre una textura clara. El valor no está elegido a ojo — con 0,62
+; la planta salía casi blanca en una captura y se comía la regla de dirección
+; de arte entera.
 ;
 ; Los tres mapas los hornea tools/texture_baker/bake_textures.gd. La rugosidad
 ; no es constante: la junta es mate y la cara de la baldosa está pulida por el
@@ -18,9 +20,9 @@
 [ext_resource type="Texture2D" path="res://assets/textures/modern/floor_roughness.png" id="Rough"]
 
 [resource]
-albedo_color = Color(0.62, 0.62, 0.60, 1)
+albedo_color = Color(0.44, 0.445, 0.435, 1)
 albedo_texture = ExtResource("Albedo")
-normal_enabled = true
+normal_enabled = false
 normal_texture = ExtResource("Normal")
 normal_scale = 0.7
 roughness = 1.0

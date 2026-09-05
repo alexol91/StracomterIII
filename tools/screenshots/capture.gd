@@ -21,6 +21,15 @@ extends SceneTree
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
 ##   SHOT_CHUTAOS  "1" para capturar con el estilo de 2012 activo
 ##
+## LIMITACIÓN QUE HAY QUE TENER PRESENTE: un contenedor sin Vulkan cae al
+## renderizador de Compatibilidad, y el juego se exporta en Forward+. La
+## captura avisa de ello en su salida. Lo que se ve aquí APROXIMA el resultado
+## final: la silueta, la composición, el valor y la saturación son fiables; el
+## ambiente de imagen, la oclusión de contacto y las sombras no. Por eso la
+## iluminación no se apoya solo en el aporte del cielo (ver
+## `world_lighting.gd`): lo que se afina mirando una captura tiene que
+## sobrevivir al cambio de renderizador.
+##
 ## No se ejecuta en CI ni forma parte de la suite: es una herramienta de
 ## inspección, no una prueba. Una comparación automática de imágenes sería otra
 ## cosa y tendría que justificar su propio mantenimiento.
@@ -48,6 +57,12 @@ func _capture() -> void:
 	if not out.ends_with("/"):
 		out += "/"
 	DirAccess.make_dir_recursive_absolute(out)
+
+	var driver := RenderingServer.get_video_adapter_api_version()
+	if not ProjectSettings.get_setting("rendering/renderer/rendering_method", "").is_empty():
+		print("[capture] método del proyecto: ",
+			ProjectSettings.get_setting("rendering/renderer/rendering_method"),
+			" — adaptador: ", driver)
 
 	var chutaos := OS.get_environment("SHOT_CHUTAOS") == "1"
 	# `PresentationStyle` no existe como identificador global cuando el motor

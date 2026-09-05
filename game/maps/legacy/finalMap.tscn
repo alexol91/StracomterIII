@@ -6,11 +6,12 @@
 ;   (cámara cenital rotation_degrees.x=-90; ver tools/map_converter/README.md).
 ; Perímetro legacy: horario (Polygon::isClockwise, Math/lib/Polygon.cc:179-192).
 
-[gd_scene load_steps=66 format=3]
+[gd_scene load_steps=67 format=3]
 
 [ext_resource type="Script" path="res://maps/legacy/_legacy_floor_mesh.gd" id="Script_1"]
 [ext_resource type="Script" path="res://maps/legacy/_legacy_navmesh.gd" id="Script_2"]
 [ext_resource type="Script" path="res://src/gameplay/world_dressing.gd" id="Script_3"]
+[ext_resource type="Script" path="res://src/gameplay/world_lighting.gd" id="Script_4"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_perim1"]
 size = Vector3(14.946667, 3, 0.333333)
@@ -735,6 +736,9 @@ metadata/is_open_by_default = false
 
 [node name="Dressing" type="Node" parent="."]
 script = ExtResource("Script_3")
+
+[node name="Lighting" type="Node" parent="."]
+script = ExtResource("Script_4")
 
 [node name="Pickups" type="Node3D" parent="."]
 

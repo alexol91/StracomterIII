@@ -7,6 +7,11 @@
 ; `anisotropy` es lo que lo hace parecer metal cepillado y no plástico gris: el
 ; reflejo se estira en la dirección de la raya, como en el acero real. La raya
 ; ya viene en la textura, horneada con 24:1 de anisotropía.
+;
+; `metallic` a 0,45 y no a 0,85: un metal casi puro solo se ve por lo que
+; refleja, y aquí no hay sondas de reflexión — solo el cielo. Con 0,85 el
+; perímetro salía negro en el interior de la planta, que es justo donde el
+; jugador lo mira.
 
 [ext_resource type="Texture2D" path="res://assets/textures/modern/trim_albedo.png" id="Albedo"]
 [ext_resource type="Texture2D" path="res://assets/textures/modern/trim_normal.png" id="Normal"]
@@ -18,7 +23,7 @@ normal_enabled = true
 normal_texture = ExtResource("Normal")
 normal_scale = 0.25
 roughness = 0.38
-metallic = 0.85
+metallic = 0.45
 metallic_specular = 0.6
 anisotropy_enabled = true
 anisotropy = 0.7

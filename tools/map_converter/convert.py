@@ -44,6 +44,10 @@ NAVMESH_SCRIPT_RES_PATH = "res://maps/legacy/_legacy_navmesh.gd"
 # cambiar el mundo entero. Si se pintaran aquí, quedaría horneado en 24
 # escenas generadas y el truco no podría tocarlo.
 DRESSING_SCRIPT_RES_PATH = "res://src/gameplay/world_dressing.gd"
+# El juego no tenía ni una luz: con Forward+ eso no da error, da un mundo
+# negro. La iluminación viaja con el mapa por lo mismo que el vestido — una
+# planta cargada suelta tiene que verse igual que en partida.
+LIGHTING_SCRIPT_RES_PATH = "res://src/gameplay/world_lighting.gd"
 
 
 def _fmt(v: float) -> str:
@@ -286,6 +290,7 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
     floor_script_id = sw.ext_resource("Script", FLOOR_SCRIPT_RES_PATH)
     navmesh_script_id = sw.ext_resource("Script", NAVMESH_SCRIPT_RES_PATH)
     dressing_script_id = sw.ext_resource("Script", DRESSING_SCRIPT_RES_PATH)
+    lighting_script_id = sw.ext_resource("Script", LIGHTING_SCRIPT_RES_PATH)
 
     # ---- raíz -------------------------------------------------------
     root_meta = [
@@ -433,6 +438,10 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
     # ejecuta, los muros y el suelo ya existen y hay algo que pintar.
     sw.node("Dressing", "Node", parent=".", properties=[
         f'script = ExtResource("{dressing_script_id}")',
+    ])
+
+    sw.node("Lighting", "Node", parent=".", properties=[
+        f'script = ExtResource("{lighting_script_id}")',
     ])
 
     # ---- recompensas (objects): marcadores con metadatos ---------------

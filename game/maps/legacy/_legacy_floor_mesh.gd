@@ -105,20 +105,7 @@ func _build() -> void:
 		push_warning("%s: Floor sin geometría (perímetro vacío o degenerado)" % get_path())
 		return
 
-	var normals := PackedVector3Array()
-	normals.resize(floor_vertices.size())
-	normals.fill(Vector3.UP)
-
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = floor_vertices
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	if floor_uvs.size() == floor_vertices.size():
-		arrays[Mesh.ARRAY_TEX_UV] = floor_uvs
-	arrays[Mesh.ARRAY_INDEX] = floor_indices
-
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mesh := _build_mesh()
 
 	mesh.surface_set_material(0, _floor_material())
 
@@ -134,6 +121,45 @@ func _build() -> void:
 	collision.name = "FloorCollision"
 	collision.shape = shape
 	add_child(collision)
+
+
+## Malla visual del suelo, CON TANGENTES.
+##
+## Se construye con `SurfaceTool` y no montando los arrays a mano por una
+## razón que costó una captura descubrir: un material con mapa de normales
+## necesita el array de tangentes, y una malla sin él no se ilumina mal — se
+## pinta NEGRA. El suelo salía como un agujero en mitad de la oficina mientras
+## los muros, que son `BoxMesh` y sí traen tangentes de fábrica, se veían
+## perfectos. Ningún error, ningún aviso: solo una planta negra.
+func _build_mesh() -> ArrayMesh:
+	var has_uvs := floor_uvs.size() == floor_vertices.size()
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Los triángulos van INVERTIDOS respecto a `floor_indices`, igual que los de
+	# la colisión. `convert.py:_ensure_ccw_up` los deja antihorarios vistos
+	# desde +Y, que es la convención de OpenGL; la de Godot es la contraria —la
+	# cara frontal es la HORARIA vista de frente—, así que tal cual venían, la
+	# cara buena del suelo miraba hacia abajo.
+	#
+	# El síntoma no era un suelo invisible, que se habría notado enseguida: con
+	# `cull_mode` por defecto Godot descartaba la cara y dejaba ver el fondo,
+	# que en un interior cerrado es negro. La planta entera parecía un agujero
+	# mal iluminado, y todo el trabajo de materiales encima no se veía. Se
+	# localizó pintando el suelo de rojo: no apareció ni una mancha roja.
+	var count := floor_indices.size()
+	var t := 0
+	while t < count:
+		for offset: int in [0, 2, 1]:
+			var i := floor_indices[t + offset]
+			tool.set_normal(Vector3.UP)
+			if has_uvs:
+				tool.set_uv(floor_uvs[i])
+			tool.add_vertex(floor_vertices[i])
+		t += 3
+	if has_uvs:
+		tool.generate_tangents()
+	tool.index()
+	return tool.commit()
 
 
 ## El nivel no elige con qué se pinta: se lo pide al estilo activo, y así
