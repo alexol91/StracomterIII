@@ -1,0 +1,21 @@
+[gd_resource type="ShaderMaterial" load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://assets/shaders/cel_shading.gdshader" id="1"]
+[ext_resource type="Material" path="res://assets/materials/cel_outline.tres" id="2"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1")
+next_pass = ExtResource("2")
+shader_parameter/albedo = Color(1, 1, 1, 1)
+shader_parameter/use_texture = false
+shader_parameter/band_high = 0.95
+shader_parameter/band_mid = 0.7
+shader_parameter/band_low = 0.3
+shader_parameter/level_high = 1.0
+shader_parameter/level_mid = 0.7
+shader_parameter/level_low = 0.3
+shader_parameter/level_shadow = 0.1
+shader_parameter/rim_strength = 0.25
+shader_parameter/rim_width = 3.0
+shader_parameter/specular_amount = 0.15

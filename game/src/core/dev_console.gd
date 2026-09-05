@@ -33,6 +33,8 @@ func _ready() -> void:
 	register("quit", "Cierra el juego.", 0, func(_a: Array[String]) -> String:
 		GameState.set_mode(GameState.Mode.QUIT)
 		return "Saliendo.")
+	register("cheats", "Lista los trucos disponibles.", 0,
+		func(_a: Array[String]) -> String: return Cheats.help_text())
 
 
 ## Registra un comando. Los sistemas se auto-registran en su `_ready`.
@@ -74,6 +76,10 @@ func execute(line: String) -> String:
 	if trimmed.is_empty():
 		return ""
 	_history.append(trimmed)
+	# Los trucos van por su propia vía. Se separan de los comandos porque
+	# cambian las reglas del juego en vez de consultarlas o depurarlas.
+	if Cheats.is_cheat_line(trimmed):
+		return _emit(Cheats.execute(trimmed))
 	var parts := trimmed.split(" ", false)
 	var name := parts[0]
 	var args: Array[String] = []
@@ -102,4 +108,7 @@ func _cmd_help(_args: Array[String]) -> String:
 	var lines: Array[String] = []
 	for name: String in command_names():
 		lines.append("  %s — %s" % [name, _commands[name].help])
-	return "Comandos:\n" + "\n".join(lines)
+	return ("Comandos:\n" + "\n".join(lines)
+		+ "\n\nLos trucos se invocan con '%s' (por ejemplo '%s retro on'). "
+		% [Cheats.PREFIX, Cheats.PREFIX]
+		+ "Escribe 'cheats' para verlos.")

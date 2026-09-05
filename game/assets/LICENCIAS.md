@@ -21,6 +21,22 @@ lo mismo, no puede arrastrar material ajeno.
 | Texturas de superficie, mobiliario, HUD y efectos | Suelos, paredes, muebles, iconos de vida y munición | Creadas por el equipo |
 | `BebasNeue.ttf`, `Absender.ttf`, `Coolvetica.ttf` | Tipografías | Fuentes libres de terceros, redistribuibles |
 
+## Se usa — terceros con licencia libre
+
+| Asset | Qué es | Licencia | Procedencia |
+|---|---|---|---|
+| `assets/models/characters_modern/*.glb` | 9 personajes estilizados con 27 animaciones cada uno (`idle`, `walk`, `sprint`, `die`, `pick-up`…) | **CC0 (dominio público)** | *Blocky Characters* de [Kenney](https://kenney.nl/assets/blocky-characters). La licencia viaja junto a los ficheros, no en un README que alguien pueda separar de ellos |
+
+Sobre Team Fortress 2, que era la referencia buscada: **sus modelos no son código
+abierto**, son propiedad de Valve, y no existe una versión libre oficial. Lo que sí
+existe es material CC0 del mismo registro estilizado, y eso es lo que se usa. Los
+personajes de Kenney encajan por dos razones: son de proporciones exageradas y colores
+planos, que es justo lo que pide el cel-shading, y traen animación real, cosa que los
+modelos de 2012 no tienen.
+
+Estos modelos conviven con los originales, no los sustituyen: se conmuta en juego con
+`: retro on` y `: retro off`.
+
 ## NO se usa — material de terceros
 
 | Asset | Qué es en realidad | Cómo se supo |
@@ -38,11 +54,16 @@ Hay un test que falla si alguno de estos vuelve a colarse
 
 ## Consecuencias y qué hacer
 
-**Los personajes van sin textura, con un color plano por arquetipo.** Las nueve
-skins que el original les ponía eran de Team Fortress 2. El color sale del campo
-`tint` de `CharacterStats`, que ya es el que el legacy asignaba a cada tipo, así
-que la identificación visual por color se conserva. Rehacer las texturas es
-trabajo pendiente.
+**Los personajes de 2012 van sin textura, con cel-shading y un color plano por
+arquetipo.** Las nueve skins que el original les ponía eran de Team Fortress 2. El
+color sale del campo `tint` de `CharacterStats`, que es el que el legacy ya asignaba
+a cada tipo, así que se conserva la identificación visual por color. El cel-shading
+porta la receta exacta del shader que el propio equipo escribió en 2012 —cuatro
+bandas con umbrales 0,95 / 0,7 / 0,3— así que el color plano se lee como estilo y no
+como carencia.
+
+Los modelos CC0 nuevos están disponibles en paralelo. `: retro on` devuelve los de
+2012; `: retro off` pone los nuevos.
 
 **Menú y acción están sin música.** Las dos pistas que sonaban son de The
 Prodigy. La de créditos sí suena, porque la compuso el equipo. Opciones:
