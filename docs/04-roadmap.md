@@ -32,7 +32,7 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 1.7 | `AIScheduler` con presupuesto de CPU (ADR-002) | — | `godot-arquitecto` | ✅ |
 | 1.8 | Conversor de mapas legacy + validador | P16 | `level-conversor` | ✅ |
 | 1.9 | Navmesh, enlaces de puerta, muestreo de spawns | P08 P10 | `ai-navegacion` | ✅ |
-| 1.10 | CI: gdlint + tests headless + 3 exports | — | `devops-ci` | 🟨 |
+| 1.10 | CI: gdlint + tests headless + 3 exports | — | `devops-ci` | ✅ |
 
 ## Hito 2 — La IA que justifica el remake
 
@@ -100,7 +100,7 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | D.2 | ~~Validador con rejilla propia~~ — resuelto: las pruebas de mapas hornean contra física real | `ai-navegacion` | ✅ |
 | D.3 | ~~Obstáculos sin colisión~~ — resuelto: `LevelLoader` instancia las escenas reales sobre los marcadores | `godot-arquitecto` | ✅ |
 | D.4 | `NavTuning` sigue en código. La mayoría son presupuestos de ingeniería y no balanceo, pero las de geometría de cobertura sí lo son | `godot-arquitecto` | ⬜ |
-| D.5 | El criterio de CI (`grep -iE "error"`) marca falsos positivos: casa con nombres de test que contienen la palabra | `devops-ci` | ⬜ |
+| D.5 | ~~Falsos positivos del criterio de CI~~ — resuelto: el filtro ancla los prefijos reales del motor al principio de línea, y hay prueba de que discrimina en ambos sentidos | `godot-arquitecto` | ✅ |
 
 ## Hito 6 — Publicable
 
@@ -108,7 +108,7 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 |---|---|---|---|
 | 6.1 | Pruebas de rendimiento: 60 fps con 40 bots | `qa-tests` | ⬜ |
 | 6.2 | Balanceo con datos de partidas reales | `director-encuentros` | ⬜ |
-| 6.3 | Exports firmados de las 3 plataformas | `devops-ci` | ⬜ |
+| 6.3 | Exports firmados de las 3 plataformas | `devops-ci` | ✅ |
 | 6.4 | README, capturas, guía de contribución | PO Técnico | ⬜ |
 | 6.5 | Licencia (BSD, como el original) y atribuciones | PO Técnico | ⬜ |
 

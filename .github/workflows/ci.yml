@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# La versión del motor vive en UN solo sitio. Un CI que sigue a "latest" no es
+# reproducible: el día que Godot publique una versión, el build cambia solo y
+# nadie sabrá si lo que se rompió fue el código o el motor.
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  tests:
+    name: Pruebas en headless
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cachear el motor
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux
+
+      - name: Descargar Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/godot && cd ~/godot
+          BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL --retry 5 --retry-all-errors \
+            -o godot.zip "${BASE}/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          chmod +x godot
+
+      - name: Importar recursos
+        # La primera importación registra los class_name globales. Sin ella, el
+        # primer arranque de un checkout limpio no resuelve los tipos.
+        run: ~/godot/godot --headless --path game --import
+
+      - name: Ejecutar las pruebas
+        run: ~/godot/godot --headless --path game res://tests/run_tests.tscn
+
+      - name: Comprobar que el arranque es limpio
+        run: bash tools/ci/check_clean_boot.sh ~/godot/godot
+
+  export:
+    name: Exportar ${{ matrix.preset }}
+    needs: tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: ["Linux", "Windows Desktop", "macOS"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cachear el motor y las plantillas
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-export-${{ env.GODOT_VERSION }}-linux
+
+      - name: Preparar Godot y las plantillas de exportación
+        run: bash tools/ci/setup_godot.sh "${GODOT_VERSION}"
+
+      - name: Exportar
+        run: |
+          set -euo pipefail
+          if [ ! -f game/export_presets.cfg ]; then
+            echo "No hay export_presets.cfg todavía: se omite la exportación."
+            echo "Se generan desde el editor (Proyecto > Exportar) y se commitean."
+            exit 0
+          fi
+          mkdir -p dist
+          ~/godot/godot --headless --path game --import
+          ~/godot/godot --headless --path game \
+            --export-release "${{ matrix.preset }}" "../dist/stracomter"
+
+      - name: Publicar el resultado
+        if: hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: stracomter-${{ matrix.preset }}
+          path: dist/
