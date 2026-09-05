@@ -83,9 +83,6 @@ func _build_model() -> void:
 			mesh.visible = true
 		return
 	model.name = "Model"
-	# Los modelos miran hacia +Z y en Godot el frente de un `Node3D` es -Z, así
-	# que sin este giro el personaje corre de espaldas a donde apunta.
-	model.rotation_degrees = Vector3(0.0, 180.0, 0.0)
 	add_child(model)
 	if mesh != null:
 		mesh.visible = false

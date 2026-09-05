@@ -29,10 +29,20 @@ lo mismo, no puede arrastrar material ajeno.
 
 Sobre Team Fortress 2, que era la referencia buscada: **sus modelos no son código
 abierto**, son propiedad de Valve, y no existe una versión libre oficial. Lo que sí
-existe es material CC0 del mismo registro estilizado, y eso es lo que se usa. Los
-personajes de Kenney encajan por dos razones: son de proporciones exageradas y colores
-planos, que es justo lo que pide el cel-shading, y traen animación real, cosa que los
-modelos de 2012 no tienen.
+existe es material CC0 del mismo registro estilizado, y eso es lo que se usa.
+
+Los primeros que se probaron fueron los *Blocky Characters* de Kenney, también CC0.
+Se descartaron por estilo: son cubos, y lo que se buscaba era el registro de TF2 o
+Fortnite —proporciones exageradas pero humanas, pintado a mano—. Los de KayKit dan
+justo eso, traen entre 76 y 95 animaciones cada uno, y **el reparto resuelve además un
+problema de juego**: los cuatro aventureros son la escuadra y los cuatro esqueletos los
+enemigos, así que amigo y enemigo se distinguen por SILUETA y no por el color de una
+camiseta. Es la regla de TF2, y con los modelos anteriores no se cumplía.
+
+Se buscaron también Quaternius (CC0, *Ultimate Modular Men*, temáticamente más
+apropiado para una oficina) y varios paquetes de OpenGameArt, pero sus descargas van
+por Google Drive o por ficheros sueltos de autores distintos, sin un esqueleto ni un
+set de animaciones común. La coherencia de un solo paquete pesa más que la temática.
 
 Estos modelos conviven con los originales, no los sustituyen: se conmuta en juego con
 `: chutaos on` y `: chutaos off`.

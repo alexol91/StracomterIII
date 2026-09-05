@@ -79,12 +79,10 @@ func test_setting_the_same_style_twice_does_not_emit() -> void:
 
 
 func test_the_cc0_licence_travels_with_the_models() -> void:
-	# Los modelos son CC0 de Kenney: la licencia va al lado, no en un README
+	# Los modelos son CC0 de KayKit: la licencia va al lado, no en un README
 	# que alguien pueda separar de los ficheros.
-	assert_true(ResourceLoader.exists(
-		"res://assets/models/characters_modern/LICENSE-Kenney-CC0.txt")
-		or FileAccess.file_exists(
-			"res://assets/models/characters_modern/LICENSE-Kenney-CC0.txt"),
+	var licence := "res://assets/models/characters_kaykit/LICENSE-KayKit-CC0.txt"
+	assert_true(ResourceLoader.exists(licence) or FileAccess.file_exists(licence),
 		"la licencia CC0 debe acompañar a los modelos")
 
 
@@ -99,9 +97,15 @@ func test_every_modern_character_actually_has_its_texture() -> void:
 	# idéntico. Cargaban, traían sus 27 animaciones y todas las pruebas
 	# pasaban. Se vio en una captura.
 	for arch: StringName in ARCHETYPES:
+		var textured := 0
 		for material: StandardMaterial3D in _materials_of(arch):
-			assert_not_null(material.albedo_texture,
-				"'%s' se queda sin textura: sería un muñeco blanco más" % arch)
+			if material.albedo_texture != null:
+				textured += 1
+		# Al menos uno, no todos: un modelo puede traer un material extra de
+		# color liso —los ojos de los esqueletos de KayKit— y eso no es un
+		# personaje sin textura. Lo que no puede es no traer NINGUNO.
+		assert_gt(float(textured), 0.0,
+			"'%s' se queda sin textura: sería un muñeco blanco más" % arch)
 
 
 func test_no_two_archetypes_share_the_same_skin() -> void:
@@ -146,3 +150,52 @@ func _mesh_instances(node: Node) -> Array[Node]:
 	for child: Node in node.get_children():
 		out.append_array(_mesh_instances(child))
 	return out
+
+
+func test_every_model_resolves_the_four_animation_intents() -> void:
+	# Un paquete nuevo con otros nombres de clip no da error: `_play` comprueba
+	# `has_animation`, no encuentra nada y se calla. El personaje se queda
+	# inmóvil y parece un maniquí. Pasó al cambiar de Kenney a KayKit, y esta
+	# prueba es la que lo habría dicho.
+	var tree := Engine.get_main_loop() as SceneTree
+	for arch: StringName in ARCHETYPES:
+		var node := (load("res://scenes/models_modern/%s.tscn" % arch) as PackedScene).instantiate()
+		tree.root.add_child(node)
+		for intent: StringName in [&"idle", &"walk", &"sprint", &"die"]:
+			assert_false(String(node.call("resolve_clip", intent)).is_empty(),
+				"'%s' no tiene ningún clip para '%s'" % [arch, intent])
+		tree.root.remove_child(node)
+		node.free()
+
+
+func test_the_models_are_roughly_human_sized() -> void:
+	# Un modelo importado con la escala de otro programa entra a 1/100 o a 100x
+	# y no da error: sale un personaje del tamaño de una silla, o uno que no
+	# cabe en la planta. Los de KayKit vienen a 1,1 m y `ModernAnimator` los
+	# normaliza a la altura del colisionador.
+	var tree := Engine.get_main_loop() as SceneTree
+	for arch: StringName in ARCHETYPES:
+		var node := (load("res://scenes/models_modern/%s.tscn" % arch) as PackedScene).instantiate()
+		tree.root.add_child(node)
+		var height: float = node.call("standing_height")
+		assert_almost_eq(height, ModernAnimator.TARGET_HEIGHT_M, 0.15,
+			"'%s' mide %.2f m en pantalla" % [arch, height])
+		tree.root.remove_child(node)
+		node.free()
+
+
+func test_the_gradient_atlas_is_sampled_without_blending() -> void:
+	# El atlas de KayKit es diminuto y cada color son unos pocos píxeles: con
+	# filtrado lineal los téxeles vecinos se mezclan y salen rosas y verdes que
+	# no están en la paleta. No da ningún error, solo un personaje de otro
+	# color.
+	var tree := Engine.get_main_loop() as SceneTree
+	for arch: StringName in ARCHETYPES:
+		var node := (load("res://scenes/models_modern/%s.tscn" % arch) as PackedScene).instantiate()
+		tree.root.add_child(node)
+		for material: StandardMaterial3D in _materials_of(arch):
+			assert_eq(int(material.texture_filter),
+				int(BaseMaterial3D.TEXTURE_FILTER_NEAREST),
+				"'%s' mezcla téxeles del atlas" % arch)
+		tree.root.remove_child(node)
+		node.free()

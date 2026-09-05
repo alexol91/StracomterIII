@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://src/gameplay/modern_animator.gd" id="1"]
-[ext_resource type="PackedScene" path="res://assets/models/characters_modern/enemy_militiaman.glb" id="2"]
+[ext_resource type="PackedScene" path="res://assets/models/characters_kaykit/Skeleton_Rogue.glb" id="2"]
 
 [node name="enemy_militiaman" type="Node3D"]
 script = ExtResource("1")
