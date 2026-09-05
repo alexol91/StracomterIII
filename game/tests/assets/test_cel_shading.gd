@@ -18,14 +18,17 @@ func test_both_shaders_compile() -> void:
 func test_the_four_bands_match_the_2012_shader() -> void:
 	# CellShading.frag de 2012: >0.95 -> 1.0, >0.7 -> 0.7, >0.3 -> 0.3, resto 0.1.
 	# Si alguien "mejora" el degradado, el juego deja de parecerse al original.
-	var material := ShaderMaterial.new()
-	material.shader = load(SHADER) as Shader
+	var shader := load(SHADER) as Shader
+	assert_not_null(shader)
+	if shader == null:
+		return
 	var expected := {
 		"band_high": 0.95, "band_mid": 0.70, "band_low": 0.30,
 		"level_high": 1.0, "level_mid": 0.7, "level_low": 0.3, "level_shadow": 0.1,
 	}
 	for name: String in expected:
-		var value: Variant = material.shader.get_shader_uniform_default_value(name)
+		var value: Variant = RenderingServer.shader_get_parameter_default(
+			shader.get_rid(), StringName(name))
 		assert_almost_eq(float(value), float(expected[name]), 0.0001,
 			"el umbral '%s' no coincide con el shader de 2012" % name)
 
