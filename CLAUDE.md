@@ -86,6 +86,22 @@ Con `var received: Array[int] = [0]` y `received[0] += 1` se captura la referenc
 mutación se ve. Es el fallo silencioso perfecto: no da error, y el test acusa al código
 en vez de a sí mismo.
 
+Otra trampa que ya ha costado dos veces: **una variable `static` sobrevive al árbol de
+escena.** Si guarda `Callable` ligados a un nodo autoload y ese nodo se libera al cerrar
+el juego, quedan referencias a un objeto muerto y el proceso **aborta con corrupción de
+memoria**. El síntoma es el peor posible: las pruebas pasan, el juego parece funcionar, y
+el proceso sale con código 134. Verde por dentro, rojo en CI.
+
+Regla: **quien llena un registro lo vacía.** Si registras comandos, trucos o callbacks
+desde un nodo, retíralos en su `_exit_tree()`. Y da al registro un `prune_dangling()` que
+descarte los `Callable` cuyo objeto ya no existe, como red para quien se olvide.
+
+Y una lección de método sobre ese mismo fallo: apareció justo al añadir el cel-shading,
+así que la hipótesis intuitiva era el shader. Era falsa. Lo que la descartó fue barato —
+correr un grupo de pruebas que no tocara ni materiales ni modelos y ver que abortaba
+igual—. Antes de arreglar, busca el dato que separa tus hipótesis; suele costar menos que
+el parche equivocado.
+
 Corolario para los dobles de prueba: **un doble más amable que la realidad hace que las
 pruebas mientan.** Ya ha pasado tres veces —una máscara de colisión ignorada, rutas que
 siempre llegan al destino exacto, un mundo de cajas que dejó de parecerse al mapa—. Si
