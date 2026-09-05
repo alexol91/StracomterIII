@@ -80,6 +80,35 @@ se publicara con licencia BSD, esta carpeta es lo primero que habría que sustit
 —y sustituirla es barato, porque el estilo moderno ya no depende de ninguna de
 ellas—.
 
+## Se usa solo en local — Team Fortress 2
+
+Los personajes de TF2 **no están en este repositorio y no van a estarlo**.
+`game/assets/models/characters_tf2/` está en `.gitignore`, y la razón es una
+distinción que conviene no confundir: el uso no comercial de material de Valve
+en un proyecto de aficionado es una cosa, y **subir sus modelos a un
+repositorio público es otra** — eso es redistribución, la haga quien la haga y
+con la intención que sea.
+
+Quien quiera jugar con ellos los saca de su propia copia del juego con
+`tools/tf2_import/import_tf2.py`, que necesita TF2 instalado y Blender con
+Blender Source Tools. El reparto de clase por arquetipo no es una elección
+nueva: es el mismo que hacía `core/lib/ResourceManager.cc:560-770` en 2012.
+
+| Arquetipo | Clase de TF2 |
+|---|---|
+| captain | soldier |
+| technician | scout |
+| specialist | heavy |
+| demolition | demo |
+| enemy_thug | pyro |
+| enemy_militiaman | sniper |
+| enemy_veteran | engineer |
+| miniboss | spy |
+| megaboss | medic |
+
+Sin esa carpeta el juego funciona igual, con los modelos CC0 de KayKit, y
+`: tf2 on` avisa de que no hay nada importado en vez de encender un modo vacío.
+
 ## NO se usa — material de terceros
 
 | Asset | Qué es en realidad | Cómo se supo |

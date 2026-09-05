@@ -50,6 +50,29 @@ func _register_visual_cheats() -> void:
 				+ "texturas a la vez. Estilo activo: %s") % [
 					Cheats.PREFIX, PresentationStyle.style_name()])
 
+	Cheats.register("tf2",
+		"tf2 on|off — personajes de Team Fortress 2, si están importados.", 1,
+		func(args: Array[String]) -> String:
+			var value := args[0].to_lower()
+			if value not in ["on", "off", "1", "0", "si", "no"]:
+				return "Uso: %s tf2 on|off" % Cheats.PREFIX
+			var wanted := value in ["on", "1", "si"]
+			if wanted and not PresentationStyle.tf2_available():
+				# Decirlo en claro y no encender un modo vacío: el truco
+				# quedaría "activo" y no cambiaría nada en pantalla.
+				return ("No hay modelos de TF2 importados. Se importan desde tu "
+					+ "instalación del juego con tools/tf2_import/import_tf2.py; "
+					+ "no vienen en el repositorio porque son de Valve.")
+			PresentationStyle.character_pack = (PresentationStyle.Pack.TF2
+				if wanted else PresentationStyle.Pack.KAYKIT)
+			if not wanted:
+				return "Personajes: KayKit (CC0)."
+			var missing := PresentationStyle.archetypes_without_tf2()
+			if not missing.is_empty():
+				return ("Personajes: TF2, pero sin modelo todavía para: %s"
+					% ", ".join(missing.map(func(a: StringName) -> String: return String(a))))
+			return "Personajes: Team Fortress 2.")
+
 	Cheats.register("outline", "outline on|off — contorno del cel-shading.", 1,
 		func(args: Array[String]) -> String:
 			var enable := args[0].to_lower() in ["on", "1", "si"]

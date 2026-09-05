@@ -199,3 +199,48 @@ func test_the_gradient_atlas_is_sampled_without_blending() -> void:
 				"'%s' mezcla téxeles del atlas" % arch)
 		tree.root.remove_child(node)
 		node.free()
+
+
+# --- Paquete de TF2, importado por el jugador y fuera del repositorio ---
+
+func test_without_imported_models_the_game_falls_back_instead_of_emptying() -> void:
+	# La carpeta de TF2 está en `.gitignore` y en una copia recién clonada está
+	# vacía. Encender el paquete no puede dejar a los personajes invisibles: se
+	# sigue viendo el modelo CC0. Ante la duda, algo en pantalla.
+	var original := PresentationStyle.character_pack
+	PresentationStyle.character_pack = PresentationStyle.Pack.TF2
+	for arch: StringName in ARCHETYPES:
+		var node := PresentationStyle.instantiate_model(arch)
+		assert_not_null(node, "'%s' se queda sin modelo con el paquete TF2" % arch)
+		if node != null:
+			node.free()
+	PresentationStyle.character_pack = original
+
+
+func test_the_tf2_cheat_says_so_instead_of_turning_on_an_empty_mode() -> void:
+	# Un truco que se declara activo y no cambia nada en pantalla es peor que
+	# uno que se niega: el jugador se queda pensando que el juego está roto.
+	var original := PresentationStyle.character_pack
+	var out := DevConsole.execute(": tf2 on")
+	if PresentationStyle.tf2_available():
+		assert_true(out.contains("TF2"), "con modelos importados debe activarlos")
+	else:
+		assert_true(out.contains("import"),
+			"sin modelos debe explicar cómo se importan")
+		assert_eq(int(PresentationStyle.character_pack), int(PresentationStyle.Pack.KAYKIT),
+			"y no debe quedarse en un paquete vacío")
+	PresentationStyle.character_pack = original
+
+
+func test_the_valve_models_are_never_committed() -> void:
+	# El repositorio es público: meter los modelos de Valve aquí no sería uso
+	# privado no comercial sino redistribución. Esta prueba es la red por si
+	# alguien los copia a mano y hace `git add -A` sin mirar.
+	var dir := DirAccess.open(PresentationStyle.MODELS_TF2)
+	if dir == null:
+		return  # la carpeta ni existe: perfecto
+	var ignore := FileAccess.open("res://../.gitignore", FileAccess.READ)
+	assert_not_null(ignore, "hace falta un .gitignore que excluya esa carpeta")
+	if ignore != null:
+		assert_true(ignore.get_as_text().contains("characters_tf2"),
+			"la carpeta de modelos de TF2 debe estar en .gitignore")

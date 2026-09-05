@@ -67,17 +67,7 @@ func _build_model() -> void:
 		remove_child(previous)
 
 	var mesh := get_node_or_null("BodyMesh") as MeshInstance3D
-	var path := PresentationStyle.scene_path_for(archetype)
-	if not ResourceLoader.exists(path):
-		if mesh != null:
-			mesh.visible = true
-		return
-	var packed := load(path) as PackedScene
-	if packed == null:
-		if mesh != null:
-			mesh.visible = true
-		return
-	var model := packed.instantiate() as Node3D
+	var model := PresentationStyle.instantiate_model(archetype)
 	if model == null:
 		if mesh != null:
 			mesh.visible = true

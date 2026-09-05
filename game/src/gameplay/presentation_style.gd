@@ -20,8 +20,20 @@ signal style_changed(chutaos: bool)
 ## el nivel no conoce nombres de fichero, pide "una pared" y el estilo decide
 ## con qué se pinta.
 
+## Paquete de personajes que usa el remake. NO es un segundo interruptor del
+## mismo eje —eso ya se juntó una vez y con razón—: `chutaos_mode` decide si se
+## juega el juego de 2012 o el remake, y esto decide con qué modelos se juega el
+## remake. Son dos preguntas distintas.
+enum Pack { KAYKIT, TF2 }
+
 const MODELS_CHUTAOS: String = "res://scenes/models/"
 const MODELS_MODERN: String = "res://scenes/models_modern/"
+## Modelos de Team Fortress 2, importados de la instalación del jugador por
+## `tools/tf2_import/`. Van SUELTOS y fuera de git: son de Valve, y este
+## repositorio es público, así que meterlos aquí no sería uso privado sino
+## redistribución. La carpeta está en `.gitignore` y el juego funciona sin ella.
+const MODELS_TF2: String = "res://assets/models/characters_tf2/"
+
 const MATERIALS_CHUTAOS: String = "res://assets/materials/chutaos/"
 const MATERIALS_MODERN: String = "res://assets/materials/modern/"
 
@@ -45,6 +57,16 @@ var chutaos_mode: bool = false:
 		_apply()
 		style_changed.emit(chutaos_mode)
 
+## Paquete de personajes del remake. Cambiarlo emite `style_changed` como
+## cualquier otro cambio de estilo: los personajes ya vivos tienen que poder
+## cambiar de modelo en caliente.
+var character_pack: Pack = Pack.KAYKIT:
+	set(value):
+		if character_pack == value:
+			return
+		character_pack = value
+		style_changed.emit(chutaos_mode)
+
 var _material_cache: Dictionary[String, Material] = {}
 
 
@@ -60,6 +82,54 @@ func scene_path_for(archetype: StringName) -> String:
 			return modern
 	# Reserva al modelo de 2012: es preferible ver el original a no ver nada.
 	return MODELS_CHUTAOS + String(archetype) + ".tscn"
+
+
+## Ruta del modelo de TF2 de un arquetipo, exista o no.
+func tf2_path_for(archetype: StringName) -> String:
+	return MODELS_TF2 + String(archetype) + ".glb"
+
+
+## ¿Hay modelos de TF2 importados? Se pregunta por arquetipo y no una sola vez:
+## una importación a medias tiene que degradar mueble a mueble, no dejar la
+## planta entera sin personajes.
+func has_tf2_model(archetype: StringName) -> bool:
+	return ResourceLoader.exists(tf2_path_for(archetype))
+
+
+func tf2_available() -> bool:
+	for id: StringName in Balance.character_ids():
+		if has_tf2_model(id):
+			return true
+	return false
+
+
+func archetypes_without_tf2() -> Array[StringName]:
+	var missing: Array[StringName] = []
+	for id: StringName in Balance.character_ids():
+		if not has_tf2_model(id):
+			missing.append(id)
+	return missing
+
+
+## Monta el modelo del arquetipo en el estilo y paquete activos.
+##
+## Es una fábrica y no una ruta porque los tres orígenes no tienen la misma
+## forma: los de 2012 y los de KayKit son escenas `.tscn` con su animador
+## dentro, y los de TF2 son un `.glb` suelto que hay que envolver aquí. Quien
+## pide un personaje no tiene por qué saber cuál de las tres cosas le toca.
+func instantiate_model(archetype: StringName) -> Node3D:
+	if not chutaos_mode and character_pack == Pack.TF2 and has_tf2_model(archetype):
+		var glb := load(tf2_path_for(archetype)) as PackedScene
+		if glb != null:
+			var wrapper := Node3D.new()
+			wrapper.set_script(load("res://src/gameplay/modern_animator.gd"))
+			wrapper.add_child(glb.instantiate())
+			return wrapper
+	var path := scene_path_for(archetype)
+	if not ResourceLoader.exists(path):
+		return null
+	var packed := load(path) as PackedScene
+	return packed.instantiate() as Node3D if packed != null else null
 
 
 ## Material de una superficie del mundo, según el estilo activo.

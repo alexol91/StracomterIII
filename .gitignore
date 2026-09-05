@@ -23,3 +23,10 @@ game/tests/_bisect/
 # Python
 __pycache__/
 *.pyc
+
+# Modelos de Team Fortress 2 importados de la instalación local del jugador.
+#
+# Son de Valve. Este repositorio es público, así que meterlos aquí no sería uso
+# privado no comercial sino REDISTRIBUCIÓN. Cada quien los importa de su propia
+# copia del juego con tools/tf2_import/, y el juego funciona igual sin ellos.
+game/assets/models/characters_tf2/
