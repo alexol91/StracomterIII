@@ -38,8 +38,29 @@ var _tween: Tween = null
 
 func _ready() -> void:
 	add_to_group(&"doors")
+	# Se viste sola: `WorldDressing` recorre el mapa cuando la planta entra en
+	# el árbol, y para entonces las puertas todavía son marcadores que
+	# `LevelLoader` no ha sustituido. Quien nace tarde se pinta él.
+	add_to_group(&"self_dressed")
 	is_open = start_open
 	_apply_state(true)
+	_apply_style()
+	PresentationStyle.style_changed.connect(_on_style_changed)
+
+
+func _apply_style() -> void:
+	var leaf := get_node_or_null("Hinge/DoorLeaf") as MeshInstance3D
+	if leaf == null:
+		return
+	var material := PresentationStyle.surface_material(WorldSurface.Kind.DOOR)
+	if material == null:
+		return
+	for i: int in range(leaf.get_surface_override_material_count()):
+		leaf.set_surface_override_material(i, material)
+
+
+func _on_style_changed(_chutaos: bool) -> void:
+	_apply_style()
 
 
 ## Alterna el estado. Réplica de `Door::Switch()` (legacy).

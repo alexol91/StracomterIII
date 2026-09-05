@@ -1,0 +1,24 @@
+[gd_resource type="StandardMaterial3D" load_steps=3 format=3]
+
+; Tapicería de sofá y sillón. El original los vestía a los dos con `sAzul.png`,
+; un azul liso; aquí se mantiene la familia azul grisácea —el mueble sigue
+; siendo reconocible— con la trama del tejido de verdad.
+;
+; Se sale del gris del resto del mundo lo justo: un sofá es de las pocas cosas
+; a las que un jugador se acerca a propósito para parapetarse.
+
+[ext_resource type="Texture2D" path="res://assets/textures/modern/upholstery_albedo.png" id="Albedo"]
+[ext_resource type="Texture2D" path="res://assets/textures/modern/upholstery_normal.png" id="Normal"]
+
+[resource]
+albedo_color = Color(0.42, 0.46, 0.54, 1)
+albedo_texture = ExtResource("Albedo")
+normal_enabled = true
+normal_texture = ExtResource("Normal")
+normal_scale = 0.6
+roughness = 0.95
+metallic = 0.0
+metallic_specular = 0.1
+uv1_scale = Vector3(1.5, 1.5, 1.5)
+uv1_triplanar = true
+uv1_world_triplanar = true

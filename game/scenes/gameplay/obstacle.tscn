@@ -1,11 +1,13 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
+
+; La colisión y la malla las monta `Obstacle._build_visual()` a partir del
+; modelo de 2012 del subtipo: la caja de aquí es solo el punto de partida y se
+; sustituye por una del tamaño real del mueble. Ver el comentario grande en
+; obstacle.gd sobre por qué la forma NO puede redimensionarse en sitio.
 
 [ext_resource type="Script" path="res://src/gameplay/obstacle.gd" id="1"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_obstacle"]
-size = Vector3(0.9, 0.75, 0.6)
-
-[sub_resource type="BoxMesh" id="BoxMesh_obstacle"]
 size = Vector3(0.9, 0.75, 0.6)
 
 [node name="Obstacle" type="StaticBody3D"]
@@ -15,7 +17,3 @@ script = ExtResource("1")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
 shape = SubResource("BoxShape3D_obstacle")
-
-[node name="Mesh" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
-mesh = SubResource("BoxMesh_obstacle")

@@ -59,6 +59,12 @@ func _dress_recursive(node: Node, inherited: int) -> void:
 	# El suelo se pinta solo; entrar ahí sería pisarle el material.
 	if node.name == &"Floor":
 		return
+	# Muebles y puertas también, y con más detalle del que este nodo puede dar:
+	# un sofá no lleva la misma superficie que una estantería. Nacen después de
+	# que el vestidor recorra el mapa —`LevelLoader` sustituye sus marcadores—,
+	# así que se pintan ellos y aquí solo hay que no estropearlo.
+	if node.is_in_group(&"self_dressed"):
+		return
 	var surface := _surface_for(String(node.name))
 	if surface < 0:
 		surface = inherited

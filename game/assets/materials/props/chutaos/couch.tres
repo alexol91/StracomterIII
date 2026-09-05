@@ -1,0 +1,12 @@
+[gd_resource type="StandardMaterial3D" load_steps=2 format=3]
+
+; Sillón: `sAzul.png` (ResourceManager.cc:794, obs_couch). El nombre es literal — «s azul»— y la textura también: un azul liso. El original compartía esta misma tela entre sillón y sofá.
+
+[ext_resource type="Texture2D" path="res://assets/textures/chutaos/props/sAzul.png" id="Tex"]
+
+[resource]
+albedo_color = Color(1, 1, 1, 1)
+albedo_texture = ExtResource("Tex")
+roughness = 1.0
+metallic = 0.0
+metallic_specular = 0.0

@@ -32,6 +32,8 @@ const SEED_TRIM := 1203
 const SEED_DOOR := 1204
 const SEED_FLOOR := 1205
 const SEED_CEILING := 1206
+const SEED_FABRIC := 1207
+const SEED_LEAF := 1208
 
 
 func _init() -> void:
@@ -42,6 +44,8 @@ func _init() -> void:
 	_bake_trim()
 	_bake_prop()
 	_bake_door()
+	_bake_upholstery()
+	_bake_foliage()
 	print("Texturas horneadas en ", OUT_DIR)
 	quit()
 
@@ -181,6 +185,57 @@ func _bake_door() -> void:
 			albedo.set_pixel(x, y, Color(value, value * 0.80, value * 0.60))
 	_save(albedo, "door_albedo.png")
 	_save(_normal_from_height(height, 0.9), "door_normal.png")
+
+
+## Tapicería de sofá y sillón. El tejido es la trama: hilos que pasan por
+## encima y por debajo alternándose. Se genera con dos senos desfasados, no con
+## ruido, porque un tejido es periódico y el ruido nunca lo parece.
+func _bake_upholstery() -> void:
+	var size := 512
+	var fuzz := _noise(SEED_FABRIC, FastNoiseLite.TYPE_VALUE, 1.2, 2, 0.5)
+	var height := Image.create(size, size, false, Image.FORMAT_RF)
+	var albedo := Image.create(size, size, false, Image.FORMAT_RGB8)
+	var threads := 48.0
+	for y: int in range(size):
+		for x: int in range(size):
+			var u := PI * threads * float(x) / float(size)
+			var v := PI * threads * float(y) / float(size)
+			var warp := 0.5 + 0.5 * sin(u)
+			var weft := 0.5 + 0.5 * sin(v)
+			# El trenzado de verdad: en cada cruce manda uno de los dos hilos, y
+			# cuál manda alterna como un tablero de ajedrez. Promediarlos —que
+			# es lo que hace un `max` ingenuo— deja la tela lisa: se probó y no
+			# se veía la trama.
+			var over := posmod(int(floor(u / PI)) + int(floor(v / PI)), 2) == 0
+			var weave: float = warp if over else weft
+			var lint := 0.5 + 0.5 * _seamless(fuzz, x, y, size, size)
+			var value: float = clampf(0.60 + 0.34 * weave - 0.07 * lint, 0.0, 1.0)
+			height.set_pixel(x, y, Color(weave, 0, 0))
+			albedo.set_pixel(x, y, Color(value * 0.93, value * 0.95, value))
+	_save(albedo, "upholstery_albedo.png")
+	_save(_normal_from_height(height, 1.6), "upholstery_normal.png")
+
+
+## Follaje de la maceta. No protege de nada —lo dice el GDD— pero rompe la
+## línea de visión, así que tiene que leerse como planta y no como un bulto
+## verde: manchas grandes de hoja y nervadura fina encima.
+func _bake_foliage() -> void:
+	var size := 512
+	var leaves := _noise(SEED_LEAF, FastNoiseLite.TYPE_CELLULAR, 0.05, 1, 0.5)
+	leaves.cellular_jitter = 1.0
+	leaves.cellular_return_type = FastNoiseLite.RETURN_CELL_VALUE
+	var veins := _noise(SEED_LEAF + 1, FastNoiseLite.TYPE_SIMPLEX, 0.25, 3, 0.5)
+	var height := Image.create(size, size, false, Image.FORMAT_RF)
+	var albedo := Image.create(size, size, false, Image.FORMAT_RGB8)
+	for y: int in range(size):
+		for x: int in range(size):
+			var leaf := 0.5 + 0.5 * _seamless(leaves, x, y, size, size)
+			var vein := 0.5 + 0.5 * _seamless(veins, x, y, size, size)
+			var shade: float = clampf(0.55 + 0.35 * leaf - 0.12 * vein, 0.0, 1.0)
+			height.set_pixel(x, y, Color(leaf * 0.7 + 0.3 * vein, 0, 0))
+			albedo.set_pixel(x, y, Color(shade * 0.34, shade * 0.72, shade * 0.30))
+	_save(albedo, "foliage_albedo.png")
+	_save(_normal_from_height(height, 1.8), "foliage_normal.png")
 
 
 # ---------------------------------------------------------------------------
