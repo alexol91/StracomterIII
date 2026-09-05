@@ -1,0 +1,29 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/gameplay/frame_animator.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/enemy_thug/p1.gltf" id="2"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/enemy_thug/p2.gltf" id="3"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/enemy_thug/p3.gltf" id="4"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/enemy_thug/p4.gltf" id="5"]
+[ext_resource type="PackedScene" path="res://assets/models/characters/enemy_thug/p5.gltf" id="6"]
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(1.0, 0.15, 0.1, 1)
+roughness = 0.85
+
+[node name="enemy_thug" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Frame0" parent="." instance=ExtResource("2")]
+
+[node name="Frame1" parent="." instance=ExtResource("3")]
+visible = false
+
+[node name="Frame2" parent="." instance=ExtResource("4")]
+visible = false
+
+[node name="Frame3" parent="." instance=ExtResource("5")]
+visible = false
+
+[node name="Frame4" parent="." instance=ExtResource("6")]
+visible = false
