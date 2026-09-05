@@ -45,6 +45,54 @@ func _ready() -> void:
 		if capsule != null:
 			_standing_capsule_height = capsule.height
 	_apply_tint()
+	_build_model()
+	if not PresentationStyle.style_changed.is_connected(_on_style_changed):
+		PresentationStyle.style_changed.connect(_on_style_changed)
+
+
+## Monta el modelo del arquetipo en el estilo activo y esconde la cápsula de
+## bloqueo.
+##
+## Hasta ahora el juego se jugaba con cápsulas de colores: los 45 modelos de
+## 2012 y los nueve CC0 estaban en el repositorio, importados y probados, y no
+## los instanciaba nadie. `PresentationStyle.scene_path_for()` existía desde el
+## principio sin un solo llamante.
+##
+## Si el modelo no carga se deja la cápsula: un personaje feo se ve y se puede
+## disparar, uno invisible no. Ante la duda, algo en pantalla.
+func _build_model() -> void:
+	var previous := get_node_or_null("Model")
+	if previous != null:
+		previous.queue_free()
+		remove_child(previous)
+
+	var mesh := get_node_or_null("BodyMesh") as MeshInstance3D
+	var path := PresentationStyle.scene_path_for(archetype)
+	if not ResourceLoader.exists(path):
+		if mesh != null:
+			mesh.visible = true
+		return
+	var packed := load(path) as PackedScene
+	if packed == null:
+		if mesh != null:
+			mesh.visible = true
+		return
+	var model := packed.instantiate() as Node3D
+	if model == null:
+		if mesh != null:
+			mesh.visible = true
+		return
+	model.name = "Model"
+	# Los modelos miran hacia +Z y en Godot el frente de un `Node3D` es -Z, así
+	# que sin este giro el personaje corre de espaldas a donde apunta.
+	model.rotation_degrees = Vector3(0.0, 180.0, 0.0)
+	add_child(model)
+	if mesh != null:
+		mesh.visible = false
+
+
+func _on_style_changed(_chutaos: bool) -> void:
+	_build_model()
 
 
 ## Colorea el bloqueo de primitivas con el color de arquetipo de

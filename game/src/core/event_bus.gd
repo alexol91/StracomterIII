@@ -5,6 +5,14 @@ extends Node
 ## Regla de arquitectura: las capas superiores escuchan a las inferiores.
 ## `gameplay/` emite, `ai/` y `director/` escuchan. Nunca al contrario.
 
+## Un personaje ha entrado en juego. Es la costura por la que `ai/` se entera
+## de que hay alguien a quien darle un cerebro sin que `levels/` —que es quien
+## lo instancia y vive por debajo— tenga que conocer `ai/` (regla 2 de
+## CLAUDE.md: las dependencias van solo hacia abajo).
+##
+## Lleva el nodo, no solo su id: quien engancha un cerebro necesita el cuerpo.
+signal character_spawned(character: Node, team: int, archetype: StringName)
+
 ## Un personaje ha muerto. `killer_team` permite atribuir puntuación y XP.
 signal character_died(character_id: int, team: int, killer_id: int, xp: int)
 ## Un personaje ha recibido daño. La IA lo usa para su cola de atacantes, que

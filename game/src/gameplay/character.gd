@@ -66,6 +66,9 @@ func _ready() -> void:
 	# encuentren entre sí sin acoplarse a la jerarquía de escena de nadie.
 	# NO lo consulta `ai/`: eso violaría la regla de intenciones (ver cabecera).
 	add_to_group(&"characters")
+	# Que exista alguien a quien darle un cerebro es una noticia, y se publica
+	# como tal. `gameplay` no sabe quién escucha ni le importa.
+	EventBus.character_spawned.emit(self, int(team), archetype)
 
 
 ## Limpia las intenciones. Debe llamarse al final de cada tick de física para

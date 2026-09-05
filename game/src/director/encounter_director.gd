@@ -182,6 +182,12 @@ func context() -> EncounterContext:
 	return _context
 
 
+## ¿Queda encuentro por delante? Lo pregunta `FloorRunner` antes de dar la zona
+## por limpia: sin esto, el hueco entre dos oleadas se leería como victoria.
+func has_pending_budget() -> bool:
+	return _active
+
+
 func is_active() -> bool:
 	return _active
 
@@ -214,6 +220,24 @@ func _positions_for(count: int) -> Array[Vector3]:
 	request.player_forward = _player_forward
 	request.zone_id = _context.zone if _context != null else 0
 	request.count = count
+	out = _select_positions(request)
+	if not out.is_empty():
+		return out
+
+	# La zona no admite la distancia nominal. Antes de renunciar a la oleada se
+	# prueba una vez con el suelo del perfil: en un mapa de 14 × 9 m ningún
+	# punto llega a estar a 12 m del jugador, y quedarse sin enemigos es peor
+	# que acercarlos hasta donde sigue siendo justo. Las otras tres reglas no
+	# se tocan.
+	var floor_m := maxf(_profile.min_spawn_distance_floor_m, 0.0)
+	if request.min_distance_m <= floor_m:
+		return out
+	request.min_distance_m = floor_m
+	return _select_positions(request)
+
+
+func _select_positions(request: SpawnPointProvider.SpawnRequest) -> Array[Vector3]:
+	var out: Array[Vector3] = []
 	var candidates := spawn_provider.sample_candidates(request)
 	for candidate: SpawnPointProvider.SpawnCandidate in SpawnPointProvider.select(
 			candidates, request, _rng):

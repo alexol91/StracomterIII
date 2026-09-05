@@ -119,6 +119,18 @@ extends Resource
 ## Distancia mínima al jugador, en metros. El legacy usaba 200 u ≈ 2,7 m y los
 ## enemigos aparecían en la cara del jugador.
 @export var min_spawn_distance_m: float = 12.0
+## Suelo al que puede bajar la distancia mínima cuando la zona es DEMASIADO
+## PEQUEÑA para cumplirla. No es una excepción cómoda: sin él, `mapP1` —la
+## zona 1 de la planta 1, de 14 × 9 m— no admitía ni un enemigo, porque ningún
+## punto suyo llega a estar a 12 m del jugador. La planta se cargaba vacía y se
+## daba por limpia al instante.
+##
+## Bajar de aquí sí sería injusto, así que no se baja: si ni con el suelo hay
+## sitio, la oleada se queda corta a propósito y de forma visible. Y las otras
+## tres reglas —navegable, fuera del cono de visión y sin línea de visión— NO
+## se relajan nunca: son las que de verdad impiden que alguien se materialice
+## delante de tus narices.
+@export var min_spawn_distance_floor_m: float = 6.0
 ## Si es true, nunca se genera un enemigo dentro del cono de visión del jugador.
 @export var forbid_spawn_in_player_fov: bool = true
 ## Si es true, nunca se genera con línea de visión directa al jugador.

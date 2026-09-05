@@ -179,6 +179,13 @@ static func _collect_access_into(out: PackedVector3Array, node: Node,
 static func _is_access_node(node: Node3D) -> bool:
 	if node is DoorNavLink:
 		return true
+	# Una puerta YA MONTADA también es un acceso. `LevelLoader` sustituye los
+	# marcadores del conversor por puertas de verdad en cuanto carga la planta,
+	# y la sustitución no arrastra `metadata/type`: mirar solo la metadata
+	# funcionaba con la escena recién instanciada y devolvía CERO accesos en
+	# cuanto el nivel estaba montado, que es justo cuando se le pregunta.
+	if node.is_in_group(&"doors"):
+		return true
 	if not node.has_meta(&"type"):
 		return false
 	var kind := StringName(str(node.get_meta(&"type")))
