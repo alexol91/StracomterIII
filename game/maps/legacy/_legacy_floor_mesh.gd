@@ -115,6 +115,17 @@ func _build() -> void:
 	add_child(mesh_instance)
 
 	var shape := ConcavePolygonShape3D.new()
+	# Sólido por las DOS caras. El bobinado de estos triángulos está invertido
+	# para que el horneador de navegación los acepte (ver la nota grande de
+	# arriba), y un trimesh de una sola cara solo responde a la física desde el
+	# lado al que mira: desde el otro se atraviesa como si no existiera.
+	#
+	# Dos consecuencias reales, vistas arrancando el juego y mirando: el
+	# jugador se hundía 0,4 m por debajo del suelo, y el brazo de la cámara
+	# atravesaba el zócalo del perímetro y dejaba la vista dentro del muro.
+	# Este flag afecta a qué lado responde a la física, NO a qué bobinado
+	# acepta el horneador, así que no deshace el arreglo de navegación.
+	shape.backface_collision = true
 	shape.set_faces(_collision_faces())
 
 	var collision := CollisionShape3D.new()

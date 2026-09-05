@@ -57,6 +57,16 @@ class LoadedLevel:
 	var root: Node3D = null
 	var player: Character = null
 	var player_spawn: Transform3D = Transform3D.IDENTITY
+	## Si el mapa TRAE marcador de jugador. No se deduce de `player_spawn`, y
+	## esa distinción no es un capricho: seis de los mapas convertidos
+	## —`mapP1` entre ellos, que es la zona 1 de la planta 1— tienen su spawn
+	## exactamente en el origen, que es `Transform3D.IDENTITY`. Usar la
+	## identidad como centinela de «no hay marcador» hacía que el jugador no
+	## apareciera y que la primera planta del juego no llegara a montarse.
+	##
+	## Es el principio de los valores por defecto de CLAUDE.md en su forma más
+	## cara: el centinela elegido era un valor legítimo del dato.
+	var has_spawn_marker: bool = false
 	var companion_spawns: Array[Transform3D] = []
 	var doors: Array[Node] = []
 	var obstacles: Array[Node] = []
@@ -67,7 +77,7 @@ class LoadedLevel:
 	var navigable_area_m2: float = 0.0
 
 	func has_player_spawn() -> bool:
-		return player != null or player_spawn != Transform3D.IDENTITY
+		return player != null or has_spawn_marker
 
 
 var _current: LoadedLevel = null
@@ -104,7 +114,7 @@ func load_level(map_scene_path: String, archetype: StringName = &"captain",
 	_populate_pickups(level)
 	_read_spawns(level)
 
-	if spawn_player and level.player_spawn != Transform3D.IDENTITY:
+	if spawn_player and level.has_spawn_marker:
 		level.player = _spawn_character(level, PLAYER_SCENE, archetype,
 			Character.Team.PLAYER, level.player_spawn)
 
@@ -212,6 +222,7 @@ func _read_spawns(level: LoadedLevel) -> void:
 		match str(m.get_meta("type", "")):
 			"player":
 				level.player_spawn = m.global_transform
+				level.has_spawn_marker = true
 				for sub: Node in m.get_children():
 					var offset := sub as Marker3D
 					if offset != null:

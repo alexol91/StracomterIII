@@ -48,6 +48,12 @@ func _ready() -> void:
 	target = get_node_or_null(target_path) as Node3D
 	_spring_arm.collision_mask = 1 # solo "world": el entorno empuja la cámara
 	_spring_arm.spring_length = tps_spring_length_m
+	# El brazo coloca la cámara EN el punto de impacto, es decir, pegada a la
+	# superficie: con el plano cercano por delante, medio fotograma queda
+	# dentro del muro. Con el margen se para antes. Se vio arrancando el juego
+	# en la planta 1, donde el jugador aparece junto a una esquina cóncava y la
+	# vista salía llena de pared.
+	_spring_arm.margin = 0.35
 	_spring_arm.position = Vector3(shoulder_offset.x, 0.0, 0.0)
 	if _camera != null:
 		_camera.current = true

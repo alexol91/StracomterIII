@@ -77,3 +77,51 @@ func test_floor_command_rejects_out_of_range() -> void:
 	var out := DevConsole.execute("floor 99")
 	assert_true(out.contains("rango"), "debe rechazar una planta fuera de rango")
 	assert_eq(GameState.current_floor, before, "no debe cambiar la planta al rechazar")
+
+
+# --- Arrancar la primera planta de verdad ---
+
+func test_floor_one_actually_starts_from_the_menu() -> void:
+	# La prueba que faltaba, y que costó cara: el juego arrancaba, la interfaz
+	# respondía, la planta se cargaba... y `FloorRunner` fallaba con "no se
+	# pudo montar mapP1" porque el jugador no aparecía. Es decir, el juego era
+	# INJUGABLE desde el menú, y ninguna prueba lo notaba porque todas cargaban
+	# el nivel con `spawn_player = false` o comprobaban piezas por separado.
+	_main = _instantiate_main()
+	assert_not_null(_main, "no se pudo instanciar la escena principal")
+	if _main == null:
+		return
+	var intents := UIIntents.get_singleton()
+	intents.run_start_requested.emit(&"captain")
+	intents.strategy_confirmed.emit(1, 0, {})
+
+	var loader := _main.get_node_or_null("LevelLoader") as LevelLoader
+	assert_not_null(loader, "la escena principal debe traer LevelLoader")
+	if loader == null:
+		return
+	var level := loader.current()
+	assert_not_null(level, "la planta 1 no llegó a montarse")
+	if level == null:
+		return
+	assert_not_null(level.player, "sin jugador no hay partida que jugar")
+
+
+func test_a_spawn_at_the_world_origin_still_counts_as_a_spawn() -> void:
+	# La causa de lo anterior: `Transform3D.IDENTITY` se usaba como centinela
+	# de «este mapa no trae marcador de jugador», y SEIS de los mapas
+	# convertidos —mapP1 incluido, que es la zona 1 de la planta 1— tienen su
+	# marcador exactamente en el origen. El centinela era un valor legítimo del
+	# dato. Es el principio de los valores por defecto de CLAUDE.md en su forma
+	# más cara.
+	var loader := LevelLoader.new()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(loader)
+	var level := loader.load_level("res://maps/legacy/mapP1.tscn", &"captain", false)
+	assert_not_null(level, "mapP1 debe cargar")
+	if level != null:
+		assert_eq(level.player_spawn, Transform3D.IDENTITY,
+			"este mapa tiene el spawn en el origen: es el caso que rompía")
+		assert_true(level.has_player_spawn(),
+			"un marcador en el origen sigue siendo un marcador")
+	tree.root.remove_child(loader)
+	loader.queue_free()
