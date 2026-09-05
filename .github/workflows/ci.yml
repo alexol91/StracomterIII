@@ -49,6 +49,14 @@ jobs:
       - name: Comprobar que el arranque es limpio
         run: bash tools/ci/check_clean_boot.sh ~/godot/godot
 
+      # Lo único que comprueba que esto es un JUEGO y no una colección de
+      # sistemas verdes: arranca la planta 1 y mira si los enemigos pelean.
+      # El runner de pruebas es síncrono y no puede esperar pasos de física,
+      # así que ninguna prueba cruza la frontera entre "la IA decide disparar"
+      # y "la bala hace daño". Ahí han vivido tres fallos seguidos.
+      - name: Sonda de combate
+        run: bash tools/combat_probe/probe.sh ~/godot/godot
+
   export:
     name: Exportar ${{ matrix.preset }}
     needs: tests

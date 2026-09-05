@@ -181,6 +181,11 @@ static func _add_hair(model: Node3D, archetype: StringName) -> void:
 				if mesh == null:
 					continue
 				source.remove_child(mesh)
+				# El nodo conserva el `owner` de la escena de la que viene, y
+				# colgarlo de otra sin quitarlo suelta un aviso por cada pelo
+				# de cada personaje: «hará el owner inconsistente». No rompe
+				# nada, pero el arranque deja de estar limpio.
+				mesh.owner = null
 				skeleton.add_child(mesh)
 				# Relativa a la malla: `..` es el esqueleto al que se acaba de
 				# colgar. Sin esto la malla se queda en pose de reposo mientras

@@ -70,6 +70,10 @@ var cover_point: CoverProvider.CoverPoint = null
 ## Ruta de flanqueo reclamada en la pizarra. -1 = ninguna.
 var claimed_route_id: int = -1
 var scan_s: float = 0.0
+## Fase del barrido de la mirada al patrullar. Va aparte de `scan_s` porque son
+## dos cosas distintas: `scan_s` es un barrido con final —al llegar a un punto
+## investigado— y esto es un vaivén continuo mientras se camina.
+var patrol_sweep_s: float = 0.0
 var burst_s: float = 0.0
 var reload_s: float = 0.0
 var reload_start_ammo: float = 0.0
@@ -129,6 +133,15 @@ func has_target() -> bool:
 
 
 ## Posición del cuerpo, o `Vector3.INF` si el actuador no tiene cuerpo.
+## A dónde se apunta: la posición conocida del objetivo, subida a la altura
+## del pecho. `target_position` son los PIES —el origen de un `Character` está
+## a ras de suelo—, y apuntar ahí hace que los bots disparen al suelo.
+func aim_point() -> Vector3:
+	if not is_finite_point(target_position):
+		return Vector3.INF
+	return target_position + Vector3.UP * BehaviorTuning.AIM_HEIGHT_M
+
+
 func self_position() -> Vector3:
 	if actuator == null:
 		return Vector3.INF

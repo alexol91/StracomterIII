@@ -94,7 +94,7 @@ static func is_embodied(ctx: BehaviorContext) -> bool:
 static func face_target(ctx: BehaviorContext, _delta: float) -> BehaviorTree.Status:
 	if ctx == null or ctx.actuator == null or not ctx.has_target():
 		return BehaviorTree.Status.FAILURE
-	ctx.actuator.face(ctx.target_position)
+	ctx.actuator.face(ctx.aim_point())
 	return BehaviorTree.Status.SUCCESS
 
 
@@ -116,7 +116,7 @@ static func fire_at_target(ctx: BehaviorContext, _delta: float) -> BehaviorTree.
 		return BehaviorTree.Status.FAILURE
 	if ctx.state.ammo_ratio <= 0.0:
 		return BehaviorTree.Status.FAILURE
-	ctx.actuator.face(ctx.target_position)
+	ctx.actuator.face(ctx.aim_point())
 	ctx.actuator.fire()
 	return BehaviorTree.Status.RUNNING
 
@@ -131,7 +131,7 @@ static func suppress_burst(ctx: BehaviorContext, delta: float) -> BehaviorTree.S
 		return BehaviorTree.Status.FAILURE
 	if ctx.state.ammo_ratio < BehaviorTuning.SUPPRESS_MIN_AMMO_RATIO:
 		return BehaviorTree.Status.FAILURE
-	ctx.actuator.face(ctx.target_position)
+	ctx.actuator.face(ctx.aim_point())
 	ctx.actuator.fire()
 	if ctx.board != null:
 		ctx.board.mark_suppression(ctx.state.squad_id, BehaviorTuning.SUPPRESSION_MARK_S)
@@ -150,7 +150,7 @@ static func fire_if_visible(ctx: BehaviorContext, _delta: float) -> BehaviorTree
 		return BehaviorTree.Status.FAILURE
 	if not ctx.has_target() or not ctx.state.has_line_of_sight or ctx.state.ammo_ratio <= 0.0:
 		return BehaviorTree.Status.RUNNING
-	ctx.actuator.face(ctx.target_position)
+	ctx.actuator.face(ctx.aim_point())
 	ctx.actuator.fire()
 	return BehaviorTree.Status.RUNNING
 
@@ -458,11 +458,39 @@ static func patrol_step(ctx: BehaviorContext, delta: float) -> BehaviorTree.Stat
 		ctx.patrol_index = ctx.patrol_index % ctx.patrol_points.size()
 		set_move_goal(ctx, ctx.patrol_points[ctx.patrol_index])
 	var status := move_along_path(ctx, delta)
+	sweep_look(ctx, delta)
 	if status == BehaviorTree.Status.SUCCESS:
 		ctx.patrol_index = (ctx.patrol_index + 1) % ctx.patrol_points.size()
 		set_move_goal(ctx, ctx.patrol_points[ctx.patrol_index])
 		return BehaviorTree.Status.RUNNING
 	return status
+
+
+## Vaivén de la mirada alrededor del rumbo mientras se patrulla.
+##
+## Se llama DESPUÉS de mover a propósito: el movimiento del juego es
+## direccional, así que encarar a otro sitio no desvía la marcha —el bot camina
+## a donde iba y mira a los lados—, pero el orden importa porque quien mueve
+## puede haber fijado un punto de mira y aquí se sustituye.
+##
+## Es lo que convierte un cono de 65° en una vigilancia de 175°, y sin ello un
+## bot que patrulla NUNCA gira: `move_along_path` no fija punto de mira y
+## `CharacterController` solo rota si alguien lo hace.
+static func sweep_look(ctx: BehaviorContext, delta: float) -> void:
+	if ctx == null or ctx.actuator == null:
+		return
+	var from := ctx.self_position()
+	if not BehaviorContext.is_finite_point(from):
+		return
+	var heading := ctx.move_goal - from
+	heading.y = 0.0
+	if heading.length_squared() < 0.0001:
+		return
+	ctx.patrol_sweep_s += delta
+	var phase := sin(ctx.patrol_sweep_s * BehaviorTuning.PATROL_SWEEP_RATE_RAD_S)
+	var offset := deg_to_rad(BehaviorTuning.PATROL_SWEEP_HALF_DEG) * phase
+	var look := heading.normalized().rotated(Vector3.UP, offset)
+	ctx.actuator.face(from + look * BehaviorTuning.SCAN_LOOK_DISTANCE_M)
 
 
 ## Mantener la posición: quieto, encarado a la amenaza si se conoce.
@@ -471,7 +499,7 @@ static func hold_position(ctx: BehaviorContext, _delta: float) -> BehaviorTree.S
 		return BehaviorTree.Status.FAILURE
 	ctx.actuator.stop()
 	if ctx.has_target():
-		ctx.actuator.face(ctx.target_position)
+		ctx.actuator.face(ctx.aim_point())
 	return BehaviorTree.Status.RUNNING
 
 

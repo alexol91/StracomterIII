@@ -30,9 +30,19 @@ enum Cone {
 	SECONDARY,  ## Periférico: detección lenta.
 }
 
-## Capa de colisión que bloquea la visión (`3d_physics/layer_1 = "world"`).
-## No es un número de balanceo: es la capa de física del mundo.
-const OCCLUDER_MASK: int = 1
+## Capas de colisión que bloquean la visión: el mundo (bit 1) y las puertas
+## (bit 64). No es un número de balanceo: son capas de física.
+##
+## La puerta estuvo fuera y el resultado fue el bug del legacy otra vez, por
+## otra puerta: un bot a 2,9 m «veía» al jugador al otro lado de una puerta
+## CERRADA, decidía atacar y disparaba. Sus balas sí paraban en la puerta
+## —`WeaponSystem.LOS_MASK` siempre la tuvo—, así que en partida se veían 41
+## disparos y 0 impactos, y ninguna prueba decía nada: cada subsistema era
+## coherente consigo mismo.
+##
+## Una puerta abierta desactiva su colisionador (`door.gd`), así que con esto
+## cerrada tapa y abierta no, sin ningún caso especial.
+const OCCLUDER_MASK: int = 65
 ## La conciencia está normalizada a 0..1, así que el umbral de adquisición es
 ## 1 por definición. Tampoco es balanceo: lo que se afina es la VELOCIDAD con
 ## que se llega hasta él (`PerceptionProfile.primary_acquire_s`).
@@ -119,6 +129,12 @@ static func cone_for(
 		return Cone.NONE
 	# A quemarropa y en cualquier dirección: el contacto es inevitable.
 	if distance < 0.001:
+		return Cone.PRIMARY
+	# Y a poca distancia, tampoco hace falta estar mirando: ver es cosa del
+	# cono, pero enterarse de que hay alguien al lado no. Ver
+	# `PerceptionProfile.proximity_awareness_m` para el porqué; la oclusión se
+	# comprueba después igual, así que esto no da rayos X.
+	if distance <= profile.proximity_awareness_m:
 		return Cone.PRIMARY
 	var flat_to_target := Vector3(to_target.x, 0.0, to_target.z)
 	var flat_forward := Vector3(forward.x, 0.0, forward.z)

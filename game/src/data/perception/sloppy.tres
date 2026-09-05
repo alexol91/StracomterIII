@@ -10,3 +10,4 @@ far_acquire_factor = 0.30
 max_localization_error_m = 7.0
 time_decay_rate = 0.55
 min_broadcast_confidence = 0.45
+proximity_awareness_m = 2.5

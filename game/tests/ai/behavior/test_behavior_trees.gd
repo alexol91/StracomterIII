@@ -59,7 +59,11 @@ func test_the_attack_tree_fires_at_the_known_target() -> void:
 	var status := BehaviorTestUtil.run_tree(tree, ctx, actuator, 5)
 	assert_eq(status, int(BehaviorTree.Status.RUNNING), "disparar es continuo, no un acto")
 	assert_gt(float(actuator.fire_count), 0.0)
-	assert_eq(actuator.last_look_target, target, "se encara antes de disparar")
+	# A la ALTURA DEL PECHO, no al punto de contacto tal cual: ese punto son
+	# los pies del objetivo (el origen de un `Character` está a ras de suelo) y
+	# apuntar ahí hacía que los bots dispararan al suelo.
+	assert_eq(actuator.last_look_target, target + Vector3.UP * BehaviorTuning.AIM_HEIGHT_M,
+		"se encara al pecho antes de disparar")
 
 
 ## Sin munición tampoco se dispara: el árbol no da por hecho lo que el
@@ -343,3 +347,78 @@ func test_the_context_reports_an_incomplete_assembly() -> void:
 	assert_true(joined.contains("horneado"), "y la nube de cobertura está vacía")
 	cover.add_point(Vector3(-4.0, 0.0, 0.0))
 	assert_size(ctx.problems(), 0, "el montaje completo no tiene nada que denunciar")
+
+
+# ---------------------------------------------------------------------------
+# Patrullar
+# ---------------------------------------------------------------------------
+
+## Un bot que patrulla tiene que MIRAR alrededor.
+##
+## `move_along_path` mueve por dirección y no fija punto de mira, y
+## `CharacterController` solo rota el cuerpo si alguien se lo pide. Sin barrido,
+## el bot recorre la planta con el rumbo congelado al que tenía al nacer: se
+## midió en partida con cuatro enemigos a menos de siete metros del jugador
+## treinta segundos seguidos, el ángulo clavado en 81° y cero contactos.
+func test_a_patrolling_bot_sweeps_its_look_around_the_heading() -> void:
+	ctx.patrol_points = PackedVector3Array([Vector3(0.0, 0.0, -12.0), Vector3(12.0, 0.0, 0.0)])
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.PATROL)
+
+	var angles: Array[float] = []
+	for step: int in range(40):
+		tree.tick(ctx, 0.1)
+		actuator.advance(0.1)
+		var look := actuator.last_look_target
+		if BehaviorContext.is_finite_point(look):
+			var direction := look - actuator.position()
+			direction.y = 0.0
+			if direction.length_squared() > 0.0001:
+				angles.append(atan2(direction.x, direction.z))
+
+	assert_gt(float(angles.size()), 10.0, "el bot debería estar mirando a algún sitio")
+	if angles.is_empty():
+		return
+	var lowest := angles[0]
+	var highest := angles[0]
+	for angle: float in angles:
+		lowest = minf(lowest, angle)
+		highest = maxf(highest, angle)
+	var swept_deg := rad_to_deg(highest - lowest)
+	assert_gt(swept_deg, 60.0,
+		"barrió solo %.0f grados: con un cono de 65° eso es un túnel" % swept_deg)
+
+
+func test_the_sweep_does_not_steer_the_bot_off_its_route() -> void:
+	# Mirar a un lado no puede desviar la marcha: el contrato de `Character` es
+	# direccional y el punto de mira es otra intención distinta. Si el barrido
+	# cambiara el rumbo, el bot patrullaría en zigzag.
+	ctx.patrol_points = PackedVector3Array([Vector3(0.0, 0.0, -12.0)])
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.PATROL)
+	for step: int in range(40):
+		tree.tick(ctx, 0.1)
+		actuator.advance(0.1)
+	var position := actuator.position()
+	assert_lt(absf(position.x), 1.0,
+		"se desvió %.2f m en X yendo a un punto que está recto" % position.x)
+	assert_lt(position.z, -3.0, "y tiene que haber avanzado")
+
+
+func test_the_bot_aims_at_the_chest_and_not_at_the_floor() -> void:
+	# Un contacto se guarda con la posición del CUERPO, y el origen de un
+	# `Character` está a ras de suelo. Apuntando ahí tal cual, los enemigos
+	# disparaban al suelo: en partida los impactos salían a 27 cm de altura,
+	# entre el pie y la rodilla, y las zonas de impacto —cabeza, torso— no se
+	# tocaban jamás.
+	BehaviorTestUtil.report_contact(board, state.squad_id, Vector3(0.0, 0.0, -6.0))
+	ctx.refresh_from_board()
+	state.has_line_of_sight = true
+	state.ammo_ratio = 1.0
+
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.ATTACK)
+	tree.tick(ctx, 0.1)
+
+	var look := actuator.last_look_target
+	assert_true(BehaviorContext.is_finite_point(look), "el bot debería estar apuntando")
+	if BehaviorContext.is_finite_point(look):
+		assert_gt(look.y, 0.8, "apunta a %.2f m: eso es el suelo, no un torso" % look.y)
+		assert_lt(look.y, 1.8, "y tampoco por encima de la cabeza")

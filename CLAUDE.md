@@ -166,6 +166,31 @@ Y dos de recursos en texto: dentro de `[resource]` los comentarios van con `;`
 (`specular` por `metallic_specular`) se remapean con un aviso, así que el
 recurso carga, la prueba pasa y el arranque deja de estar limpio.
 
+## Lo que solo se ve JUGANDO
+
+El runner de pruebas es **síncrono**: no puede esperar pasos de física. Eso
+significa que ninguna prueba cruza la frontera entre «la IA decide disparar» y
+«la bala hace daño», y ahí es donde han vivido cinco fallos seguidos, ninguno
+con mensaje de error:
+
+* los bots no giraban la cabeza al patrullar y nunca miraban al jugador;
+* nadie notaba a quien tenía a dos metros porque el cono mide 65°;
+* **veían a través de las puertas cerradas** —la máscara de oclusión de la
+  vista no incluía su capa y la del arma sí—, así que disparaban a la puerta;
+* apuntaban al origen del contacto, que son los pies del objetivo;
+* `SkillModel` tenía un manejador de tres parámetros para una señal de cinco,
+  y Godot solo protesta al EMITIR, por consola: el director creía que al
+  jugador no le tocaban nunca.
+
+Con 681 pruebas en verde y el arranque limpio, el juego no se jugaba.
+
+```bash
+tools/combat_probe/probe.sh $GODOT   # 30 s de planta 1: ¿pelean los enemigos?
+```
+
+Regla: **un subsistema verde no es un juego.** Cuando lo que se entrega es
+comportamiento, la comprobación tiene que ser una partida.
+
 ## Lo que solo se ve en el binario exportado
 
 Un proyecto que arranca limpio y pasa 671 pruebas puede exportar un juego roto.

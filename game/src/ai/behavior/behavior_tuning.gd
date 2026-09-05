@@ -213,6 +213,31 @@ const REPATH_THRESHOLD_M: float = 2.0
 const SCAN_RATE_RAD_S: float = 2.2
 ## Distancia a la que el bot proyecta el punto que mira al escanear.
 const SCAN_LOOK_DISTANCE_M: float = 8.0
+## Altura a la que se apunta sobre la posición conocida del objetivo.
+##
+## Un contacto se guarda con la posición del cuerpo, que es SUS PIES: el origen
+## de un `Character` está a ras de suelo. Apuntar ahí tal cual hace que los
+## enemigos disparen al suelo —medido: impactos a 27 cm de altura, entre el pie
+## y la rodilla—, lo que además vuelve inútiles las zonas de impacto: nadie
+## acierta nunca en el torso ni en la cabeza.
+##
+## Debe coincidir con `PerceptionProfile.target_chest_height_m`: se apunta a
+## donde se mira.
+## TODO(arquitecto): mover a datos junto al resto del perfil.
+const AIM_HEIGHT_M: float = 1.1
+## Amplitud del barrido de la mirada MIENTRAS se patrulla, a cada lado del
+## rumbo, en grados.
+##
+## Sin esto el bot que patrulla no gira la cabeza en ningún momento: se mueve
+## por dirección y `CharacterController` solo lo encara si alguien le fija un
+## `intent_look_at`, cosa que `move_along_path` no hace. El resultado medido
+## fueron cuatro enemigos a menos de siete metros del jugador durante treinta
+## segundos con el ángulo clavado en 81°, porque nada les hacía volverse.
+const PATROL_SWEEP_HALF_DEG: float = 55.0
+## Velocidad del barrido de patrulla, en radianes por segundo del ciclo. Lento
+## a propósito: un bot que gira la cabeza a toda velocidad no parece que
+## vigile, parece que tiene un tic.
+const PATROL_SWEEP_RATE_RAD_S: float = 0.85
 
 # ---------------------------------------------------------------------------
 # Tabla base de ganancias por comportamiento

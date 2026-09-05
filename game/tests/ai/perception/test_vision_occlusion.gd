@@ -219,3 +219,73 @@ func test_only_world_geometry_blocks_vision_not_other_bodies() -> void:
 		"y la misma geometría en la capa 'world' sí"
 	)
 	assert_eq(sensor.occluder_mask, VisionSensor.OCCLUDER_MASK, "la máscara es la del mundo")
+
+
+# --- Conciencia de proximidad -------------------------------------------
+
+func test_by_default_nobody_senses_what_is_outside_the_cone() -> void:
+	# El valor por defecto de un dato que no ha llegado no puede ser el
+	# permisivo: un perfil sin configurar NO regala percepción a la espalda.
+	assert_almost_eq(PerceptionProfile.new().proximity_awareness_m, 0.0, 0.0001,
+		"sin configurar, el radio de proximidad debe ser cero")
+	var behind := Vector3(2.0, 0.0, 2.0)  # ~135° respecto a -Z
+	assert_eq(int(VisionSensor.cone_for(Vector3.ZERO, Vector3.FORWARD, behind, stats, profile)),
+		int(VisionSensor.Cone.NONE), "fuera del cono y sin proximidad no se ve")
+
+
+func test_someone_standing_next_to_you_is_noticed_whatever_the_cone() -> void:
+	# Cuatro enemigos se pasaron treinta segundos de partida a entre 0,7 y 6,6 m
+	# del jugador sin enterarse, porque el ángulo era de 81°–119° y su cono
+	# periférico mide 65°. Geométricamente correcto y absurdo: nadie pasa al
+	# lado de otra persona a dos metros sin notarlo.
+	profile.proximity_awareness_m = 3.5
+	var beside := Vector3(2.0, 0.0, 0.0)          # 90°, a un lado
+	var behind := Vector3(0.0, 0.0, 2.0)          # 180°, a la espalda
+	for position: Vector3 in [beside, behind]:
+		assert_eq(int(VisionSensor.cone_for(Vector3.ZERO, Vector3.FORWARD, position, stats, profile)),
+			int(VisionSensor.Cone.PRIMARY),
+			"a %.1f m se nota a alguien esté donde esté" % position.length())
+
+
+func test_proximity_does_not_reach_further_than_its_radius() -> void:
+	profile.proximity_awareness_m = 3.5
+	var far_behind := Vector3(0.0, 0.0, 5.0)
+	assert_eq(int(VisionSensor.cone_for(Vector3.ZERO, Vector3.FORWARD, far_behind, stats, profile)),
+		int(VisionSensor.Cone.NONE), "más allá del radio manda el cono")
+
+
+func test_proximity_still_needs_a_clear_line_of_sight() -> void:
+	# Es conciencia, no rayos X: una pared en medio sigue tapando. Si esto
+	# fallara, volveríamos exactamente al bug del legacy.
+	profile.proximity_awareness_m = 3.5
+	# Una pared entre el bot y quien tiene detrás.
+	world.add_wall(Vector3(-6.0, 0.0, 1.0), Vector3(6.0, 0.0, 1.0))
+	var targets: Array[VisionSensor.Target] = [_target_at(Vector3(0.0, 0.0, 2.0))]
+	var result := sensor.evaluate(Vector3.ZERO, Vector3.FORWARD, stats, targets, world, 0.1, 8)
+	assert_size(result.sightings, 1, "el objetivo entra en la evaluación")
+	if result.sightings.size() == 1:
+		assert_false(result.sightings[0].visible,
+			"con la pared en medio, la proximidad no puede verlo")
+
+
+func test_a_closed_door_blocks_vision_like_any_other_wall() -> void:
+	# El bug del legacy, otra vez, por otra puerta: la máscara de oclusión de
+	# la vista solo miraba la capa "world", así que una puerta CERRADA no
+	# tapaba. Medido en partida: un bot a 2,9 m «veía» al jugador al otro lado
+	# de `Door_3`, decidía ATTACK y disparaba — y sus balas se comían la puerta,
+	# porque el arma sí la tiene en su máscara. 41 disparos, 0 impactos.
+	#
+	# Una puerta abierta desactiva su colisionador (`door.gd`), así que basta
+	# con incluir su capa: cerrada tapa, abierta no.
+	assert_eq(VisionSensor.OCCLUDER_MASK & 64, 64,
+		"la capa de puertas (64) tiene que tapar la vista")
+	assert_eq(VisionSensor.OCCLUDER_MASK, WeaponSystem.LOS_MASK,
+		"lo que tapa la vista y lo que para una bala deben ser lo mismo")
+
+	world.add_box(AABB(Vector3(-2.0, 0.0, -4.2), Vector3(4.0, 2.2, 0.4)), 64)
+	var targets: Array[VisionSensor.Target] = [_target_at(Vector3(0.0, 0.0, -8.0))]
+	var result := sensor.evaluate(Vector3.ZERO, Vector3.FORWARD, stats, targets, world, 0.1, 8)
+	assert_size(result.sightings, 1, "el objetivo entra en la evaluación")
+	if result.sightings.size() == 1:
+		assert_false(result.sightings[0].visible,
+			"con la puerta cerrada en medio no se puede ver a nadie")

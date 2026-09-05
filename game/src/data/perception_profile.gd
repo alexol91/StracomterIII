@@ -32,6 +32,20 @@ extends Resource
 ## Tolerancia vertical del cono, en metros. La torre se juega por plantas: sin
 ## esta tolerancia un bot no vería a alguien subido a una mesa.
 @export var vertical_tolerance_m: float = 3.0
+## Radio dentro del cual el cono deja de ser una puerta.
+##
+## Ver a alguien es cosa del cono; ENTERARSE de que hay alguien a dos metros no.
+## Se oye respirar, se oyen los pasos, se ve el movimiento por el rabillo del
+## ojo. Sin esto, cuatro enemigos se pasaron treinta segundos de partida a
+## entre 0,7 y 6,6 m del jugador sin reaccionar: el ángulo era de 81°–119° y su
+## cono periférico mide 65°. Geométricamente impecable y ridículo de jugar.
+##
+## NO es visión a través de paredes: el rayo de oclusión se sigue lanzando y
+## sigue mandando. Solo abre la puerta del cono.
+##
+## Por defecto CERO —sin sentido extra— por la regla de los valores por defecto:
+## un perfil que no ha llegado no puede regalar percepción.
+@export var proximity_awareness_m: float = 0.0
 
 @export_group("Oído")
 ## Sonoridad por debajo de la cual un ruido se ignora (0..1).

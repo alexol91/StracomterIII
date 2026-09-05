@@ -281,7 +281,25 @@ func _on_shot_resolved(shooter_id: int, hit: bool, _is_headshot: bool) -> void:
 		_shots_hit += 1
 
 
-func _on_character_damaged(character_id: int, amount: float, _from_position: Vector3) -> void:
+## Ojo con la firma: `character_damaged` lleva CINCO parámetros. Este manejador
+## se quedó con tres cuando la señal creció, y Godot no lo dice al conectar
+## sino al emitir —«Method expected 3 argument(s), but called with 5»—, por
+## consola y sin romper nada. Resultado: el modelo de habilidad no contaba ni
+## un punto de daño recibido, el jugador le parecía invencible y el director
+## subía la dificultad. Se descubrió con la sonda de combate.
+## Daño acumulado en el encuentro en curso. Público para que se pueda medir
+## que la señal LLEGA, no solo que el manejador suma.
+func damage_taken() -> float:
+	return _damage_taken
+
+
+func _on_character_damaged(
+	character_id: int,
+	amount: float,
+	_from_position: Vector3,
+	_attacker_id: int,
+	_attacker_team: int
+) -> void:
 	if character_id != player_id:
 		return
 	_damage_taken += maxf(amount, 0.0)

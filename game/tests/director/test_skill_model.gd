@@ -196,3 +196,25 @@ func test_observed_median_does_not_feed_the_score() -> void:
 	slow_model.push_sample(slow)
 	assert_almost_eq(slow_model.current_score(), score_after_fast, 0.000001,
 		"el mismo encuentro puntúa igual con o sin historial lento")
+
+
+func test_damage_reaches_the_model_through_the_real_signal() -> void:
+	# La prueba que faltaba: las demás llaman al manejador a mano, y por eso
+	# nadie vio que su FIRMA no encajaba con la señal. `character_damaged`
+	# lleva cinco parámetros y el manejador se quedó con tres cuando la señal
+	# creció; Godot no protesta al conectar, protesta al EMITIR, por consola.
+	#
+	# Consecuencia: el modelo no contaba ni un punto de daño recibido, el
+	# jugador le parecía invencible y el director subía la dificultad. Todo
+	# ello sin una sola prueba en rojo.
+	var model := SkillModel.new()
+	model.player_id = 4242
+	model.connect_event_bus()
+	model.begin_encounter(5)
+
+	EventBus.character_damaged.emit(4242, 30.0, Vector3.ZERO, 7, 2)
+	EventBus.character_damaged.emit(9999, 90.0, Vector3.ZERO, 7, 2)  # otro personaje
+
+	assert_almost_eq(model.damage_taken(), 30.0, 0.001,
+		"el daño del jugador tiene que llegar por la señal, no solo a mano")
+	model.disconnect_event_bus()

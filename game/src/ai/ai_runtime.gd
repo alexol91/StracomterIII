@@ -303,6 +303,12 @@ func _build_patrol_ring() -> PackedVector3Array:
 	return out
 
 
+## Los puntos de la ronda de patrulla, para quien necesite sitios navegables
+## bien repartidos por la planta sin volver a muestrear el navmesh.
+func patrol_ring_points() -> PackedVector3Array:
+	return _patrol_ring
+
+
 func _nearest_patrol_index(position: Vector3) -> int:
 	var best := 0
 	var best_distance := INF
