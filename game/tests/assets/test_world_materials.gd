@@ -86,8 +86,9 @@ func test_the_modern_world_stays_desaturated_so_characters_read() -> void:
 		# más barata de darla. Si algún día hay una segunda excepción, tendrá
 		# que justificarse aquí igual que esta.
 		var ceiling := 0.55 if surface == WorldSurface.Kind.DOOR else 0.35
-		assert_lt(material.albedo_color.s, ceiling,
-			"la superficie %d está demasiado saturada (%.2f)" % [surface, material.albedo_color.s])
+		var albedo := _effective_albedo(material)
+		assert_lt(albedo.s, ceiling,
+			"la superficie %d está demasiado saturada (%.2f)" % [surface, albedo.s])
 	PresentationStyle.chutaos_mode = original
 
 
@@ -99,7 +100,7 @@ func test_furniture_is_darker_than_the_wall_behind_it() -> void:
 		PresentationStyle.chutaos_mode = chutaos
 		var wall := PresentationStyle.surface_material(WorldSurface.Kind.WALL) as StandardMaterial3D
 		var prop := PresentationStyle.surface_material(WorldSurface.Kind.PROP) as StandardMaterial3D
-		assert_lt(prop.albedo_color.v, wall.albedo_color.v,
+		assert_lt(_effective_albedo(prop).v, _effective_albedo(wall).v,
 			"el mobiliario debe ser más oscuro que la pared en el estilo %s"
 				% PresentationStyle.style_name())
 	PresentationStyle.chutaos_mode = original
@@ -193,6 +194,47 @@ func _fake_map() -> Node3D:
 	dressing.set_script(load("res://src/gameplay/world_dressing.gd"))
 	root.add_child(dressing)
 	return root
+
+
+func test_a_textured_material_can_actually_be_measured() -> void:
+	# Las dos pruebas de dirección de arte miden el color medio de la textura.
+	# Si esa lectura fallara, `_effective_albedo` se conformaría con el tinte y
+	# las pruebas seguirían en verde midiendo otra cosa — que es justo cómo se
+	# descubrió que `NoiseTexture2D` genera en un hilo y no tiene imagen a
+	# tiempo. Esta prueba vigila al vigilante.
+	var original := PresentationStyle.chutaos_mode
+	for chutaos: bool in [false, true]:
+		PresentationStyle.chutaos_mode = chutaos
+		for surface: WorldSurface.Kind in SURFACES:
+			var material := PresentationStyle.surface_material(surface) as StandardMaterial3D
+			if material == null or material.albedo_texture == null:
+				continue
+			assert_not_null(material.albedo_texture.get_image(),
+				("la textura de la superficie %d no se puede leer: las pruebas de "
+					+ "arte estarían midiendo el tinte y no el color real") % surface)
+	PresentationStyle.chutaos_mode = original
+
+
+## El color que un jugador ve de verdad: el tinte multiplicado por el color
+## medio de la textura. Mirar solo `albedo_color` mide el estilo moderno bien y
+## el de 2012 fatal —allí el tinte es blanco y todo el color está en el .jpg—,
+## y una regla de arte que solo vale para la mitad de los casos no es una regla.
+func _effective_albedo(material: StandardMaterial3D) -> Color:
+	var tint := material.albedo_color
+	var texture := material.albedo_texture
+	if texture == null:
+		return tint
+	var image := texture.get_image()
+	if image == null:
+		return tint
+	# Reducir a un píxel es la media aritmética que interesa, sin recorrer la
+	# imagen entera desde GDScript.
+	var thumb := image.duplicate() as Image
+	if thumb.is_compressed():
+		thumb.decompress()
+	thumb.resize(1, 1, Image.INTERPOLATE_LANCZOS)
+	var average := thumb.get_pixel(0, 0)
+	return Color(tint.r * average.r, tint.g * average.g, tint.b * average.b, tint.a)
 
 
 func _material_paths() -> Array[String]:

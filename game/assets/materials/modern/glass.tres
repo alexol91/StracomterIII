@@ -4,10 +4,17 @@
 ; visión de la IA solo si el nivel lo marca como opaco, así que visualmente
 ; deja ver y tácticamente no protege — que es justo la tensión que hace
 ; interesante una oficina diáfana.
+;
+; `rim` en vez de reflejo: sin sondas de reflexión horneadas, un cristal muy
+; especular se ve negro. El borde iluminado lo hace legible con cualquier luz.
 
 [resource]
 transparency = 1
-albedo_color = Color(0.62, 0.74, 0.78, 0.28)
+albedo_color = Color(0.62, 0.74, 0.78, 0.26)
 roughness = 0.05
 metallic = 0.1
 metallic_specular = 0.8
+rim_enabled = true
+rim = 0.6
+rim_tint = 0.3
+cull_mode = 2

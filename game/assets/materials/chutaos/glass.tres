@@ -1,6 +1,14 @@
 [gd_resource type="StandardMaterial3D" format=3]
 
+; El juego de 2012 no tenía ninguna superficie de cristal: no hay textura que
+; recuperar y no se inventa una. Este material existe solo para que el estilo
+; chutaos responda a las siete superficies y `WorldDressing` no se quede sin
+; material a mitad de un mapa; es el azul plano más parecido a lo que habría
+; salido de aquel renderizador.
+
 [resource]
-albedo_color = Color(0.55, 0.68, 0.72, 1)
-roughness = 1.0
+transparency = 1
+albedo_color = Color(0.55, 0.70, 0.75, 0.35)
+roughness = 0.4
 metallic = 0.0
+metallic_specular = 0.0

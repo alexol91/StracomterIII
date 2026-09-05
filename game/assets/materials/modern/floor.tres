@@ -1,25 +1,30 @@
-[gd_resource type="StandardMaterial3D" load_steps=3 format=3]
+[gd_resource type="StandardMaterial3D" load_steps=4 format=3]
 
-; Moqueta de oficina: azul grisáceo muy desaturado, trama fina.
-; Es el 70% de lo que se ve en pantalla, así que es la superficie que más
-; tiene que callarse para que los personajes resalten.
+; Suelo del remake: gres porcelánico de gran formato, en la misma familia gris
+; que `sueloOficina.jpg` del original — el boceto es aquella baldosa, no una
+; moqueta cualquiera —, pero con junta limpia, variación de tono entre piezas y
+; veteado dentro de cada una.
+;
+; Es el 70% de lo que se ve en pantalla, así que es la superficie que más tiene
+; que callarse para que los personajes resalten: de ahí el tinte por debajo del
+; medio sobre una textura clara.
+;
+; Los tres mapas los hornea tools/texture_baker/bake_textures.gd. La rugosidad
+; no es constante: la junta es mate y la cara de la baldosa está pulida por el
+; paso de la gente, y ese contraste es de lo que más hace por que parezca real.
 
-[sub_resource type="FastNoiseLite" id="Noise"]
-noise_type = 3
-frequency = 0.35
-fractal_octaves = 3
-fractal_gain = 0.4
-
-[sub_resource type="NoiseTexture2D" id="Tex"]
-width = 512
-height = 512
-seamless = true
-noise = SubResource("Noise")
+[ext_resource type="Texture2D" path="res://assets/textures/modern/floor_albedo.png" id="Albedo"]
+[ext_resource type="Texture2D" path="res://assets/textures/modern/floor_normal.png" id="Normal"]
+[ext_resource type="Texture2D" path="res://assets/textures/modern/floor_roughness.png" id="Rough"]
 
 [resource]
-albedo_color = Color(0.235, 0.255, 0.29, 1)
-albedo_texture = SubResource("Tex")
-uv1_scale = Vector3(6, 6, 6)
-roughness = 0.96
+albedo_color = Color(0.62, 0.62, 0.60, 1)
+albedo_texture = ExtResource("Albedo")
+normal_enabled = true
+normal_texture = ExtResource("Normal")
+normal_scale = 0.7
+roughness = 1.0
+roughness_texture = ExtResource("Rough")
 metallic = 0.0
-metallic_specular = 0.15
+metallic_specular = 0.4
+uv1_scale = Vector3(0.6, 0.6, 0.6)

@@ -18,7 +18,7 @@ lo mismo, no puede arrastrar material ajeno.
 | Efectos de sonido, paquete Chutaos (`assets/audio/sfx/chutaos/`) | Los mismos, en tomas de broma | Ídem. Se conservan porque son parte de la identidad del proyecto |
 | `assets/audio/music/credits.ogg` | Música de créditos | **Compuesta por el equipo** — sus metadatos Vorbis dicen `TITLE=Stracomter3 ARTIST=Chutaos Team` |
 | `assets/audio/sfx/chutaos/taunt.ogg` | Provocación | Metadatos: `ARTIST=Ruben` (Rubén Pardo Millá, del equipo) |
-| Texturas de superficie, mobiliario, HUD y efectos | Suelos, paredes, muebles, iconos de vida y munición | Creadas por el equipo |
+| Texturas de mobiliario, HUD y efectos | Muebles, iconos de vida y munición, explosión | Creadas por el equipo |
 | `BebasNeue.ttf`, `Absender.ttf`, `Coolvetica.ttf` | Tipografías | Fuentes libres de terceros, redistribuibles |
 
 ## Se usa — terceros con licencia libre
@@ -35,7 +35,40 @@ planos, que es justo lo que pide el cel-shading, y traen animación real, cosa q
 modelos de 2012 no tienen.
 
 Estos modelos conviven con los originales, no los sustituyen: se conmuta en juego con
-`: retro on` y `: retro off`.
+`: chutaos on` y `: chutaos off`.
+
+## Se usa — hecho para el remake
+
+| Asset | Qué es | Procedencia |
+|---|---|---|
+| `assets/textures/modern/*.png` | 13 mapas (albedo, normales, rugosidad) de las seis superficies del mundo | Horneados por `tools/texture_baker/bake_textures.gd`, escrito para este proyecto. Son función pura de unas semillas fijas: se pueden reproducir bit a bit y el generador es revisable en texto |
+| `assets/materials/modern/*.tres` | Los seis materiales del remake más el cristal | Ídem |
+
+Ninguna de estas texturas viene de un banco de imágenes. La paleta sí está sacada
+de las originales —el gris de `sueloOficina.jpg`, el hormigón claro de `pared.jpg`—,
+que es lo que se pidió: usar las de 2012 como boceto.
+
+## Se usa, con reserva — texturas de superficie de 2012
+
+`assets/textures/chutaos/` contiene cinco texturas del proyecto original
+(`pared.jpg`, `sueloOficina.jpg`, `tp3.png`, `techoPared.png`, `mesa.png`) más el
+fondo del menú (`fondo.jpg`, aquí `fondo_torre.jpg`). Se usan **solo en el estilo
+chutaos**, que es el modo «así era en 2012», y el reparto por superficie es
+exactamente el que hacía `core/lib/ResourceManager.cc:867-890`.
+
+Una corrección a la versión anterior de este documento, que las daba por obra del
+equipo: **no todas lo son**. `pared.jpg` y `paredOficina.jpg` son fotografías —un
+panel de hormigón con remaches y un muro de bloques— con la iluminación y el ruido
+de sensor propios de una cámara, no de un dibujo. Lo más probable es que salieran
+de un banco de texturas en 2012, sin registrar de cuál. `fondo.jpg` sí es obra del
+equipo: es un render de SketchUp de la propia Torre Elite, con el rótulo
+«CHUTAOS Inc.» puesto a mano.
+
+Se mantienen porque son el juego original y el modo chutaos existe para verlo tal
+cual, pero conviene saber que **su procedencia no está verificada**. Si el remake
+se publicara con licencia BSD, esta carpeta es lo primero que habría que sustituir
+—y sustituirla es barato, porque el estilo moderno ya no depende de ninguna de
+ellas—.
 
 ## NO se usa — material de terceros
 
@@ -62,8 +95,9 @@ porta la receta exacta del shader que el propio equipo escribió en 2012 —cuat
 bandas con umbrales 0,95 / 0,7 / 0,3— así que el color plano se lee como estilo y no
 como carencia.
 
-Los modelos CC0 nuevos están disponibles en paralelo. `: retro on` devuelve los de
-2012; `: retro off` pone los nuevos.
+Los modelos CC0 nuevos están disponibles en paralelo. `: chutaos on` devuelve los de
+2012 —modelos, voces de broma y texturas de entonces—; `: chutaos off` pone los
+nuevos. `: retro` sigue funcionando como alias del mismo eje.
 
 **Menú y acción están sin música.** Las dos pistas que sonaban son de The
 Prodigy. La de créditos sí suena, porque la compuso el equipo. Opciones:

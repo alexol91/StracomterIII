@@ -1,6 +1,15 @@
-[gd_resource type="StandardMaterial3D" format=3]
+[gd_resource type="StandardMaterial3D" load_steps=2 format=3]
+
+; Techo: la misma `techoPared.png` del remate de muro en el original
+; (ResourceManager.cc:883). En 2012 no había techo visible —cámara cenital—,
+; así que esto es lo más cercano que existe en el juego original.
+
+[ext_resource type="Texture2D" path="res://assets/textures/chutaos/techoPared.png" id="Tex"]
 
 [resource]
-albedo_color = Color(0.72, 0.72, 0.70, 1)
+albedo_color = Color(1, 1, 1, 1)
+albedo_texture = ExtResource("Tex")
+uv1_scale = Vector3(3, 3, 3)
 roughness = 1.0
 metallic = 0.0
+metallic_specular = 0.0

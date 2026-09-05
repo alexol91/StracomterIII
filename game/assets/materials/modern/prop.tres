@@ -1,29 +1,22 @@
 [gd_resource type="StandardMaterial3D" load_steps=3 format=3]
 
-; Mobiliario. Un punto más oscuro que las paredes para que las coberturas se
-; distingan del fondo: si el jugador no ve dónde parapetarse, el sistema de
-; coberturas de la IA es un lujo inútil.
-; Proyección triplanar en espacio de mundo: la geometría del mapa son cajas
-; de tamaño arbitrario y con UV por cara la densidad de téxel cambiaría de
-; un muro a otro. Así se mide en metros (uv1_scale), no en caras.
+; Mobiliario: melamina con grano. Un punto más oscuro que las paredes para que
+; las coberturas se distingan del fondo: si el jugador no ve dónde parapetarse,
+; el sistema de coberturas de la IA es un lujo inútil. Hay un test que mide esa
+; diferencia sobre el color medio de la textura, no sobre el tinte.
 
-[sub_resource type="FastNoiseLite" id="Noise"]
-noise_type = 0
-frequency = 0.05
-fractal_octaves = 3
-
-[sub_resource type="NoiseTexture2D" id="Tex"]
-width = 256
-height = 256
-seamless = true
-noise = SubResource("Noise")
+[ext_resource type="Texture2D" path="res://assets/textures/modern/prop_albedo.png" id="Albedo"]
+[ext_resource type="Texture2D" path="res://assets/textures/modern/prop_normal.png" id="Normal"]
 
 [resource]
-albedo_color = Color(0.44, 0.42, 0.40, 1)
-albedo_texture = SubResource("Tex")
+albedo_color = Color(0.46, 0.44, 0.42, 1)
+albedo_texture = ExtResource("Albedo")
+normal_enabled = true
+normal_texture = ExtResource("Normal")
+normal_scale = 0.5
+roughness = 0.7
+metallic = 0.05
+metallic_specular = 0.3
 uv1_scale = Vector3(1, 1, 1)
 uv1_triplanar = true
 uv1_world_triplanar = true
-roughness = 0.75
-metallic = 0.05
-metallic_specular = 0.3
