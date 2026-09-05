@@ -16,6 +16,12 @@ extends RefCounted
 ## recarga ni duplica mensajes salvo que se pida explícitamente con `reload`.
 
 const CSV_PATH: String = "res://src/ui/i18n/strings.csv"
+## Recursos que el importador de Godot genera a partir del `.csv`. Son lo
+## ÚNICO que llega a una build exportada: el `.csv` es un fichero de origen y
+## el exportador no lo empaqueta, igual que no empaqueta un `.png` sin
+## importar. Leerlo en ejecución funciona desde el proyecto y falla en el
+## juego ya compilado, que es el peor sitio donde enterarse.
+const TRANSLATION_PATH: String = "res://src/ui/i18n/strings.%s.translation"
 const DEFAULT_LOCALE: StringName = &"es"
 const AVAILABLE_LOCALES: Array[StringName] = [&"es", &"en"]
 
@@ -52,7 +58,14 @@ static func reload_strings() -> void:
 	_keys_by_locale.clear()
 	var rows := _read_csv(CSV_PATH)
 	if rows.is_empty():
-		push_error("Localization: '%s' vacío o no encontrado." % CSV_PATH)
+		# Sin `.csv` se está en una build exportada: se cargan los recursos
+		# `.translation` que el importador dejó al lado. Es la MISMA fuente de
+		# verdad —los genera ese mismo `.csv`— solo que ya compilada.
+		if _load_compiled_translations():
+			_apply_default_locale_if_needed()
+			_loaded = true
+			return
+		push_error("Localization: no hay ni '%s' ni traducciones compiladas." % CSV_PATH)
 		_loaded = true
 		return
 	var header: PackedStringArray = rows[0]
@@ -138,6 +151,29 @@ static func t(key: StringName) -> String:
 	# estático. `TranslationServer.translate` es la vía equivalente y además
 	# deja esta función utilizable desde cualquier sitio, no solo desde un nodo.
 	return TranslationServer.translate(key)
+
+
+## Carga los `.translation` compilados. Devuelve si encontró alguno.
+static func _load_compiled_translations() -> bool:
+	var found := false
+	for locale_code: StringName in AVAILABLE_LOCALES:
+		var path := TRANSLATION_PATH % locale_code
+		if not ResourceLoader.exists(path):
+			continue
+		var translation := load(path) as Translation
+		if translation == null:
+			continue
+		TranslationServer.add_translation(translation)
+		# `_keys_by_locale` se queda VACÍO a propósito y ni siquiera se pregunta
+		# por las claves: el importador comprime a `OptimizedTranslation`, que
+		# guarda los mensajes en una tabla hash y ante `get_message_list()`
+		# devuelve la lista vacía Y SUELTA UN AVISO en consola. Traducir
+		# funciona; enumerar, no. Lo único que enumera claves son las pruebas
+		# de cobertura, y esas corren desde el proyecto, donde el `.csv` sí
+		# está.
+		_keys_by_locale[locale_code] = {}
+		found = true
+	return found
 
 
 static func _read_csv(path: String) -> Array[PackedStringArray]:

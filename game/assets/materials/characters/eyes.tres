@@ -1,0 +1,18 @@
+[gd_resource type="StandardMaterial3D" load_steps=2 format=3]
+
+; Ojos, compartidos por los nueve arquetipos.
+;
+; Se asigna a mano y no se hereda del `.gltf` porque el importador de Godot no
+; resuelve las imágenes externas de estos ficheros: llega un material sin
+; ninguna textura, y unos ojos sin textura son dos esferas BLANCAS que en la
+; cara se ven como una venda. Salía en la primera captura y ninguna prueba lo
+; habría dicho.
+
+[ext_resource type="Texture2D" path="res://assets/models/characters_ubc/T_Eye_Brown.png" id="Iris"]
+
+[resource]
+resource_name = "eyes"
+albedo_texture = ExtResource("Iris")
+roughness = 0.25
+metallic = 0.0
+metallic_specular = 0.6

@@ -56,7 +56,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: ["Linux", "Windows Desktop", "macOS"]
+        # Sin macOS: exportarlo desde un runner de Linux falla en la
+        # comprobación de configuración de Godot sin decir cuál, y un binario
+        # de macOS sin firmar tampoco se puede abrir sin desactivar Gatekeeper
+        # a mano. Se hará desde un Mac o con firma; mientras tanto, un trabajo
+        # permanentemente en rojo no informa de nada.
+        preset: ["Linux", "Windows Desktop"]
     steps:
       - uses: actions/checkout@v4
 
@@ -79,10 +84,13 @@ jobs:
             echo "Se generan desde el editor (Proyecto > Exportar) y se commitean."
             exit 0
           fi
-          mkdir -p dist
+          mkdir -p dist/linux dist/windows
           ~/godot/godot --headless --path game --import
+          # Sin ruta: se usa la del preset (`export_path`), que ya distingue
+          # el binario de Linux del ejecutable de Windows. Pasar una ruta fija
+          # para los dos dejaba un solo fichero sin extensión.
           ~/godot/godot --headless --path game \
-            --export-release "${{ matrix.preset }}" "../dist/stracomter"
+            --export-release "${{ matrix.preset }}"
 
       - name: Publicar el resultado
         if: hashFiles('dist/**') != ''

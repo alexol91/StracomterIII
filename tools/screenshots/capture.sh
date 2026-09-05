@@ -20,7 +20,9 @@ cp "${ROOT}/tools/screenshots/capture.gd" "${TEMP}"
 mkdir -p "${OUT}"
 
 run() {
-    SHOT_OUT="${OUT}" SHOT_CHUTAOS="$1" SHOT_LOCALE="${SHOT_LOCALE:-}" xvfb-run -a "${GODOT}" \
+    SHOT_OUT="${OUT}" SHOT_CHUTAOS="$1" SHOT_LOCALE="${SHOT_LOCALE:-}" \
+        SHOT_SCENES="${SHOT_SCENES:-}" SHOT_LINEUP="${SHOT_LINEUP:-1}" \
+        SHOT_GAMEPLAY="${SHOT_GAMEPLAY:-1}" xvfb-run -a "${GODOT}" \
         --path "${ROOT}/game" --rendering-driver opengl3 --resolution 1280x720 \
         --script res://_capture_tmp.gd 2>&1 | grep -E '\.png$' || true
 }

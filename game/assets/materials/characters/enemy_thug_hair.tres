@@ -1,0 +1,16 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+; Cejas de Sicario (enemy_thug).
+;
+; Color plano y no la textura del atlas de pelo del paquete: las cejas miden
+; dos centímetros y a esa escala el atlas no aporta nada. El importador de
+; glTF, además, no resuelve las imágenes externas del `.gltf` y las deja sin
+; textura —de ahí que TODOS los materiales de estos modelos se asignen desde
+; `UbcModel` y no se hereden del fichero.
+
+[resource]
+resource_name = "enemy_thug_hair"
+albedo_color = Color(0.11, 0.094, 0.086, 1)
+roughness = 0.85
+metallic = 0.0
+metallic_specular = 0.15

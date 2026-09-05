@@ -19,6 +19,8 @@ extends SceneTree
 ## Variables de entorno:
 ##   SHOT_OUT      directorio de salida (por defecto, `user://screenshots`)
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
+##   SHOT_LINEUP   "1" para añadir una fila con los nueve arquetipos
+##   SHOT_GAMEPLAY "1" para arrancar una partida de verdad y capturar la planta
 ##   SHOT_CHUTAOS  "1" para capturar con el estilo de 2012 activo
 ##   SHOT_LOCALE   "es" o "en"; por defecto, el del sistema. Existe porque el
 ##                 contenedor es una máquina en inglés y la interfaz canónica
@@ -98,7 +100,138 @@ func _capture() -> void:
 		root.remove_child(node)
 		node.queue_free()
 		await process_frame
+
+	if OS.get_environment("SHOT_LINEUP") == "1":
+		await _capture_lineup(out, suffix, ARCHETYPES, 1.25, 7.6, "characters")
+		await _capture_lineup(out, suffix,
+			["captain", "technician", "enemy_veteran"], 1.15, 3.4, "characters_closeup")
+	if OS.get_environment("SHOT_GAMEPLAY") == "1":
+		await _capture_gameplay(out, suffix)
 	quit()
+
+
+const ARCHETYPES: Array[String] = [
+	"captain", "technician", "specialist", "demolition",
+	"enemy_thug", "enemy_militiaman", "enemy_veteran", "miniboss", "megaboss",
+]
+
+
+## Los nueve arquetipos en fila, con luz y suelo.
+##
+## Es la forma más barata de revisar los modelos: en una partida los enemigos
+## están lejos, de espaldas y medio tapados, y ahí no se ve si un uniforme se
+## horneó mal. Aquí se ven los nueve de frente y a la misma escala.
+func _capture_lineup(out: String, suffix: String, cast: Array, spacing: float,
+		distance: float, basename: String) -> void:
+	var stage := Node3D.new()
+	root.add_child(stage)
+
+	var ground := MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(40, 40)
+	ground.mesh = plane
+	var floor_material := StandardMaterial3D.new()
+	floor_material.albedo_color = Color(0.30, 0.31, 0.33)
+	floor_material.roughness = 0.95
+	ground.material_override = floor_material
+	stage.add_child(ground)
+
+	var style := root.get_node_or_null("PresentationStyle")
+	var index := 0
+	var centre := (cast.size() - 1) * 0.5
+	for name: String in cast:
+		var model: Node3D = null
+		if style != null:
+			model = style.call("instantiate_model", StringName(name))
+		if model == null:
+			index += 1
+			continue
+		stage.add_child(model)
+		model.position = Vector3((index - centre) * spacing, 0.0, 0.0)
+		index += 1
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-38, 28, 0)
+	sun.light_energy = 1.5
+	sun.shadow_enabled = true
+	stage.add_child(sun)
+
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-14, -125, 0)
+	fill.light_energy = 0.45
+	fill.light_color = Color(0.75, 0.82, 1.0)
+	stage.add_child(fill)
+
+	var environment := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.09, 0.10, 0.13)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.55, 0.60, 0.70)
+	env.ambient_light_energy = 0.55
+	environment.environment = env
+	stage.add_child(environment)
+
+	var camera := Camera3D.new()
+	camera.position = Vector3(0.0, 1.05, distance)
+	camera.fov = 52.0
+	camera.look_at_from_position(camera.position, Vector3(0.0, 0.95, 0.0), Vector3.UP)
+	camera.current = true
+	stage.add_child(camera)
+
+	for _i: int in range(SETTLE_FRAMES):
+		await process_frame
+	await RenderingServer.frame_post_draw
+	var file := out + basename + suffix + ".png"
+	get_root().get_texture().get_image().save_png(file)
+	print(file)
+	root.remove_child(stage)
+	stage.queue_free()
+	await process_frame
+
+
+## Arranca una partida de verdad y captura la planta 1.
+##
+## No basta con instanciar el nivel: los personajes solo existen cuando el
+## director los ha hecho aparecer, y la navegación necesita un par de pasos de
+## física para sincronizarse. Por eso se conduce por donde lo conduce el
+## jugador —las intenciones de la UI— y se espera.
+func _capture_gameplay(out: String, suffix: String) -> void:
+	var main := (load("res://scenes/main.tscn") as PackedScene).instantiate()
+	root.add_child(main)
+	for _i: int in range(SETTLE_FRAMES):
+		await process_frame
+
+	# `UIIntents` no es un autoload sino un singleton manual, y con `--script`
+	# los nombres de clase globales no siempre están registrados: se carga el
+	# script por ruta y se le pide la instancia, que es lo mismo que hace el
+	# juego.
+	var script := load("res://src/ui/core/ui_intents.gd") as GDScript
+	var intents: Object = script.call("get_singleton") if script != null else null
+	if intents == null:
+		push_warning("capture: sin UIIntents no se puede arrancar la partida")
+	else:
+		intents.emit_signal("run_start_requested", &"captain")
+		for _i: int in range(SETTLE_FRAMES):
+			await process_frame
+		# Zona 1: las zonas se numeran desde 1 en la pantalla de Estrategia, y
+		# un 0 se acepta sin protestar y deja la partida sin arrancar.
+		intents.emit_signal("strategy_confirmed", 1, 0, {})
+
+	# Cinco segundos de partida: el director tarda en soltar la primera oleada
+	# y la cámara en tercera persona en asentarse detrás del jugador.
+	for _i: int in range(300):
+		await process_frame
+	var state := root.get_node_or_null("GameState")
+	if state != null:
+		print("[capture] modo de juego al capturar: ", state.get("mode"))
+	await RenderingServer.frame_post_draw
+	var file := out + "gameplay" + suffix + ".png"
+	get_root().get_texture().get_image().save_png(file)
+	print(file)
+	root.remove_child(main)
+	main.queue_free()
+	await process_frame
 
 
 func _scenes() -> Array[String]:

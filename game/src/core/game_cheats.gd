@@ -64,13 +64,37 @@ func _register_visual_cheats() -> void:
 					+ "instalación del juego con tools/tf2_import/import_tf2.py; "
 					+ "no vienen en el repositorio porque son de Valve.")
 			PresentationStyle.character_pack = (PresentationStyle.Pack.TF2
-				if wanted else PresentationStyle.Pack.KAYKIT)
+				if wanted else PresentationStyle.Pack.UBC)
 			if not wanted:
-				return "Personajes: KayKit (CC0)."
+				return "Personajes: Quaternius (CC0)."
 			var missing := PresentationStyle.archetypes_without_tf2()
 			if not missing.is_empty():
 				return ("Personajes: TF2, pero sin modelo todavía para: %s"
 					% ", ".join(missing.map(func(a: StringName) -> String: return String(a))))
+			return "Personajes: Team Fortress 2.")
+
+	Cheats.register("pack",
+		"pack ubc|kaykit|tf2 — paquete de modelos de personaje.", 1,
+		func(args: Array[String]) -> String:
+			var wanted: Dictionary[String, int] = {
+				"ubc": int(PresentationStyle.Pack.UBC),
+				"quaternius": int(PresentationStyle.Pack.UBC),
+				"kaykit": int(PresentationStyle.Pack.KAYKIT),
+				"tf2": int(PresentationStyle.Pack.TF2),
+			}
+			var key := args[0].to_lower()
+			if not wanted.has(key):
+				return "Uso: %s pack ubc|kaykit|tf2" % Cheats.PREFIX
+			var pack: int = wanted[key]
+			if pack == int(PresentationStyle.Pack.TF2) and not PresentationStyle.tf2_available():
+				return ("No hay modelos de TF2 importados. Se importan desde tu "
+					+ "instalación del juego con tools/tf2_import/import_tf2.py; "
+					+ "no vienen en el repositorio porque son de Valve.")
+			PresentationStyle.character_pack = pack as PresentationStyle.Pack
+			if pack == int(PresentationStyle.Pack.UBC):
+				return "Personajes: Universal Base Characters (Quaternius, CC0)."
+			if pack == int(PresentationStyle.Pack.KAYKIT):
+				return "Personajes: KayKit (CC0)."
 			return "Personajes: Team Fortress 2.")
 
 	Cheats.register("outline", "outline on|off — contorno del cel-shading.", 1,

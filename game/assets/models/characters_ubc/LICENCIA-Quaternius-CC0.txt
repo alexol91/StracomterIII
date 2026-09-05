@@ -1,0 +1,24 @@
+Universal Base Characters + Universal Animation Library
+=======================================================
+
+Autor: Quaternius (https://quaternius.com)
+Licencia: CC0 1.0 Universal (dominio público)
+          https://creativecommons.org/publicdomain/zero/1.0/
+
+CC0 permite uso, modificación y REDISTRIBUCIÓN, comercial incluida, sin
+atribución obligatoria. Por eso estos ficheros sí pueden vivir en un
+repositorio público, a diferencia de los modelos de Team Fortress 2 (ver
+`game/assets/LICENCIAS.md`).
+
+Ficheros de este directorio
+---------------------------
+* `Superhero_Male_FullBody.gltf` + `.bin` — cuerpo base masculino.
+* `Superhero_Female_FullBody.gltf` + `.bin` — cuerpo base femenino.
+* `UAL1_Standard.glb` — 43 animaciones sobre el mismo rig.
+* `T_*.png` — texturas del paquete, reescaladas a 1024 para el repositorio.
+* `skins/` — DERIVADO: los nueve uniformes que genera
+  `tools/character_skins/bake_skins.py`. Obra derivada de material CC0, así
+  que también es CC0.
+
+La atribución no es obligatoria pero se hace igual: el paquete es gratis
+porque hay gente que lo paga en Patreon.

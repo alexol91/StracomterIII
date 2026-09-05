@@ -31,6 +31,10 @@ const CONSUMER_PHYSICS_PRIORITY: int = 100
 
 var _collision_shape: CollisionShape3D = null
 var _standing_capsule_height: float = -1.0
+## Animador del modelo montado, si el paquete trae uno. Se guarda por
+## referencia y no se busca cada frame: `get_node` en `_physics_process` de
+## treinta bots es tiempo tirado.
+var _animator: Node = null
 
 
 func _ready() -> void:
@@ -48,6 +52,10 @@ func _ready() -> void:
 	_build_model()
 	if not PresentationStyle.style_changed.is_connected(_on_style_changed):
 		PresentationStyle.style_changed.connect(_on_style_changed)
+	if not died.is_connected(_on_died):
+		died.connect(_on_died)
+	if not EventBus.shot_resolved.is_connected(_on_shot_resolved):
+		EventBus.shot_resolved.connect(_on_shot_resolved)
 
 
 ## Monta el modelo del arquetipo en el estilo activo y esconde la cápsula de
@@ -65,6 +73,7 @@ func _build_model() -> void:
 	if previous != null:
 		previous.queue_free()
 		remove_child(previous)
+	_animator = null
 
 	var mesh := get_node_or_null("BodyMesh") as MeshInstance3D
 	var model := PresentationStyle.instantiate_model(archetype)
@@ -74,6 +83,7 @@ func _build_model() -> void:
 		return
 	model.name = "Model"
 	add_child(model)
+	_animator = model if model.has_method("play_death") else null
 	if mesh != null:
 		mesh.visible = false
 
@@ -108,6 +118,7 @@ func _physics_process(delta: float) -> void:
 	_apply_crouch_shape(intent_crouch)
 
 	move_and_slide()
+	_sync_animation()
 	# Ver nota de orden de ejecución en la cabecera del fichero.
 	clear_intents.call_deferred()
 
@@ -149,3 +160,36 @@ func _apply_crouch_shape(crouched: bool) -> void:
 		return
 	capsule.height = target_height
 	_collision_shape.position.y = target_height * 0.5
+
+
+## Pone la animación al ritmo del movimiento REAL, no al de la intención.
+##
+## La diferencia importa: un bot que empuja contra una pared tiene intención de
+## correr y velocidad cero. Leyendo la intención se vería patinar sobre el
+## sitio; leyendo `velocity` se queda quieto, que es lo que hace.
+##
+## `speed_scale` es relativo a la velocidad nominal del arquetipo para que el
+## paso encaje con el avance y el personaje no parezca ir en patines: es el
+## mismo criterio que usaba `FrameAnimator` con los modelos de 2012.
+func _sync_animation() -> void:
+	if _animator == null or stats == null:
+		return
+	var nominal := stats.speed_mps()
+	if nominal <= 0.01:
+		return
+	var horizontal := Vector2(velocity.x, velocity.z).length()
+	_animator.set("speed_scale", horizontal / nominal)
+
+
+func _on_died(_killer_id: int) -> void:
+	if _animator != null:
+		_animator.call("play_death")
+
+
+## Un disparo resuelto es la señal más barata para animar el arma: la emite
+## `WeaponSystem` con el id del tirador, así que no hace falta que el
+## controlador conozca el arma ni al revés.
+func _on_shot_resolved(shooter_id: int, _hit: bool, _is_headshot: bool) -> void:
+	if _animator == null or shooter_id != get_instance_id():
+		return
+	_animator.call("play_once", ModernAnimator.CLIP_SHOOT)

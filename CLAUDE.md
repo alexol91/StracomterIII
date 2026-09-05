@@ -150,10 +150,41 @@ no avisa.
   primitivas (`BoxMesh`…) las traen; una malla montada a mano con
   `add_surface_from_arrays`, no. `SurfaceTool.generate_tangents()`.
 
+* **El importador renombra lo que importa.** Los clips de Quaternius se llaman
+  `Walk_Loop` en el `.glb`; Godot recorta el sufijo `_Loop`, marca el bucle él
+  solo y dentro del juego el clip se llama `Walk`. Buscarlo por el nombre del
+  fichero no da error: deja al personaje clavado de pie.
+* **Un `.gltf` con imágenes externas llega sin texturas.** El importador no
+  resuelve los `uri` de las imágenes y entrega materiales con todos los slots a
+  nulo. El cuerpo daba igual —lleva su material encima— pero los ojos salían
+  como dos esferas blancas. Se asignan a mano desde el código; ver `UbcModel`.
+* **`OptimizedTranslation.get_message_list()` devuelve la lista vacía** y suelta
+  un aviso. Traducir funciona, enumerar claves no.
+
 Y dos de recursos en texto: dentro de `[resource]` los comentarios van con `;`
 —un `#` se pega al nombre de la propiedad siguiente— y los nombres de Godot 3
 (`specular` por `metallic_specular`) se remapean con un aviso, así que el
 recurso carga, la prueba pasa y el arranque deja de estar limpio.
+
+## Lo que solo se ve en el binario exportado
+
+Un proyecto que arranca limpio y pasa 671 pruebas puede exportar un juego roto.
+Pasó con las traducciones: `Localization` leía `strings.csv` en ejecución, y el
+`.csv` es un fichero de **origen** —el exportador no lo empaqueta, igual que no
+empaqueta un `.png` sin importar—. En el proyecto estaba; en el `.x86_64`, no. La
+interfaz entera salía sin traducir con una cascada de errores de formato, y no
+había forma de verlo sin ejecutar el binario.
+
+Regla: **antes de dar por buena una entrega, exportar y ARRANCAR el ejecutable.**
+
+```bash
+$GODOT --headless --path game --export-release "Linux"
+xvfb-run -a ./dist/linux/StracomterIII.x86_64 --rendering-driver opengl3 --quit-after 400
+```
+
+Los presets viven en `game/export_presets.cfg`. macOS no está: exportarlo desde
+Linux falla en una comprobación de configuración que Godot no nombra, y un
+binario sin firmar tampoco se abre en un Mac sin desactivar Gatekeeper.
 
 ## Convenciones
 

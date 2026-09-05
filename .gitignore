@@ -1,7 +1,10 @@
 # Godot
 game/.godot/
 game/android/
-game/export_presets.cfg
+# `export_presets.cfg` SÍ se versiona: sin él, el trabajo de exportación de CI
+# se salta en silencio y no hay binario que descargar. Se ignora por costumbre
+# porque puede llevar credenciales de firma; el nuestro no lleva ninguna, y si
+# algún día lleva, van por secretos del repositorio y no por este fichero.
 *.translation
 
 # Builds

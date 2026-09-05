@@ -24,7 +24,12 @@ signal style_changed(chutaos: bool)
 ## mismo eje —eso ya se juntó una vez y con razón—: `chutaos_mode` decide si se
 ## juega el juego de 2012 o el remake, y esto decide con qué modelos se juega el
 ## remake. Son dos preguntas distintas.
-enum Pack { KAYKIT, TF2 }
+## `UBC` es el paquete por defecto: cuerpos `Universal Base Characters` de
+## Quaternius (CC0) vestidos con los uniformes horneados por
+## `tools/character_skins/`. `KAYKIT` es el paquete anterior, de bloques, que se
+## conserva como reserva. `TF2` son los modelos de Valve importados de la
+## instalación del jugador.
+enum Pack { UBC, KAYKIT, TF2 }
 
 const MODELS_CHUTAOS: String = "res://scenes/models/"
 const MODELS_MODERN: String = "res://scenes/models_modern/"
@@ -60,7 +65,7 @@ var chutaos_mode: bool = false:
 ## Paquete de personajes del remake. Cambiarlo emite `style_changed` como
 ## cualquier otro cambio de estilo: los personajes ya vivos tienen que poder
 ## cambiar de modelo en caliente.
-var character_pack: Pack = Pack.KAYKIT:
+var character_pack: Pack = Pack.UBC:
 	set(value):
 		if character_pack == value:
 			return
@@ -68,6 +73,12 @@ var character_pack: Pack = Pack.KAYKIT:
 		style_changed.emit(chutaos_mode)
 
 var _material_cache: Dictionary[String, Material] = {}
+## Biblioteca de animaciones compartida por los nueve arquetipos. Se guarda
+## aquí —en un autoload, que es un nodo con ciclo de vida— y no en una variable
+## `static`: una `static` sobrevive al árbol de escena y ya ha costado dos
+## abortos por corrupción de memoria en este proyecto.
+var _animation_library: AnimationLibrary = null
+var _animation_library_loaded: bool = false
 
 
 func _ready() -> void:
@@ -118,18 +129,54 @@ func archetypes_without_tf2() -> Array[StringName]:
 ## dentro, y los de TF2 son un `.glb` suelto que hay que envolver aquí. Quien
 ## pide un personaje no tiene por qué saber cuál de las tres cosas le toca.
 func instantiate_model(archetype: StringName) -> Node3D:
-	if not chutaos_mode and character_pack == Pack.TF2 and has_tf2_model(archetype):
-		var glb := load(tf2_path_for(archetype)) as PackedScene
-		if glb != null:
-			var wrapper := Node3D.new()
-			wrapper.set_script(load("res://src/gameplay/modern_animator.gd"))
-			wrapper.add_child(glb.instantiate())
-			return wrapper
+	if not chutaos_mode:
+		if character_pack == Pack.TF2 and has_tf2_model(archetype):
+			var glb := load(tf2_path_for(archetype)) as PackedScene
+			if glb != null:
+				var wrapper := Node3D.new()
+				wrapper.set_script(load("res://src/gameplay/modern_animator.gd"))
+				wrapper.add_child(glb.instantiate())
+				return wrapper
+		if character_pack == Pack.UBC and UbcModel.has(archetype):
+			var ubc := UbcModel.build(archetype, animation_library())
+			if ubc != null:
+				return ubc
 	var path := scene_path_for(archetype)
 	if not ResourceLoader.exists(path):
 		return null
 	var packed := load(path) as PackedScene
 	return packed.instantiate() as Node3D if packed != null else null
+
+
+## Biblioteca de animaciones de Quaternius, cargada una sola vez.
+##
+## Sacarla del `.glb` cuesta instanciar el maniquí entero, así que se hace en la
+## primera petición y se reparte. `_animation_library_loaded` existe aparte del
+## puntero para no reintentarlo en cada personaje cuando el fichero no está: sin
+## la bandera, un paquete incompleto costaría una instanciación fallida por
+## cada enemigo que aparece.
+func animation_library() -> AnimationLibrary:
+	if _animation_library_loaded:
+		return _animation_library
+	_animation_library_loaded = true
+	if not ResourceLoader.exists(UbcModel.ANIMATION_SOURCE):
+		return null
+	var packed := load(UbcModel.ANIMATION_SOURCE) as PackedScene
+	if packed == null:
+		return null
+	var root := packed.instantiate()
+	var player := root.get_node_or_null("AnimationPlayer") as AnimationPlayer
+	if player != null:
+		var source := player.get_animation_library("")
+		_animation_library = AnimationLibrary.new()
+		# Los clips se copian tal cual: el importador de Godot ya recorta el
+		# sufijo `_Loop` del nombre y marca el bucle. Volver a marcarlo aquí
+		# por el nombre del fichero no habría hecho nada, porque para cuando
+		# llegan aquí ese sufijo ya no está.
+		for clip: StringName in source.get_animation_list():
+			_animation_library.add_animation(clip, source.get_animation(clip).duplicate(true))
+	root.free()
+	return _animation_library
 
 
 ## Material de una superficie del mundo, según el estilo activo.
@@ -152,6 +199,8 @@ func surface_material(surface: WorldSurface.Kind) -> Material:
 
 
 func has_modern_model(archetype: StringName) -> bool:
+	if UbcModel.has(archetype):
+		return true
 	return ResourceLoader.exists(MODELS_MODERN + String(archetype) + ".tscn")
 
 

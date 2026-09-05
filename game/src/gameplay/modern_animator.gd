@@ -9,27 +9,41 @@ extends Node3D
 ## poses.
 
 ## Los paquetes CC0 no se ponen de acuerdo en cómo llamar a los clips: Kenney
-## usa `idle`/`walk`/`sprint`/`die` y KayKit `Idle`/`Walking_A`/`Running_A`/
-## `Death_A`. En vez de casarse con uno, cada intención lleva su lista de
-## nombres CANDIDATOS y se usa el primero que el modelo tenga de verdad.
+## usa `idle`/`walk`/`sprint`/`die`, KayKit `Idle`/`Walking_A`/`Running_A`/
+## `Death_A` y Quaternius `Idle`/`Walk`/`Sprint`/`Death01`. En vez de casarse
+## con uno, cada intención lleva su lista de nombres CANDIDATOS y se usa el
+## primero que el modelo tenga de verdad.
 ##
 ## Sin esto no falla nada visible: `_play` comprueba `has_animation` y se calla,
 ## así que un modelo con otros nombres simplemente se queda inmóvil y parece un
 ## maniquí. Ya pasó al cambiar de paquete.
+##
+## Ojo con Quaternius: sus clips cíclicos se llaman `Walk_Loop` en el fichero,
+## pero el importador de Godot RECORTA el sufijo `_Loop` y marca el bucle él
+## solo, así que dentro del juego el clip se llama `Walk`. Buscarlo por el
+## nombre del fichero no da error: deja al personaje clavado de pie.
 const CLIP_IDLE: StringName = &"idle"
 const CLIP_WALK: StringName = &"walk"
 const CLIP_SPRINT: StringName = &"sprint"
 const CLIP_DIE: StringName = &"die"
+## Clips de una sola pasada: se disparan por un suceso y devuelven el control
+## a la locomoción al terminar.
+const CLIP_SHOOT: StringName = &"shoot"
+const CLIP_RELOAD: StringName = &"reload"
+const CLIP_HIT: StringName = &"hit"
 
 ## Listas literales y no `PackedStringArray(...)`: un constructor es una
 ## LLAMADA y no vale dentro de una `const`. Godot lo dice claro —«isn't a
 ## constant expression»— pero el script entero deja de compilar y el síntoma
 ## que se ve es un modelo sin animador, no un error de sintaxis.
 const CLIP_CANDIDATES: Dictionary[StringName, Array] = {
-	CLIP_IDLE: ["idle", "Idle", "Unarmed_Idle", "1H_Melee_Idle"],
-	CLIP_WALK: ["walk", "Walking_A", "Walking_B", "Walking_C"],
-	CLIP_SPRINT: ["sprint", "Running_A", "Running_B", "run"],
-	CLIP_DIE: ["die", "Death_A", "Death_B", "death"],
+	CLIP_IDLE: ["Pistol_Idle", "Idle", "idle", "Unarmed_Idle", "1H_Melee_Idle"],
+	CLIP_WALK: ["Walk", "walk", "Walking_A", "Walking_B", "Walking_C"],
+	CLIP_SPRINT: ["Sprint", "Jog_Fwd", "sprint", "Running_A", "Running_B", "run"],
+	CLIP_DIE: ["Death01", "die", "Death_A", "Death_B", "death"],
+	CLIP_SHOOT: ["Pistol_Shoot", "Punch_Cross", "1H_Melee_Attack_Chop"],
+	CLIP_RELOAD: ["Pistol_Reload", "Interact"],
+	CLIP_HIT: ["Hit_Chest", "Hit_Head", "Hit_A"],
 }
 
 ## Altura a la que se normaliza cualquier modelo. Es la del colisionador del
@@ -39,6 +53,11 @@ const CLIP_CANDIDATES: Dictionary[StringName, Array] = {
 const TARGET_HEIGHT_M: float = 1.8
 
 @export var playing: bool = true
+## Filtrado NEAREST del atlas. Verdadero para KayKit —su textura es un
+## degradado de pocos píxeles y el filtrado lineal inventa colores—, FALSO para
+## los cuerpos de Quaternius, que llevan PBR de 1024 y con NEAREST salen
+## pixelados. Es un dato del paquete, no una preferencia.
+@export var atlas_filter: bool = true
 ## Velocidad relativa: 0 detiene, 1 es el ritmo nominal. Misma semántica que en
 ## `FrameAnimator`.
 var speed_scale: float = 1.0:
@@ -48,15 +67,22 @@ var speed_scale: float = 1.0:
 
 var _player: AnimationPlayer = null
 var _current: StringName = &""
+## Hay un clip de una pasada en curso. Sin esta bandera, el `_refresh()` que
+## dispara cada cambio de `speed_scale` —o sea, cada frame de física— cortaría
+## el disparo antes de que se viera.
+var _oneshot: bool = false
 
 
 func _ready() -> void:
-	_apply_atlas_filter()
+	if atlas_filter:
+		_apply_atlas_filter()
 	_normalise_height()
 	_player = _find_animation_player(self)
 	if _player == null:
 		push_warning("ModernAnimator: el modelo no trae AnimationPlayer")
 		return
+	if not _player.animation_finished.is_connected(_on_animation_finished):
+		_player.animation_finished.connect(_on_animation_finished)
 	_play(CLIP_IDLE)
 
 
@@ -154,12 +180,31 @@ func stop_at_idle() -> void:
 
 
 func play_death() -> void:
+	_oneshot = false
 	_play(CLIP_DIE)
 	playing = false
 
 
+## Dispara un clip de una sola pasada (disparo, recarga, impacto recibido).
+##
+## Devuelve si el modelo lo tiene: quien llama puede querer saberlo, pero NO
+## necesita comprobarlo antes. Un paquete al que le falte el clip de recarga
+## sigue jugándose; simplemente no se ve recargar.
+func play_once(clip: StringName) -> bool:
+	if _player == null or not playing:
+		return false
+	var clip_name := resolve_clip(clip)
+	if clip_name.is_empty():
+		return false
+	_oneshot = true
+	_current = clip
+	_player.play(clip_name)
+	_player.speed_scale = 1.0
+	return true
+
+
 func _refresh() -> void:
-	if _player == null:
+	if _player == null or _oneshot:
 		return
 	# El clip se elige por la velocidad real, no por un estado que alguien
 	# tenga que acordarse de actualizar.
@@ -170,6 +215,14 @@ func _refresh() -> void:
 	else:
 		_play(CLIP_WALK)
 	_player.speed_scale = maxf(speed_scale, 0.1)
+
+
+func _on_animation_finished(_clip: StringName) -> void:
+	if not _oneshot:
+		return
+	_oneshot = false
+	_current = &""
+	_refresh()
 
 
 func _play(clip: StringName) -> void:

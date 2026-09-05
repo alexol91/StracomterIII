@@ -227,7 +227,7 @@ func test_the_tf2_cheat_says_so_instead_of_turning_on_an_empty_mode() -> void:
 	else:
 		assert_true(out.contains("import"),
 			"sin modelos debe explicar cómo se importan")
-		assert_eq(int(PresentationStyle.character_pack), int(PresentationStyle.Pack.KAYKIT),
+		assert_eq(int(PresentationStyle.character_pack), int(PresentationStyle.Pack.UBC),
 			"y no debe quedarse en un paquete vacío")
 	PresentationStyle.character_pack = original
 

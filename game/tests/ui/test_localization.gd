@@ -93,3 +93,29 @@ func test_a_known_system_language_is_respected() -> void:
 	assert_eq(Localization.current_locale(), &"en",
 		"si la máquina está en inglés y lo traducimos, se respeta")
 	Localization.set_locale(original)
+
+
+func test_compiled_translations_exist_for_the_exported_build() -> void:
+	# El `.csv` es un fichero de ORIGEN: el exportador no lo empaqueta, igual
+	# que no empaqueta un `.png` sin importar. En el juego compilado solo
+	# llegan los `.translation` que genera el importador.
+	#
+	# Sin esta comprobación el fallo no aparece en ninguna prueba —desde el
+	# proyecto el `.csv` está ahí— y solo se ve al ejecutar el binario: la
+	# interfaz entera sin traducir y una cascada de errores de formato. Se
+	# descubrió justamente así, arrancando el ejecutable exportado.
+	for locale_code: StringName in Localization.AVAILABLE_LOCALES:
+		var path := Localization.TRANSLATION_PATH % locale_code
+		assert_true(ResourceLoader.exists(path),
+			"falta la traducción compilada '%s'; ¿se importó el proyecto?" % path)
+		var translation := load(path) as Translation
+		assert_not_null(translation, "'%s' no carga como Translation" % path)
+		if translation == null:
+			continue
+		# Se comprueba con una clave concreta y no contando `get_message_list()`:
+		# el importador comprime a `OptimizedTranslation`, que guarda los
+		# mensajes en una tabla hash y devuelve la LISTA VACÍA. Contar claves
+		# daba cero y acusaba al recurso de estar mal cuando traducía
+		# perfectamente.
+		assert_eq(translation.get_message(&"TITLE_GAME_NAME"), "STRACOMTER III",
+			"'%s' no traduce una clave conocida" % path)

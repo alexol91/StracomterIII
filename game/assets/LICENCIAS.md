@@ -80,6 +80,32 @@ se publicara con licencia BSD, esta carpeta es lo primero que habría que sustit
 —y sustituirla es barato, porque el estilo moderno ya no depende de ninguna de
 ellas—.
 
+## Personajes del remake — Quaternius (CC0)
+
+Paquete por defecto del juego (`: pack ubc`), en
+`game/assets/models/characters_ubc/`:
+
+| Fichero | Origen | Licencia |
+|---|---|---|
+| `Superhero_Male_FullBody.gltf` + `.bin` | [Universal Base Characters](https://quaternius.com/packs/universalbasecharacters.html) | CC0 1.0 |
+| `Superhero_Female_FullBody.gltf` + `.bin` | ídem | CC0 1.0 |
+| `hair/Hair_*.gltf` + `.bin` | ídem (peinados y barba) | CC0 1.0 |
+| `UAL1_Standard.glb` | [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html) — 43 animaciones | CC0 1.0 |
+| `T_*.png` | texturas del paquete, reescaladas a 1024 | CC0 1.0 |
+| `skins/*.png` | **derivado**: los nueve uniformes que genera `tools/character_skins/` | CC0 1.0 |
+
+CC0 permite uso, modificación y **redistribución**, comercial incluida. Es la
+razón por la que estos ficheros sí están en el repositorio y los de Valve no:
+la diferencia no es "gratis o de pago", es si se puede volver a publicar.
+
+Los cuerpos vienen en ropa interior —el paquete gratuito son dos bases y ocho
+peinados, y la ropa solo existe en versión de fantasía—, así que los uniformes
+se **pintan** en el albedo a partir del mapa de regiones del cuerpo. Es la
+misma solución que Team Fortress 2: una malla, la ropa pintada.
+
+La atribución no es obligatoria bajo CC0. Se hace igual: el paquete es gratis
+porque hay gente que lo paga en Patreon.
+
 ## Se usa solo en local — Team Fortress 2
 
 Los personajes de TF2 **no están en este repositorio y no van a estarlo**.
