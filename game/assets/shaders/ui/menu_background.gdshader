@@ -1,7 +1,7 @@
 shader_type canvas_item;
 
 // Fondo animado de los menús (encargo "listón visual AAA"): silueta nocturna
-// de la Torre Elite con ventanas que parpadean muy despacio, cielo frío en
+// de la Torre Chutaos con ventanas que parpadean muy despacio, cielo frío en
 // degradado y un grano leve.
 //
 // Composición tomada del boceto real del equipo original
@@ -156,9 +156,9 @@ void fragment() {
 	float lit = in_tower * base_lit * window_mask * twinkle * front_face * below_crown;
 	col = mix(col, window_color.rgb, clamp(lit, 0.0, 1.0));
 
-	// Filo azul Elite muy tenue en el contorno de la torre: separa la
+	// Filo azul de la torre muy tenue en el contorno de la torre: separa la
 	// silueta del cielo sin llegar a ser un contorno duro de cel-shading.
-	// Filo azul Elite en el canto de la torre, más una insinuación del mismo
+	// Filo azul de la torre en el canto de la torre, más una insinuación del mismo
 	// filo en el anexo: es lo que despega los dos volúmenes del cielo.
 	float edge_band = smoothstep(tower_half_width - 0.012, tower_half_width - 0.001, dx) * in_tower;
 	col += tower_edge_color.rgb * edge_band * rim_strength * 0.5;

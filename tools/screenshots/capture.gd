@@ -20,6 +20,10 @@ extends SceneTree
 ##   SHOT_OUT      directorio de salida (por defecto, `user://screenshots`)
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
 ##   SHOT_CHUTAOS  "1" para capturar con el estilo de 2012 activo
+##   SHOT_LOCALE   "es" o "en"; por defecto, el del sistema. Existe porque el
+##                 contenedor es una máquina en inglés y la interfaz canónica
+##                 del proyecto es la española: sin esto, las capturas de
+##                 revisión salen en el idioma equivocado.
 ##
 ## LIMITACIÓN QUE HAY QUE TENER PRESENTE: un contenedor sin Vulkan cae al
 ## renderizador de Compatibilidad, y el juego se exporta en Forward+. La
@@ -63,6 +67,10 @@ func _capture() -> void:
 		print("[capture] método del proyecto: ",
 			ProjectSettings.get_setting("rendering/renderer/rendering_method"),
 			" — adaptador: ", driver)
+
+	var locale: String = OS.get_environment("SHOT_LOCALE")
+	if not locale.is_empty():
+		Localization.set_locale(StringName(locale))
 
 	var chutaos := OS.get_environment("SHOT_CHUTAOS") == "1"
 	# `PresentationStyle` no existe como identificador global cuando el motor

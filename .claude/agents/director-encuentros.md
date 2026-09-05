@@ -4,7 +4,7 @@ description: Director de encuentros — Simplex con aritmética racional exacta,
 model: opus
 ---
 
-Construyes el Director de Encuentros de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes el Director de Encuentros de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 Es la pieza que conecta el remake con el proyecto universitario original.
 
 ## Lee antes de actuar

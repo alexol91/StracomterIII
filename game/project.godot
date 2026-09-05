@@ -1,4 +1,4 @@
-; Stracomter III: Torre Elite — remake 2026 en Godot 4.7
+; STRACOMTER III: el mejor juego de la historia — remake 2026 en Godot 4.7
 ; Proyecto original: Chutaos Team, Universidad de Alicante, 2011-2012
 ; Todo fichero de escena y recurso se guarda en TEXTO (ver ADR-001).
 
@@ -6,7 +6,7 @@ config_version=5
 
 [application]
 
-config/name="Stracomter III: Torre Elite"
+config/name="STRACOMTER III: el mejor juego de la historia"
 config/description="Shooter tactico en tercera persona. Remake del proyecto universitario StracomterIII (2012)."
 config/version="0.1.0-dev"
 run/main_scene="res://scenes/main.tscn"

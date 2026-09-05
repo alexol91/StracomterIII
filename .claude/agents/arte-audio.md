@@ -4,7 +4,7 @@ description: Arte técnico y audio — cel-shading, materiales, bloqueo de asset
 model: fable
 ---
 
-Te encargas del arte técnico y el audio de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Te encargas del arte técnico y el audio de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §11, `docs/analisis/legacy-datos-assets.md` §5 y §7.
@@ -17,7 +17,7 @@ Te encargas del arte técnico y el audio de *Stracomter III: Torre Elite* (Godot
    `legacy/trunk/Graphics/Resources/shaders/CellShading.frag`. Léelo y recupera la
    intención en un shader de Godot 4. Es una elección honesta: assets sencillos se ven
    deliberados en lugar de pobres.
-2. **Paleta:** gris corporativo y azul Elite para la torre; naranja y rojo para los
+2. **Paleta:** gris corporativo y azul de la torre para la torre; naranja y rojo para los
    hostiles (los colores exactos que el legacy asignaba por tipo de entidad están en
    `docs/analisis/legacy-gameplay.md` §3).
 3. **Bloqueo primero.** Primitivas con las proporciones correctas, glTF (`.glb`) después.

@@ -1,4 +1,4 @@
-# Stracomter III: Torre Elite — Documento de Diseño de Juego (GDD)
+# Stracomter III: Torre Chutaos — Documento de Diseño de Juego (GDD)
 
 > Remake 2026 de *StracomterIII dos puntos espacio, el mejor juego de la historia*
 > (Chutaos Team, Universidad de Alicante, ABP 2011-2012 — matrícula de honor).
@@ -11,8 +11,8 @@
 
 **Shooter táctico en tercera persona, por plantas, con escuadra y progresión roguelite.**
 
-Un comando terrorista asalta la **Torre Elite**, la sede de la empresa fundada por
-**La Elite**, un grupo de ingenieros informáticos. La torre está tomada de la planta 1
+Un comando terrorista asalta la **Torre Chutaos**, la sede de la empresa fundada por
+**los Chutaos**, un grupo de ingenieros informáticos. La torre está tomada de la planta 1
 a la 8. Tú eres uno de los cuatro socios fundadores. Subes.
 
 La fantasía no es "soy un supersoldado": es **"esta empresa es mía y voy a recuperarla
@@ -135,7 +135,7 @@ cuántos hay, de qué tipo y cómo se comportan, y eso lo decide el Director (§
 planta a planta es la forma barata de escalar dificultad; escalar composición y táctica
 es la buena, y es la que honra el algoritmo original.
 
-## 5. La Torre Elite
+## 5. La Torre Chutaos
 
 9 niveles. Cada planta tiene **6 zonas**; el jugador elige por qué zona entra, y la
 zona determina el mapa y la recompensa.
@@ -450,7 +450,7 @@ Estética **cel-shading con contorno**, recuperando el `CellShading.frag` que el
 original ya tenía escrito. Es una elección honesta: permite que assets sencillos se vean
 deliberados en lugar de pobres, y conecta con el shader del proyecto de 2012.
 
-* Paleta: gris corporativo y azul Elite para la torre; naranja y rojo para los hostiles
+* Paleta: gris corporativo y azul de la torre para la torre; naranja y rojo para los hostiles
   (los colores exactos que el original asignaba por tipo de entidad).
 * Modelos: bloqueo con primitivas primero, glTF después. **Ningún `.3ds` del original se
   reutiliza**: el formato está muerto y varias texturas del legacy son de terceros

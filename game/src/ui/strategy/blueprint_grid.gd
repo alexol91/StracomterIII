@@ -7,7 +7,7 @@ extends Control
 ## composición enemiga no" (GDD §6) — aquí no hay geometría real de la zona
 ## (eso es dato de `levels/`, fuera de este ámbito), así que en vez de
 ## fabricar una silueta de sala que podría inducir a error, se dibuja el
-## lenguaje visual de un plano técnico: rejilla fina en azul Elite muy tenue.
+## lenguaje visual de un plano técnico: rejilla fina en azul de la torre muy tenue.
 ##
 ## Puramente decorativo: sin `_process`, sin entrada, `mouse_filter` en
 ## IGNORE para no robarle el clic a las tarjetas que se dibujan encima.
@@ -21,7 +21,7 @@ func _ready() -> void:
 
 
 func _draw() -> void:
-	var line_color := Palette.ELITE_BLUE_DIM
+	var line_color := Palette.TOWER_BLUE_DIM
 	line_color.a = 0.16
 	var x := 0.0
 	while x <= size.x:
@@ -33,7 +33,7 @@ func _draw() -> void:
 		y += GRID_STEP_PX
 
 	# Marco con esquinas remarcadas, como un plano acotado.
-	var frame_color := Palette.ELITE_BLUE_DIM
+	var frame_color := Palette.TOWER_BLUE_DIM
 	frame_color.a = 0.5
 	var corner := 18.0
 	var pts := [

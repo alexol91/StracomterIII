@@ -33,7 +33,7 @@ var _damage_angle_deg: float = 0.0
 const LOW_AMMO_FRACTION: float = 0.2
 
 ## Duplicado propio del `StyleBox` de relleno de la barra de vida: se crea
-## DESPUÉS de aplicar el tema (para partir del relleno azul Elite ya
+## DESPUÉS de aplicar el tema (para partir del relleno azul de la torre ya
 ## redondeado, no del genérico del motor) y se muta su color según la vida
 ## restante, en vez de reemplazar el `StyleBox` entero en cada cambio.
 var _fill_stylebox: StyleBoxFlat = null

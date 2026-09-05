@@ -1,12 +1,12 @@
-# Stracomter III: Torre Elite
+# STRACOMTER III: el mejor juego de la historia
 
-Remake en **Godot 4.7** de *StracomterIII dos puntos espacio, el mejor juego de la
-historia*, el shooter táctico que **Chutaos Team** desarrolló en C++ durante el curso
+Remake en **Godot 4.7** de *STRACOMTER III: el mejor juego de la historia* —el título
+lleva los dos puntos dentro, es parte del chiste—, el shooter táctico que **Chutaos Team** desarrolló en C++ durante el curso
 2011-2012 como proyecto ABP de la Universidad de Alicante, y que obtuvo matrícula de
 honor.
 
-> Un comando terrorista toma la **Torre Elite**, la sede de la empresa fundada por *La
-> Elite*, un grupo de ingenieros informáticos. Ocho plantas, seis zonas por planta, una
+> Un comando terrorista toma la **Torre Chutaos**, la sede de la empresa fundada por *los
+> Chutaos*, un grupo de ingenieros informáticos. Ocho plantas, seis zonas por planta, una
 > escuadra y una azotea. Se sube matando.
 
 **Equipo original:** Sergio Gallardo Sales · Alejandro Oñate Latorre ·

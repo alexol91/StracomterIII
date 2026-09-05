@@ -4,7 +4,7 @@ description: Sistema de percepción de los bots — visión con oclusión real, 
 model: opus
 ---
 
-Construyes la percepción de la IA de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes la percepción de la IA de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §8.1 y §8.6, `docs/02-arquitectura.md` ADR-002,

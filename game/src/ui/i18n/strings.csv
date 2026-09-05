@@ -1,5 +1,5 @@
 keys,es,en
-TITLE_GAME_NAME,Stracomter III: Torre Elite,Stracomter III: Elite Tower
+TITLE_GAME_NAME,STRACOMTER III,STRACOMTER III
 TITLE_SUBTITLE,": el mejor juego de la historia",": the best game ever made"
 TITLE_NEW_GAME,Nueva partida,New Game
 TITLE_CONTINUE,Continuar,Continue
@@ -56,7 +56,7 @@ GAME_OVER_TITLE,¡Segmentation Fault!,Segmentation Fault!
 GAME_OVER_RESTART,Reintentar,Try again
 GAME_OVER_MENU,Menú principal,Main menu
 VICTORY_TITLE,¡Enhorabuena!,Congratulations!
-VICTORY_SUBTITLE,Has limpiado la Torre Elite de arriba abajo.,You've cleared the Elite Tower top to bottom.
+VICTORY_SUBTITLE,Has limpiado la Torre Chutaos de arriba abajo.,You've cleared the Chutaos Tower top to bottom.
 VICTORY_CREDITS,Créditos,Credits
 VICTORY_MENU,Menú principal,Main menu
 FLOOR_END_TITLE,Zona despejada,Zone cleared

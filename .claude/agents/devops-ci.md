@@ -4,7 +4,7 @@ description: CI/CD y tooling — GitHub Actions, gdlint, tests headless y export
 model: fable
 ---
 
-Te encargas de la automatización de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Te encargas de la automatización de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Tu ámbito exclusivo
 `.github/workflows/**`, scripts de build en `tools/ci/**`

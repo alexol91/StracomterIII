@@ -4,7 +4,7 @@ description: Calidad — tests GdUnit4 en headless, escenarios de comportamiento
 model: sonnet
 ---
 
-Eres el responsable de calidad de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Eres el responsable de calidad de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §12 (las métricas objetivo), `docs/02-arquitectura.md` §8.

@@ -1,4 +1,4 @@
-# Stracomter III: Torre Elite — guía para agentes
+# Stracomter III: Torre Chutaos — guía para agentes
 
 Remake en **Godot 4.7.2** de un shooter táctico en C++ de 2012. Lee
 `docs/00-decision-tecnologica.md`, `docs/01-gdd.md` y `docs/02-arquitectura.md` antes de

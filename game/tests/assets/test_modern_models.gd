@@ -86,3 +86,63 @@ func test_the_cc0_licence_travels_with_the_models() -> void:
 		or FileAccess.file_exists(
 			"res://assets/models/characters_modern/LICENSE-Kenney-CC0.txt"),
 		"la licencia CC0 debe acompañar a los modelos")
+
+
+func test_every_modern_character_actually_has_its_texture() -> void:
+	# Los nueve comparten cuerpo: son el mismo modelo de Kenney con nueve
+	# skins. La textura es LO ÚNICO que distingue a un compañero de un enemigo,
+	# así que un material sin ella no es un detalle de acabado — deja el juego
+	# sin la información más básica que necesita el jugador.
+	#
+	# Pasó de verdad: las texturas se copiaron después de la primera
+	# importación, la caché no se refrescó y los nueve salían de un blanco
+	# idéntico. Cargaban, traían sus 27 animaciones y todas las pruebas
+	# pasaban. Se vio en una captura.
+	for arch: StringName in ARCHETYPES:
+		for material: StandardMaterial3D in _materials_of(arch):
+			assert_not_null(material.albedo_texture,
+				"'%s' se queda sin textura: sería un muñeco blanco más" % arch)
+
+
+func test_no_two_archetypes_share_the_same_skin() -> void:
+	# Si dos arquetipos acabaran con la misma skin, serían indistinguibles en
+	# pantalla aunque cada uno cargue su propio fichero.
+	var seen: Dictionary[String, StringName] = {}
+	for arch: StringName in ARCHETYPES:
+		for material: StandardMaterial3D in _materials_of(arch):
+			if material.albedo_texture == null:
+				continue
+			var path := material.albedo_texture.resource_path
+			if path.is_empty():
+				continue
+			assert_false(seen.has(path) and seen[path] != arch,
+				"'%s' y '%s' usan la misma skin (%s)" % [seen.get(path, &""), arch, path])
+			seen[path] = arch
+	assert_gt(float(seen.size()), 1.0, "no se ha podido leer ninguna skin")
+
+
+func _materials_of(archetype: StringName) -> Array[StandardMaterial3D]:
+	var out: Array[StandardMaterial3D] = []
+	var packed := load("res://scenes/models_modern/%s.tscn" % archetype) as PackedScene
+	if packed == null:
+		return out
+	var node := packed.instantiate()
+	for mesh_node: Node in _mesh_instances(node):
+		var mesh := (mesh_node as MeshInstance3D).mesh
+		if mesh == null:
+			continue
+		for i: int in range(mesh.get_surface_count()):
+			var material := mesh.surface_get_material(i) as StandardMaterial3D
+			if material != null:
+				out.append(material)
+	node.free()
+	return out
+
+
+func _mesh_instances(node: Node) -> Array[Node]:
+	var out: Array[Node] = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for child: Node in node.get_children():
+		out.append_array(_mesh_instances(child))
+	return out

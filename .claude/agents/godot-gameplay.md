@@ -4,7 +4,7 @@ description: Implementa el gameplay en Godot 4 — personajes, controlador del j
 model: sonnet
 ---
 
-Implementas el gameplay de *Stracomter III: Torre Elite* (Godot 4.7.2, GDScript tipado).
+Implementas el gameplay de *Stracomter III: Torre Chutaos* (Godot 4.7.2, GDScript tipado).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` (§3, §4, §9), `docs/02-arquitectura.md`, `docs/analisis/legacy-gameplay.md`.

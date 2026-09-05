@@ -1,7 +1,7 @@
 class_name Palette
 extends RefCounted
 ## Paleta de la interfaz (encargo "listón visual AAA"), en un único fichero
-## para que "azul Elite" o "naranja de amenaza" signifiquen lo mismo en cada
+## para que "azul de la torre" o "naranja de amenaza" signifiquen lo mismo en cada
 ## pantalla. Dirección de arte no negociable (principio de Team Fortress 2
 ## aplicado a un shooter táctico): el mundo va desaturado y de bajo
 ## contraste; lo que importa va saturado y de alto contraste.
@@ -9,14 +9,14 @@ extends RefCounted
 ## Regla dura de esta paleta: **el naranja/rojo de amenaza solo aparece en
 ## avisos de daño y peligro.** Si aparece en un botón decorativo deja de
 ## significar peligro (encargo, sección "Dirección de arte"). Por eso no hay
-## aquí ningún `BUTTON_ACCENT` en naranja: los botones usan azul Elite.
+## aquí ningún `BUTTON_ACCENT` en naranja: los botones usan azul de la torre.
 ##
 ## Sin nodos, sin `_ready`: son constantes puras, comprobables en headless.
 
-## --- Azul Elite: la torre, el marco, la interacción -----------------------
-const ELITE_BLUE: Color = Color(0.302, 0.639, 1.0)          # #4DA3FF
-const ELITE_BLUE_DIM: Color = Color(0.176, 0.373, 0.584)    # variante apagada (bordes, hover leve)
-const ELITE_BLUE_BRIGHT: Color = Color(0.573, 0.792, 1.0)   # variante clara (texto activo, foco)
+## --- Azul de la torre: el marco y la interacción ---------------------------
+const TOWER_BLUE: Color = Color(0.302, 0.639, 1.0)          # #4DA3FF
+const TOWER_BLUE_DIM: Color = Color(0.176, 0.373, 0.584)    # variante apagada (bordes, hover leve)
+const TOWER_BLUE_BRIGHT: Color = Color(0.573, 0.792, 1.0)   # variante clara (texto activo, foco)
 
 ## --- Naranja/rojo de amenaza: SOLO daño y alerta ---------------------------
 const THREAT_ORANGE: Color = Color(1.0, 0.478, 0.239)       # #FF7A3D
@@ -37,7 +37,7 @@ const TEXT_PRIMARY: Color = NEUTRAL_100
 const TEXT_SECONDARY: Color = NEUTRAL_300
 const TEXT_DISABLED: Color = NEUTRAL_500
 const PANEL_BACKGROUND: Color = NEUTRAL_900
-const PANEL_BORDER: Color = ELITE_BLUE_DIM
+const PANEL_BORDER: Color = TOWER_BLUE_DIM
 
 ## Salud: verde-azulado sano -> naranja/rojo de amenaza según fracción
 ## restante. Vive aquí (no en el HUD) para que cualquier pantalla que

@@ -27,7 +27,7 @@ const FONT_SIZE_TITLE: int = 64
 const FONT_SIZE_TITLE_CHUTAOS: int = 46
 const FONT_SIZE_CREDIT_NAME: int = 30
 
-static var _elite_theme: Theme = null
+static var _remake_theme: Theme = null
 static var _chutaos_theme: Theme = null
 static var _title_font: Font = null
 
@@ -37,7 +37,7 @@ static func is_chutaos() -> bool:
 
 
 static func theme_for(chutaos: bool) -> Theme:
-	return chutaos_theme() if chutaos else elite_theme()
+	return chutaos_theme() if chutaos else remake_theme()
 
 
 ## Aplica a `control` el tema que corresponda AHORA MISMO y refresca su fondo
@@ -58,10 +58,10 @@ static func apply_snapshot(control: Control) -> void:
 		backdrop.refresh()
 
 
-static func elite_theme() -> Theme:
-	if _elite_theme == null:
-		_elite_theme = _build_elite_theme()
-	return _elite_theme
+static func remake_theme() -> Theme:
+	if _remake_theme == null:
+		_remake_theme = _build_remake_theme()
+	return _remake_theme
 
 
 static func chutaos_theme() -> Theme:
@@ -76,9 +76,9 @@ static func _title_font_resource() -> Font:
 	return _title_font
 
 
-## --- Tema del remake: azul Elite, panel oscuro, esquinas suaves -----------
+## --- Tema del remake: azul de la torre, panel oscuro, esquinas suaves -----------
 
-static func _build_elite_theme() -> Theme:
+static func _build_remake_theme() -> Theme:
 	var theme := Theme.new()
 	theme.default_font_size = FONT_SIZE_BODY
 
@@ -86,7 +86,7 @@ static func _build_elite_theme() -> Theme:
 	theme.set_font_size("font_size", "Label", FONT_SIZE_BODY)
 
 	_add_label_variation(theme, &"TitleLabel", _title_font_resource(), FONT_SIZE_TITLE, Palette.TEXT_PRIMARY)
-	_add_label_variation(theme, &"SectionLabel", _title_font_resource(), FONT_SIZE_SECTION, Palette.ELITE_BLUE_BRIGHT)
+	_add_label_variation(theme, &"SectionLabel", _title_font_resource(), FONT_SIZE_SECTION, Palette.TOWER_BLUE_BRIGHT)
 	_add_label_variation(theme, &"SubtitleLabel", null, FONT_SIZE_SUBTITLE, Palette.TEXT_SECONDARY)
 	_add_label_variation(theme, &"ThreatLabel", null, FONT_SIZE_BODY, Palette.THREAT_ORANGE)
 	_add_label_variation(theme, &"CreditNameLabel", _title_font_resource(), FONT_SIZE_CREDIT_NAME, Palette.TEXT_PRIMARY)
@@ -94,8 +94,8 @@ static func _build_elite_theme() -> Theme:
 	_style_buttons(theme)
 	_style_panel(theme, Palette.PANEL_BACKGROUND, Palette.PANEL_BORDER, 10)
 	_style_panel_variation(theme, &"HudPanel", &"PanelContainer", Color(Palette.NEUTRAL_950, 0.55), Palette.PANEL_BORDER, 8, 10.0)
-	_style_progress_bar(theme, Palette.NEUTRAL_800, Palette.ELITE_BLUE)
-	_style_slider(theme, Palette.NEUTRAL_800, Palette.ELITE_BLUE)
+	_style_progress_bar(theme, Palette.NEUTRAL_800, Palette.TOWER_BLUE)
+	_style_slider(theme, Palette.NEUTRAL_800, Palette.TOWER_BLUE)
 	_style_option_button(theme)
 	_style_check_box(theme)
 	_style_line_edit(theme)
@@ -165,9 +165,9 @@ static func _add_label_variation(
 
 static func _style_buttons(theme: Theme) -> void:
 	var normal := _rounded_box(Palette.NEUTRAL_800, Palette.NEUTRAL_700, 1)
-	var hover := _rounded_box(Palette.NEUTRAL_700, Palette.ELITE_BLUE, 1)
-	var pressed := _rounded_box(Palette.ELITE_BLUE_DIM, Palette.ELITE_BLUE, 1)
-	var focus := _rounded_box(Palette.NEUTRAL_800, Palette.ELITE_BLUE, 2)
+	var hover := _rounded_box(Palette.NEUTRAL_700, Palette.TOWER_BLUE, 1)
+	var pressed := _rounded_box(Palette.TOWER_BLUE_DIM, Palette.TOWER_BLUE, 1)
+	var focus := _rounded_box(Palette.NEUTRAL_800, Palette.TOWER_BLUE, 2)
 	var disabled := _rounded_box(Palette.NEUTRAL_900, Palette.NEUTRAL_800, 1)
 
 	theme.set_stylebox("normal", "Button", normal)
@@ -176,8 +176,8 @@ static func _style_buttons(theme: Theme) -> void:
 	theme.set_stylebox("focus", "Button", focus)
 	theme.set_stylebox("disabled", "Button", disabled)
 	theme.set_color("font_color", "Button", Palette.TEXT_PRIMARY)
-	theme.set_color("font_hover_color", "Button", Palette.ELITE_BLUE_BRIGHT)
-	theme.set_color("font_pressed_color", "Button", Palette.ELITE_BLUE_BRIGHT)
+	theme.set_color("font_hover_color", "Button", Palette.TOWER_BLUE_BRIGHT)
+	theme.set_color("font_pressed_color", "Button", Palette.TOWER_BLUE_BRIGHT)
 	theme.set_color("font_disabled_color", "Button", Palette.TEXT_DISABLED)
 	theme.set_font_size("font_size", "Button", FONT_SIZE_BUTTON)
 	theme.set_constant("h_separation", "Button", 10)
@@ -224,11 +224,11 @@ static func _style_slider(theme: Theme, groove: Color, fill: Color) -> void:
 
 static func _style_option_button(theme: Theme) -> void:
 	var normal := _rounded_box(Palette.NEUTRAL_800, Palette.NEUTRAL_700, 1)
-	var hover := _rounded_box(Palette.NEUTRAL_700, Palette.ELITE_BLUE, 1)
+	var hover := _rounded_box(Palette.NEUTRAL_700, Palette.TOWER_BLUE, 1)
 	theme.set_stylebox("normal", "OptionButton", normal)
 	theme.set_stylebox("hover", "OptionButton", hover)
 	theme.set_stylebox("pressed", "OptionButton", normal)
-	theme.set_stylebox("focus", "OptionButton", _rounded_box(Palette.NEUTRAL_800, Palette.ELITE_BLUE, 2))
+	theme.set_stylebox("focus", "OptionButton", _rounded_box(Palette.NEUTRAL_800, Palette.TOWER_BLUE, 2))
 	theme.set_color("font_color", "OptionButton", Palette.TEXT_PRIMARY)
 	theme.set_font_size("font_size", "OptionButton", FONT_SIZE_BUTTON)
 
@@ -240,7 +240,7 @@ static func _style_check_box(theme: Theme) -> void:
 
 static func _style_line_edit(theme: Theme) -> void:
 	var normal := _rounded_box(Palette.NEUTRAL_800, Palette.NEUTRAL_700, 4)
-	var focus := _rounded_box(Palette.NEUTRAL_800, Palette.ELITE_BLUE, 4)
+	var focus := _rounded_box(Palette.NEUTRAL_800, Palette.TOWER_BLUE, 4)
 	theme.set_stylebox("normal", "LineEdit", normal)
 	theme.set_stylebox("focus", "LineEdit", focus)
 	theme.set_color("font_color", "LineEdit", Palette.TEXT_PRIMARY)
@@ -266,14 +266,14 @@ static func _flat_box(bg: Color, border: Color, radius: int) -> StyleBoxFlat:
 
 
 ## Botón "primario" (la acción principal de una pantalla: confirmar zona,
-## confirmar clase...): relleno en azul Elite en vez del contorno neutro de
+## confirmar clase...): relleno en azul de la torre en vez del contorno neutro de
 ## `_style_buttons`, para que destaque como LA acción de la pantalla y no
 ## compita visualmente con "Atrás"/"Cancelar".
 static func style_primary_button(button: Button) -> void:
-	var normal := _rounded_box(Palette.ELITE_BLUE, Palette.ELITE_BLUE_BRIGHT, 6)
-	var hover := _rounded_box(Palette.ELITE_BLUE_BRIGHT, Palette.ELITE_BLUE_BRIGHT, 6)
-	var pressed := _rounded_box(Palette.ELITE_BLUE_DIM, Palette.ELITE_BLUE_BRIGHT, 6)
-	var focus := _rounded_box(Palette.ELITE_BLUE, Palette.TEXT_PRIMARY, 6)
+	var normal := _rounded_box(Palette.TOWER_BLUE, Palette.TOWER_BLUE_BRIGHT, 6)
+	var hover := _rounded_box(Palette.TOWER_BLUE_BRIGHT, Palette.TOWER_BLUE_BRIGHT, 6)
+	var pressed := _rounded_box(Palette.TOWER_BLUE_DIM, Palette.TOWER_BLUE_BRIGHT, 6)
+	var focus := _rounded_box(Palette.TOWER_BLUE, Palette.TEXT_PRIMARY, 6)
 	focus.set_border_width_all(2)
 	var disabled := _rounded_box(Palette.NEUTRAL_800, Palette.NEUTRAL_700, 6)
 	button.add_theme_stylebox_override("normal", normal)

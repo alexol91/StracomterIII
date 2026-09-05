@@ -61,7 +61,7 @@ equipo: **no todas lo son**. `pared.jpg` y `paredOficina.jpg` son fotografías �
 panel de hormigón con remaches y un muro de bloques— con la iluminación y el ruido
 de sensor propios de una cámara, no de un dibujo. Lo más probable es que salieran
 de un banco de texturas en 2012, sin registrar de cuál. `fondo.jpg` sí es obra del
-equipo: es un render de SketchUp de la propia Torre Elite, con el rótulo
+equipo: es un render de SketchUp de la propia Torre Chutaos, con el rótulo
 «CHUTAOS Inc.» puesto a mano.
 
 Se mantienen porque son el juego original y el modo chutaos existe para verlo tal

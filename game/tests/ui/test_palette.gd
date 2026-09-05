@@ -10,11 +10,11 @@ func test_threat_orange_matches_the_briefed_hex() -> void:
 	assert_almost_eq(Palette.THREAT_ORANGE.b, 0.239, 0.01)
 
 
-func test_elite_blue_matches_the_briefed_hex() -> void:
+func test_tower_blue_matches_the_briefed_hex() -> void:
 	# #4DA3FF
-	assert_almost_eq(Palette.ELITE_BLUE.r, 0.302, 0.01)
-	assert_almost_eq(Palette.ELITE_BLUE.g, 0.639, 0.01)
-	assert_almost_eq(Palette.ELITE_BLUE.b, 1.0, 0.01)
+	assert_almost_eq(Palette.TOWER_BLUE.r, 0.302, 0.01)
+	assert_almost_eq(Palette.TOWER_BLUE.g, 0.639, 0.01)
+	assert_almost_eq(Palette.TOWER_BLUE.b, 1.0, 0.01)
 
 
 func test_health_color_is_full_health_tone_at_fraction_one() -> void:

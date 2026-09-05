@@ -1,6 +1,6 @@
 class_name FloorConfig
 extends Resource
-## Configuración de una planta de la Torre Elite.
+## Configuración de una planta de la Torre Chutaos.
 ## El original tenía 8 plantas × 6 zonas y una tabla de selección de mapa
 ## codificada a mano en GameAction::selectionMap(). Aquí es dato.
 

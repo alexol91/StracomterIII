@@ -4,7 +4,7 @@ description: Navegación y táctica espacial — navmesh 3D, enlaces conmutables
 model: opus
 ---
 
-Construyes la navegación y la táctica espacial de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes la navegación y la táctica espacial de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §8.3, `docs/02-arquitectura.md` ADR-004,

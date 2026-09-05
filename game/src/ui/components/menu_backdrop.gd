@@ -3,7 +3,7 @@ extends Control
 ## Fondo compartido de las pantallas de menú (encargo: "mismo lenguaje visual
 ## en todas"). Dos capas, una visible según el estilo activo:
 ##
-## - `ShaderBackground`: silueta animada de la Torre Elite de noche
+## - `ShaderBackground`: silueta animada de la Torre Chutaos de noche
 ##   (`assets/shaders/ui/menu_background.gdshader`). Es el fondo del remake.
 ## - `ChutaosBackground`: el `fondo.jpg` original de 2012. Es el fondo cuando
 ##   `PresentationStyle.chutaos_mode` está activo — el encargo pide
@@ -17,7 +17,7 @@ extends Control
 
 ## `fondo_torre.jpg`: el render de SketchUp del equipo original (2012),
 ## usado como fondo en `GameMenu.cc` (inicio, opciones, final, estrategia).
-## Torre Elite octogonal de muro cortina, "CHUTAOS Inc." en la coronación,
+## Torre Chutaos octogonal de muro cortina, "CHUTAOS Inc." en la coronación,
 ## edificio bajo "Chutaos Inc. I+D" a la derecha. Es la imagen real, no una
 ## reconstrucción: por eso en modo Chutaos se muestra tal cual, sin recortar
 ## ni recolorear.

@@ -72,9 +72,9 @@ func _accent_for_entry(entry: Dictionary) -> Color:
 		ZoneThreatReading.MapScale.LARGE:
 			return Palette.THREAT_ORANGE
 		ZoneThreatReading.MapScale.SMALL:
-			return Palette.ELITE_BLUE_DIM
+			return Palette.TOWER_BLUE_DIM
 		_:
-			return Palette.ELITE_BLUE
+			return Palette.TOWER_BLUE
 
 
 func _make_zone_button(entry: Dictionary) -> Button:
@@ -114,7 +114,7 @@ func _make_zone_button(entry: Dictionary) -> Button:
 
 	var reward_label := Label.new()
 	reward_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	reward_label.add_theme_color_override("font_color", Palette.ELITE_BLUE_BRIGHT)
+	reward_label.add_theme_color_override("font_color", Palette.TOWER_BLUE_BRIGHT)
 	reward_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var reward_format_key: StringName = entry.get("reward_format_key", &"")
 	var reward_amount: int = int(entry.get("reward_amount", 0.0))

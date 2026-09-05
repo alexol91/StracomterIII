@@ -4,7 +4,7 @@ description: Toma de decisiones de los bots — selector por utilidad más árbo
 model: opus
 ---
 
-Construyes la toma de decisiones de la IA de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes la toma de decisiones de la IA de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §8.2 y §4, `docs/02-arquitectura.md` ADR-002,

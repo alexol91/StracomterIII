@@ -95,7 +95,7 @@ func archetypes_without_modern() -> Array[StringName]:
 
 ## Nombre legible del estilo activo, para la consola y la interfaz.
 func style_name() -> String:
-	return "Chutaos (2012)" if chutaos_mode else "Torre Elite (remake)"
+	return "Chutaos (2012)" if chutaos_mode else "Torre Chutaos (remake)"
 
 
 ## Aplica lo que depende del estilo y no vive aquí. El audio es el caso claro:

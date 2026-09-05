@@ -4,7 +4,7 @@ description: Interfaz — HUD, menús, la pantalla de Estrategia, consola de dep
 model: sonnet
 ---
 
-Construyes la interfaz de *Stracomter III: Torre Elite* (Godot 4.7.2, nodos `Control`).
+Construyes la interfaz de *Stracomter III: Torre Chutaos* (Godot 4.7.2, nodos `Control`).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §6 y §10, `docs/analisis/legacy-gameplay.md` §9.

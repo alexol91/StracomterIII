@@ -46,8 +46,8 @@ func _make_card(archetype: StringName) -> Button:
 	button.custom_minimum_size = Vector2(190.0, 140.0)
 	button.text = ""
 
-	var accent := Palette.ELITE_BLUE
-	button.add_theme_stylebox_override("normal", UiStyle.zone_card_stylebox(Palette.ELITE_BLUE_DIM, false))
+	var accent := Palette.TOWER_BLUE
+	button.add_theme_stylebox_override("normal", UiStyle.zone_card_stylebox(Palette.TOWER_BLUE_DIM, false))
 	button.add_theme_stylebox_override("hover", UiStyle.zone_card_stylebox(accent, false))
 	button.add_theme_stylebox_override("pressed", UiStyle.zone_card_stylebox(accent, true))
 	button.add_theme_stylebox_override("focus", UiStyle.zone_card_stylebox(accent, true))
@@ -63,7 +63,7 @@ func _make_card(archetype: StringName) -> Button:
 	card.add_theme_constant_override("separation", 8)
 	button.add_child(card)
 
-	# Emblema: iniciales sobre un círculo del azul Elite. Sin arte de
+	# Emblema: iniciales sobre un círculo del azul de la torre. Sin arte de
 	# personaje disponible en este ámbito (`ui-ux` no genera assets 3D), el
 	## mismo lenguaje del icono de escuadra del HUD (`hud.gd::_apply_squad_icon`).
 	var emblem := PanelContainer.new()
@@ -71,7 +71,7 @@ func _make_card(archetype: StringName) -> Button:
 	emblem.custom_minimum_size = Vector2(56.0, 56.0)
 	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var emblem_box := StyleBoxFlat.new()
-	emblem_box.bg_color = Palette.ELITE_BLUE_DIM
+	emblem_box.bg_color = Palette.TOWER_BLUE_DIM
 	emblem_box.set_corner_radius_all(28)
 	emblem.add_theme_stylebox_override("panel", emblem_box)
 	var initial_label := Label.new()

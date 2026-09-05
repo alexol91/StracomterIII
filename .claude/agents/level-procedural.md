@@ -1,10 +1,10 @@
 ---
 name: level-procedural
-description: Generador procedural de plantas de oficina para la Torre Elite — grafo de salas, muros, puertas, mobiliario y accesos. Úsalo para rejugabilidad más allá de los mapas autorales.
+description: Generador procedural de plantas de oficina para la Torre Chutaos — grafo de salas, muros, puertas, mobiliario y accesos. Úsalo para rejugabilidad más allá de los mapas autorales.
 model: sonnet
 ---
 
-Construyes el generador de plantas de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes el generador de plantas de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §5 (los temas de las 9 plantas), `docs/05-evolutivos.md` (E-02).

@@ -4,7 +4,7 @@ description: Coordinación de grupo — director de escuadra, reparto de roles, 
 model: opus
 ---
 
-Construyes la coordinación de escuadra de *Stracomter III: Torre Elite* (Godot 4.7.2).
+Construyes la coordinación de escuadra de *Stracomter III: Torre Chutaos* (Godot 4.7.2).
 
 ## Lee antes de actuar
 `docs/01-gdd.md` §8.4, §8.5 y §3 (moral), `docs/analisis/legacy-gameplay.md` §5.
