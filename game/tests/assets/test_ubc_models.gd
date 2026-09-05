@@ -40,13 +40,11 @@ func test_the_animation_library_matches_the_body_rig() -> void:
 			bones[bone] = true
 	assert_gt(float(bones.size()), 20.0, "el primer clip anima muy pocos huesos")
 
-	var skeleton := _skeleton_of(&"captain")
-	assert_not_null(skeleton, "el cuerpo no trae Skeleton3D")
-	if skeleton == null:
-		return
+	var body_bones := _bone_names_of(&"captain")
+	assert_gt(float(body_bones.size()), 20.0, "el cuerpo no trae esqueleto")
 	var missing: Array[String] = []
 	for bone: String in bones:
-		if skeleton.find_bone(bone) < 0:
+		if not body_bones.has(bone):
 			missing.append(bone)
 	assert_size(missing, 0,
 		"la biblioteca anima huesos que el cuerpo no tiene: %s" % ", ".join(missing))
@@ -196,17 +194,21 @@ func _drop(node: Node3D) -> void:
 	node.free()
 
 
-func _skeleton_of(archetype: StringName) -> Skeleton3D:
+## Nombres de los huesos del cuerpo. Se devuelven los NOMBRES y no el
+## `Skeleton3D`: duplicar el nodo para sacarlo de la escena deja un huérfano
+## que nadie libera, y el runner lo canta al salir como instancia perdida.
+func _bone_names_of(archetype: StringName) -> Dictionary[String, bool]:
+	var names: Dictionary[String, bool] = {}
 	var packed := load(UbcModel.base_path_for(archetype)) as PackedScene
 	if packed == null:
-		return null
+		return names
 	var root := packed.instantiate()
 	var skeleton := root.get_node_or_null(UbcModel.SKELETON_PATH) as Skeleton3D
-	var copy: Skeleton3D = null
 	if skeleton != null:
-		copy = skeleton.duplicate() as Skeleton3D
+		for index: int in range(skeleton.get_bone_count()):
+			names[skeleton.get_bone_name(index)] = true
 	root.free()
-	return copy
+	return names
 
 
 func _body_mesh(node: Node) -> MeshInstance3D:

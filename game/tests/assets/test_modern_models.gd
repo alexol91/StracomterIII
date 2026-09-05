@@ -236,9 +236,13 @@ func test_the_valve_models_are_never_committed() -> void:
 	# El repositorio es público: meter los modelos de Valve aquí no sería uso
 	# privado no comercial sino redistribución. Esta prueba es la red por si
 	# alguien los copia a mano y hace `git add -A` sin mirar.
-	var dir := DirAccess.open(PresentationStyle.MODELS_TF2)
-	if dir == null:
-		return  # la carpeta ni existe: perfecto
+	# La regla se comprueba SIEMPRE, exista o no la carpeta. Antes había un
+	# `return` temprano cuando no existía —"la carpeta ni existe: perfecto"— y
+	# eso convertía la prueba en cero aserciones en un clon recién hecho, que
+	# el runner cuenta como fallo. En local pasaba, porque aquí la carpeta se
+	# había creado a mano; en CI, no. Una prueba que se salta sola tampoco
+	# protegía nada: lo que hay que garantizar es la regla del `.gitignore`, y
+	# eso vale exista la carpeta o no.
 	var ignore := FileAccess.open("res://../.gitignore", FileAccess.READ)
 	assert_not_null(ignore, "hace falta un .gitignore que excluya esa carpeta")
 	if ignore != null:
