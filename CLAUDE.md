@@ -107,6 +107,54 @@ pruebas mientan.** Ya ha pasado tres veces —una máscara de colisión ignorada
 siempre llegan al destino exacto, un mundo de cajas que dejó de parecerse al mapa—. Si
 escribes un doble, documenta qué modos de fallo del original reproduce y **cuáles no**.
 
+## Si el entregable es visual, míralo
+
+Cuatro fallos de una misma tarde no los detectó ninguna prueba, y los cuatro se
+vieron a la primera captura de pantalla:
+
+* La interfaz arrancaba **en inglés** en un proyecto cuya UI es española.
+* La torre del menú tenía **ventanas flotando sobre el tejado**.
+* El **suelo de todos los mapas llevaba desde siempre sin dibujarse**: la
+  planta parecía un agujero negro mal iluminado.
+* El mundo **no tenía ni una luz**, así que la biblioteca de materiales entera
+  era invisible.
+
+`tools/screenshots/capture.sh` renderiza las pantallas a PNG con `xvfb-run`.
+Cuesta un minuto. Aprobar un entregable visual sin verlo es fiarse de una
+descripción, y una descripción no tiene ventanas flotando.
+
+Aviso de la propia herramienta: sin Vulkan cae al renderizador de
+Compatibilidad y el juego se exporta en Forward+. La silueta, la composición,
+el valor y la saturación son fiables; el ambiente de imagen, la oclusión de
+contacto y las sombras, no. De ahí que la iluminación no dependa solo del
+aporte del cielo: **lo que se afina mirando una captura tiene que sobrevivir al
+cambio de renderizador.**
+
+## Cuando el motor gana en silencio
+
+Tres trampas del mismo tipo: el código es correcto, el motor hace otra cosa y
+no avisa.
+
+* **Una función estática no puede llamarse como un método del motor.**
+  `Localization.reload()` llamaba a `Script.reload()` —que recompila el
+  script—, no a la función estática del fichero. Desde dentro de la clase
+  resolvía bien; desde fuera, no. Devolvía OK y no recargaba nada. El síntoma
+  era absurdo: una función que no llegaba a imprimir ni su primera línea.
+  Comprueba los nombres contra `Object`, `Resource`, `Node` y `Script`.
+* **La cara frontal en Godot es la HORARIA vista de frente**, al revés que en
+  OpenGL. Una malla convertida con la convención de OpenGL no se ve mal: no se
+  dibuja, y detrás solo está el fondo. Cuidado especialmente con la geometría
+  que viene del conversor de mapas, que además necesita el bobinado CONTRARIO
+  para que el horneador de navegación la acepte.
+* **Un mapa de normales sin tangentes pinta la superficie de negro.** Las
+  primitivas (`BoxMesh`…) las traen; una malla montada a mano con
+  `add_surface_from_arrays`, no. `SurfaceTool.generate_tangents()`.
+
+Y dos de recursos en texto: dentro de `[resource]` los comentarios van con `;`
+—un `#` se pega al nombre de la propiedad siguiente— y los nombres de Godot 3
+(`specular` por `metallic_specular`) se remapean con un aviso, así que el
+recurso carga, la prueba pasa y el arranque deja de estar limpio.
+
 ## Convenciones
 
 * GDScript con **tipado estático estricto**: `class_name`, `-> void`, `: float`. El
