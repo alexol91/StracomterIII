@@ -87,8 +87,17 @@ extends StaticBody3D
 @export var skirt_indices: PackedInt32Array = PackedInt32Array()
 
 
+## `_ready()` tiene que ser idempotente, y no por elegancia: hay ayudantes de
+## prueba que lo llaman A MANO para forzar la construcción perezosa del suelo
+## sin meter el mapa en el árbol (`tests/ai/navigation/nav_test_util.gd:
+## ensure_colliders_built`). Sin guardas, una segunda llamada añadiría un
+## `FloorMesh` y un `FloorCollision` duplicados —geometría doble y colisión
+## doble, sin un solo error— y volvería a conectarse a la señal.
 func _ready() -> void:
-	_build()
+	if get_node_or_null("FloorMesh") == null:
+		_build()
+	if not PresentationStyle.style_changed.is_connected(_on_style_changed):
+		PresentationStyle.style_changed.connect(_on_style_changed)
 
 
 func _build() -> void:
@@ -111,13 +120,7 @@ func _build() -> void:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	var material := StandardMaterial3D.new()
-	# Color plano de referencia: las texturas legacy (pared.jpg,
-	# sueloOficina.jpg...) no se redistribuyen (ver docs/analisis
-	# §5.2/§7 — procedencia y licencia sin verificar). Sustituir aquí
-	# cuando exista un set de texturas propio.
-	material.albedo_color = Color(0.55, 0.55, 0.58)
-	mesh.surface_set_material(0, material)
+	mesh.surface_set_material(0, _floor_material())
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.name = "FloorMesh"
@@ -131,6 +134,30 @@ func _build() -> void:
 	collision.name = "FloorCollision"
 	collision.shape = shape
 	add_child(collision)
+
+
+## El nivel no elige con qué se pinta: se lo pide al estilo activo, y así
+## `: chutaos on|off` cambia el mundo entero sin que este fichero se entere.
+## Si el estilo no diera material (recurso ausente), se cae a un gris plano
+## antes que dejar la superficie sin material: sin él Godot la pinta de un
+## magenta chillón que parece un fallo del mapa y no del estilo.
+func _floor_material() -> Material:
+	var styled := PresentationStyle.surface_material(WorldSurface.Kind.FLOOR)
+	if styled != null:
+		return styled
+	var fallback := StandardMaterial3D.new()
+	fallback.albedo_color = Color(0.55, 0.55, 0.58)
+	return fallback
+
+
+## Repinta al vuelo cuando cambia el estilo. Sin esto, `: chutaos on` solo
+## afectaría a las plantas que se carguen después, y el truco parecería roto
+## justo donde el jugador está mirando.
+func _on_style_changed(_chutaos: bool) -> void:
+	var mesh_instance := get_node_or_null("FloorMesh") as MeshInstance3D
+	if mesh_instance == null or mesh_instance.mesh == null:
+		return
+	(mesh_instance.mesh as ArrayMesh).surface_set_material(0, _floor_material())
 
 
 ## Caras para la forma de colisión: la unión del suelo y el zócalo del

@@ -23,7 +23,7 @@ AIScheduler="*res://src/core/ai_scheduler.gd"
 SaveSystem="*res://src/core/save_system.gd"
 AudioDirector="*res://src/core/audio_director.gd"
 DevConsole="*res://src/core/dev_console.gd"
-ModelStyle="*res://src/gameplay/model_style.gd"
+PresentationStyle="*res://src/gameplay/presentation_style.gd"
 GameCheats="*res://src/core/game_cheats.gd"
 
 [debug]

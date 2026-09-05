@@ -21,25 +21,34 @@ func _exit_tree() -> void:
 
 
 func _register_visual_cheats() -> void:
-	Cheats.register("retro", "retro on|off — modelos de 2012 o modelos nuevos.", 1,
+	Cheats.register("chutaos",
+		"chutaos on|off — juego de 2012 completo (modelos, voces de broma y texturas) o remake.", 1,
+		func(args: Array[String]) -> String:
+			var value := args[0].to_lower()
+			if value not in ["on", "off", "1", "0", "si", "no"]:
+				return "Uso: %s chutaos on|off" % Cheats.PREFIX
+			PresentationStyle.chutaos_mode = value in ["on", "1", "si"]
+			if PresentationStyle.chutaos_mode:
+				return ("Modo CHUTAOS: modelos de 2012, voces de broma y "
+					+ "texturas planas. Como en la universidad.")
+			var missing := PresentationStyle.archetypes_without_modern()
+			if not missing.is_empty():
+				return ("Modo remake, pero sin modelo nuevo todavía para: %s"
+					% ", ".join(missing.map(func(a: StringName) -> String: return String(a))))
+			return "Modo REMAKE: modelos nuevos, audio serio y texturas de oficina.")
+
+	# `retro` era el nombre viejo de la mitad de este eje. Se mantiene como
+	# alias en vez de borrarlo: quien ya lo tenía en los dedos merece que
+	# funcione, y el mensaje le enseña el nombre bueno.
+	Cheats.register("retro", "retro on|off — alias de 'chutaos'.", 1,
 		func(args: Array[String]) -> String:
 			var value := args[0].to_lower()
 			if value not in ["on", "off", "1", "0", "si", "no"]:
 				return "Uso: %s retro on|off" % Cheats.PREFIX
-			var enable := value in ["on", "1", "si"]
-			ModelStyle.retro_enabled = enable
-			if enable:
-				return "Modo retro ACTIVADO: modelos originales de 2012."
-			# Si no hay modelos nuevos, decirlo en vez de dejar al jugador
-			# preguntándose por qué no ve ningún cambio.
-			var missing := ModelStyle.archetypes_without_modern()
-			if missing.size() >= Balance.character_ids().size():
-				return ("Modo retro desactivado, pero aún no hay modelos nuevos "
-					+ "instalados: se seguirán viendo los de 2012.")
-			if not missing.is_empty():
-				return ("Modo retro DESACTIVADO. Sin modelo nuevo todavía: %s"
-					% ", ".join(missing.map(func(a: StringName) -> String: return String(a))))
-			return "Modo retro DESACTIVADO: modelos nuevos.")
+			PresentationStyle.chutaos_mode = value in ["on", "1", "si"]
+			return ("'retro' ahora se llama '%s chutaos': mueve modelos, voces y "
+				+ "texturas a la vez. Estilo activo: %s") % [
+					Cheats.PREFIX, PresentationStyle.style_name()])
 
 	Cheats.register("outline", "outline on|off — contorno del cel-shading.", 1,
 		func(args: Array[String]) -> String:
@@ -82,12 +91,9 @@ func _register_player_cheats() -> void:
 
 
 func _register_world_cheats() -> void:
-	Cheats.register("chutaos", "chutaos on|off — paquete de voces de broma del equipo.", 1,
-		func(args: Array[String]) -> String:
-			var enable := args[0].to_lower() in ["on", "1", "si"]
-			AudioDirector.joke_pack_enabled = enable
-			return "Paquete Chutaos %s." % ("activado" if enable else "desactivado"))
-
+	# El paquete de voces NO tiene truco propio: forma parte del eje Chutaos y
+	# lo mueve `PresentationStyle`. Dos conmutadores para el mismo eje era lo
+	# que había antes, y permitía activar media nostalgia.
 	Cheats.register("noclip", "noclip — atravesar la geometría.", 0,
 		func(_args: Array[String]) -> String:
 			var player := _find_player()

@@ -39,6 +39,11 @@ import legacy_map as lm  # noqa: E402
 # ---------------------------------------------------------------------------
 FLOOR_SCRIPT_RES_PATH = "res://maps/legacy/_legacy_floor_mesh.gd"
 NAVMESH_SCRIPT_RES_PATH = "res://maps/legacy/_legacy_navmesh.gd"
+# Los mapas se generan SIN materiales a propósito: el aspecto lo decide
+# `PresentationStyle` en tiempo de ejecución, y así `: chutaos on|off` puede
+# cambiar el mundo entero. Si se pintaran aquí, quedaría horneado en 24
+# escenas generadas y el truco no podría tocarlo.
+DRESSING_SCRIPT_RES_PATH = "res://src/gameplay/world_dressing.gd"
 
 
 def _fmt(v: float) -> str:
@@ -280,6 +285,7 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
 
     floor_script_id = sw.ext_resource("Script", FLOOR_SCRIPT_RES_PATH)
     navmesh_script_id = sw.ext_resource("Script", NAVMESH_SCRIPT_RES_PATH)
+    dressing_script_id = sw.ext_resource("Script", DRESSING_SCRIPT_RES_PATH)
 
     # ---- raíz -------------------------------------------------------
     root_meta = [
@@ -421,6 +427,13 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
             f'metadata/subtype_name = "{subtype_name}"',
             f'metadata/legacy_angle_deg = {_fmt(obs.angle)}',
         ])
+
+    # ---- vestido del mundo ---------------------------------------------
+    # Va después de la geometría y antes del navmesh: cuando su _ready() se
+    # ejecuta, los muros y el suelo ya existen y hay algo que pintar.
+    sw.node("Dressing", "Node", parent=".", properties=[
+        f'script = ExtResource("{dressing_script_id}")',
+    ])
 
     # ---- recompensas (objects): marcadores con metadatos ---------------
     sw.node("Pickups", "Node3D", parent=".")

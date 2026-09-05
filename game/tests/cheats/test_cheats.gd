@@ -84,46 +84,61 @@ func test_help_lists_the_registered_cheats() -> void:
 	assert_true(out.contains("listado"), "el truco registrado debe aparecer")
 
 
-func test_retro_cheat_switches_the_model_style() -> void:
-	var original := ModelStyle.retro_enabled
-	DevConsole.execute(": retro off")
-	assert_false(ModelStyle.retro_enabled, "'retro off' debe desactivar el modo retro")
-	DevConsole.execute(": retro on")
-	assert_true(ModelStyle.retro_enabled, "'retro on' debe activarlo")
-	ModelStyle.retro_enabled = original
-
-
-func test_retro_off_falls_back_when_there_is_no_modern_model() -> void:
-	# Sin modelos nuevos instalados, apagar el retro no puede dejar al
-	# personaje invisible: se sigue usando el de 2012.
-	var original := ModelStyle.retro_enabled
-	ModelStyle.retro_enabled = false
-	var path := ModelStyle.scene_path_for(&"captain")
-	assert_true(ResourceLoader.exists(path),
-		"la escena elegida debe existir siempre, haya modelo nuevo o no")
-	ModelStyle.retro_enabled = original
-
-
-func test_retro_off_warns_when_nothing_will_change() -> void:
-	var original := ModelStyle.retro_enabled
-	var out := DevConsole.execute(": retro off")
-	if ModelStyle.archetypes_without_modern().size() >= Balance.character_ids().size():
-		assert_true(out.contains("no hay modelos nuevos"),
-			"debe avisar de que no se verá ningún cambio")
-	else:
-		assert_true(out.contains("DESACTIVADO"))
-	ModelStyle.retro_enabled = original
-
-
-func test_chutaos_cheat_switches_the_sound_pack() -> void:
-	var original := AudioDirector.joke_pack_enabled
+func test_chutaos_cheat_moves_models_audio_and_materials_together() -> void:
+	# El motivo de unificar los dos trucos: antes se podía tener modelos de
+	# 2012 con audio serio, o al revés, y ninguna de esas mezclas es un estado
+	# que nadie quisiera. Un solo eje o no hay eje.
+	var original := PresentationStyle.chutaos_mode
 	DevConsole.execute(": chutaos on")
-	assert_true(AudioDirector.joke_pack_enabled, "debe activar el paquete de broma")
-	assert_true(AudioDirector.loaded_effects().size() > 0,
-		"el paquete activo debe tener efectos cargados")
+	assert_true(PresentationStyle.chutaos_mode, "'chutaos on' debe activar el modo de 2012")
+	assert_true(AudioDirector.joke_pack_enabled, "las voces de broma van en el mismo eje")
+	assert_true(PresentationStyle.scene_path_for(&"captain").contains("scenes/models/"),
+		"en modo chutaos el personaje usa el modelo de 2012")
+	var chutaos_floor := PresentationStyle.surface_material(WorldSurface.Kind.FLOOR)
+
 	DevConsole.execute(": chutaos off")
-	assert_false(AudioDirector.joke_pack_enabled)
-	AudioDirector.joke_pack_enabled = original
+	assert_false(PresentationStyle.chutaos_mode, "'chutaos off' debe volver al remake")
+	assert_false(AudioDirector.joke_pack_enabled, "el audio serio vuelve con el remake")
+	var modern_floor := PresentationStyle.surface_material(WorldSurface.Kind.FLOOR)
+	assert_ne(chutaos_floor, modern_floor, "cada estilo pinta el suelo con su material")
+
+	PresentationStyle.chutaos_mode = original
+
+
+func test_retro_still_works_as_an_alias_and_teaches_the_new_name() -> void:
+	# Quien ya tenía 'retro' en los dedos merece que le funcione; el mensaje
+	# le enseña que ahora el truco se llama de otra forma y hace más cosas.
+	var original := PresentationStyle.chutaos_mode
+	DevConsole.execute(": retro off")
+	assert_false(PresentationStyle.chutaos_mode, "'retro off' sigue apagando el estilo de 2012")
+	var out := DevConsole.execute(": retro on")
+	assert_true(PresentationStyle.chutaos_mode, "'retro on' sigue encendiéndolo")
+	assert_true(out.contains("chutaos"), "el alias debe nombrar el truco bueno")
+	PresentationStyle.chutaos_mode = original
+
+
+func test_the_remake_style_never_leaves_a_character_invisible() -> void:
+	# Sin modelo nuevo para un arquetipo, apagar el estilo de 2012 no puede
+	# dejarlo sin escena: se cae al modelo original antes que a la nada.
+	var original := PresentationStyle.chutaos_mode
+	PresentationStyle.chutaos_mode = false
+	for id: StringName in Balance.character_ids():
+		var path := PresentationStyle.scene_path_for(id)
+		assert_true(ResourceLoader.exists(path),
+			"la escena de '%s' debe existir siempre, haya modelo nuevo o no" % id)
+	PresentationStyle.chutaos_mode = original
+
+
+func test_the_remake_style_warns_when_a_model_is_still_missing() -> void:
+	var original := PresentationStyle.chutaos_mode
+	PresentationStyle.chutaos_mode = true
+	var out := DevConsole.execute(": chutaos off")
+	if PresentationStyle.archetypes_without_modern().is_empty():
+		assert_true(out.contains("REMAKE"), "sin huecos, confirma el modo remake")
+	else:
+		assert_true(out.contains("sin modelo nuevo"),
+			"debe nombrar los arquetipos que aún no tienen modelo nuevo")
+	PresentationStyle.chutaos_mode = original
 
 
 func test_xp_cheat_adds_experience() -> void:

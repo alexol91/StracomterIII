@@ -10,7 +10,7 @@ const ARCHETYPES: Array[StringName] = [
 
 func test_every_archetype_has_a_modern_model() -> void:
 	for arch: StringName in ARCHETYPES:
-		assert_true(ModelStyle.has_modern(arch),
+		assert_true(PresentationStyle.has_modern_model(arch),
 			"falta el modelo nuevo de '%s'" % arch)
 
 
@@ -44,37 +44,37 @@ func test_both_styles_expose_the_same_interface() -> void:
 
 
 func test_the_style_switch_picks_a_different_scene() -> void:
-	var original := ModelStyle.retro_enabled
-	ModelStyle.retro_enabled = true
-	var retro := ModelStyle.scene_path_for(&"captain")
-	ModelStyle.retro_enabled = false
-	var modern := ModelStyle.scene_path_for(&"captain")
+	var original := PresentationStyle.chutaos_mode
+	PresentationStyle.chutaos_mode = true
+	var retro := PresentationStyle.scene_path_for(&"captain")
+	PresentationStyle.chutaos_mode = false
+	var modern := PresentationStyle.scene_path_for(&"captain")
 	assert_ne(retro, modern, "cada estilo debe dar una escena distinta")
 	assert_true(retro.contains("scenes/models/"))
 	assert_true(modern.contains("models_modern"))
-	ModelStyle.retro_enabled = original
+	PresentationStyle.chutaos_mode = original
 
 
 func test_the_switch_emits_a_signal_so_the_world_can_react() -> void:
 	# Los personajes ya instanciados tienen que poder cambiar de modelo en
 	# caliente: sin señal, el truco solo afectaría a los que nazcan después.
 	var seen: Array = []
-	var original := ModelStyle.retro_enabled
+	var original := PresentationStyle.chutaos_mode
 	var cb := func(retro: bool) -> void: seen.append(retro)
-	ModelStyle.style_changed.connect(cb)
-	ModelStyle.retro_enabled = not original
-	ModelStyle.style_changed.disconnect(cb)
+	PresentationStyle.style_changed.connect(cb)
+	PresentationStyle.chutaos_mode = not original
+	PresentationStyle.style_changed.disconnect(cb)
 	assert_size(seen, 1, "cambiar de estilo debe emitir la señal una vez")
-	ModelStyle.retro_enabled = original
+	PresentationStyle.chutaos_mode = original
 
 
 func test_setting_the_same_style_twice_does_not_emit() -> void:
 	var seen: Array = []
 	var cb := func(_r: bool) -> void: seen.append(true)
-	ModelStyle.style_changed.connect(cb)
-	var current := ModelStyle.retro_enabled
-	ModelStyle.retro_enabled = current
-	ModelStyle.style_changed.disconnect(cb)
+	PresentationStyle.style_changed.connect(cb)
+	var current := PresentationStyle.chutaos_mode
+	PresentationStyle.chutaos_mode = current
+	PresentationStyle.style_changed.disconnect(cb)
 	assert_size(seen, 0, "no debe emitir si el estilo no cambia")
 
 

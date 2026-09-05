@@ -1,0 +1,13 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+; Mampara de cristal: transparente y ligeramente azulada. Rompe la línea de
+; visión de la IA solo si el nivel lo marca como opaco, así que visualmente
+; deja ver y tácticamente no protege — que es justo la tensión que hace
+; interesante una oficina diáfana.
+
+[resource]
+transparency = 1
+albedo_color = Color(0.62, 0.74, 0.78, 0.28)
+roughness = 0.05
+metallic = 0.1
+metallic_specular = 0.8
