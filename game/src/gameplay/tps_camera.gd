@@ -54,8 +54,23 @@ func _ready() -> void:
 	# en la planta 1, donde el jugador aparece junto a una esquina cóncava y la
 	# vista salía llena de pared.
 	_spring_arm.margin = 0.35
+	# Y con FORMA, no con rayo. El brazo por defecto lanza un rayo de grosor
+	# cero: rasa la esquina, no toca nada y deja la cámara donde el plano
+	# cercano ya está dentro del muro. Con una esfera barrida el brazo se para
+	# antes de que quepa la cámara, que es la pregunta correcta.
+	#
+	# El síntoma era una pantalla entera de textura de pared con el HUD encima,
+	# en los pasillos estrechos de la planta 1. Ninguna prueba lo dice: el
+	# juego funciona, la partida corre y no se ve nada.
+	var probe := SphereShape3D.new()
+	probe.radius = 0.28
+	_spring_arm.shape = probe
 	_spring_arm.position = Vector3(shoulder_offset.x, 0.0, 0.0)
 	if _camera != null:
+		# Plano cercano corto: cuando el brazo sí se colapsa —una esquina
+		# cóncava no deja alternativa— es preferible ver muy de cerca la nuca
+		# del personaje a ver el interior de la pared.
+		_camera.near = 0.05
 		_camera.current = true
 
 
