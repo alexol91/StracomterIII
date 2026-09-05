@@ -11,6 +11,15 @@ func _ready() -> void:
 	_register_world_cheats()
 
 
+## Quien llena un registro estático tiene que vaciarlo. `Cheats._cheats` es
+## estático y sobrevive a este nodo; si se queda con los `Callable` ligados a
+## él, al cerrar el juego se liberan referencias a un objeto ya muerto y el
+## proceso aborta con corrupción de memoria. Las pruebas seguirían pasando y el
+## proceso saldría con código 134: verde por dentro, rojo en CI.
+func _exit_tree() -> void:
+	Cheats.clear()
+
+
 func _register_visual_cheats() -> void:
 	Cheats.register("retro", "retro on|off — modelos de 2012 o modelos nuevos.", 1,
 		func(args: Array[String]) -> String:

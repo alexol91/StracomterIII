@@ -49,6 +49,27 @@ static func unregister(name: String) -> void:
 	_cheats.erase(name)
 
 
+## Vacía el registro. Lo llama quien lo llenó, al salir del árbol.
+##
+## Hace falta porque `_cheats` es estático y por tanto sobrevive a la escena:
+## si guarda `Callable` ligados a un nodo autoload y ese nodo se libera al
+## cerrar el juego, quedan referencias a un objeto muerto y el proceso aborta
+## con corrupción de memoria al terminar. Los tests pasan, el juego "funciona",
+## y aun así el proceso sale con código 134: es un build rojo con todo verde.
+static func clear() -> void:
+	_cheats.clear()
+	_used = false
+
+
+## Retira los trucos cuyo objeto ya no existe. Red de seguridad para quien se
+## olvide de llamar a `clear()`.
+static func prune_dangling() -> void:
+	for name: String in _cheats.keys():
+		var cheat: Cheat = _cheats[name]
+		if not cheat.callable.is_valid():
+			_cheats.erase(name)
+
+
 static func has(name: String) -> bool:
 	return _cheats.has(name)
 
