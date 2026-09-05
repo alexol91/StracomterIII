@@ -30,12 +30,25 @@ static var _keys_by_locale: Dictionary[StringName, Dictionary] = {}
 static func ensure_loaded() -> void:
 	if _loaded:
 		return
-	reload()
+	reload_strings()
 
 
 ## Fuerza la relectura del `.csv`. Útil para pruebas y para iterar textos sin
 ## reiniciar el proceso.
-static func reload() -> void:
+##
+## Se llama `reload_strings` y no `reload` por una razón que costó una tarde
+## encontrar: `Localization` es un `GDScript`, y `Script` ya tiene un método
+## `reload()` propio del motor que RECOMPILA el script. Desde dentro de la
+## clase, `reload()` resolvía a esta función; desde fuera,
+## `Localization.reload()` llamaba al del motor, recompilaba y devolvía OK.
+## Ningún error, ningún aviso, y las traducciones sin recargar. El síntoma era
+## absurdo —una función que no imprimía ni su primera línea— hasta caer en que
+## no era esta función la que se estaba ejecutando.
+##
+## Regla que se lleva: una función estática en una clase con `class_name` no
+## puede llamarse como un método de `Object`, `Resource` o `Script`. El motor
+## gana y lo hace en silencio.
+static func reload_strings() -> void:
 	_keys_by_locale.clear()
 	var rows := _read_csv(CSV_PATH)
 	if rows.is_empty():
@@ -74,9 +87,28 @@ static func reload() -> void:
 	for locale_code: StringName in translations:
 		TranslationServer.add_translation(translations[locale_code])
 
-	if TranslationServer.get_locale().is_empty():
-		TranslationServer.set_locale(String(DEFAULT_LOCALE))
+	_apply_default_locale_if_needed()
 	_loaded = true
+
+
+## Deja el juego en español salvo que la máquina esté en un idioma que sí
+## traducimos.
+##
+## Antes esto preguntaba `if TranslationServer.get_locale().is_empty()`, y esa
+## condición NO SE CUMPLE NUNCA: Godot siempre devuelve un locale, el del
+## sistema, y en headless o en una máquina en inglés eso es "en". Resultado: un
+## proyecto cuya UI es española por convención arrancaba en inglés, sin ningún
+## error, y solo se veía mirando una captura del menú.
+##
+## Es el mismo patrón contra el que avisa CLAUDE.md —el valor por defecto de un
+## dato que no ha llegado— con el agravante de que el centinela elegido era
+## imposible. Aquí la pregunta correcta no es "¿me han dicho el idioma?" sino
+## "¿el idioma que me han dicho es uno de los que hablo?".
+static func _apply_default_locale_if_needed() -> void:
+	var language := TranslationServer.get_locale().get_slice("_", 0)
+	if AVAILABLE_LOCALES.has(StringName(language)):
+		return
+	TranslationServer.set_locale(String(DEFAULT_LOCALE))
 
 
 ## Cambia el idioma activo. `locale_code` es "es" o "en".

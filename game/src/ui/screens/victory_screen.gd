@@ -11,9 +11,13 @@ extends Control
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	var intents := UIIntents.get_singleton()
 	_credits_button.pressed.connect(func() -> void: intents.navigate_to_credits_requested.emit())
 	_menu_button.pressed.connect(func() -> void: intents.return_to_menu_requested.emit())
+	UiStyle.style_primary_button(_credits_button)
+	UiMotion.wire_button_feedback(_credits_button)
+	UiMotion.wire_button_feedback(_menu_button)
 
 
 func focus_default() -> void:

@@ -59,3 +59,4 @@ visible = false
 
 [node name="Console" parent="." instance=ExtResource("12")]
 unique_name_in_owner = true
+unique_name_in_owner = true

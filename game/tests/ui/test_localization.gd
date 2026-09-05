@@ -50,3 +50,46 @@ func test_credits_names_are_present_and_identical_across_locales() -> void:
 		es_names.append(Localization.t(key))
 	for expected: String in names:
 		assert_true(es_names.has(expected), "falta el nombre '%s' en los créditos" % expected)
+
+
+func test_reloading_strings_is_not_the_engine_recompiling_the_script() -> void:
+	# `Script` ya tiene un `reload()` propio que recompila. Mientras esta
+	# función se llamó igual, `Localization.reload()` desde fuera de la clase
+	# llamaba al del motor: devolvía OK, no daba ni un aviso y no recargaba
+	# nada. Esta prueba falla si alguien la renombra de vuelta.
+	var names: Array[String] = []
+	for entry: Dictionary in (Localization as GDScript).get_script_method_list():
+		names.append(String(entry["name"]))
+	assert_false(names.has("reload"),
+		"la recarga de textos no puede llamarse como un método de Script")
+	var original := Localization.current_locale()
+	TranslationServer.set_locale("ja")
+	Localization.reload_strings()
+	assert_ne(TranslationServer.get_locale(), "ja",
+		"si la llamada no hiciera nada, el locale imposible seguiría puesto")
+	Localization.set_locale(original)
+
+
+func test_an_unknown_system_language_falls_back_to_spanish() -> void:
+	# Regresión: la comprobación era `if TranslationServer.get_locale().is_empty()`
+	# y esa condición no se cumple nunca — Godot siempre devuelve el locale del
+	# sistema. Un proyecto cuya interfaz es española por convención arrancaba en
+	# inglés en cualquier máquina que no estuviera en español, sin un solo error
+	# y sin que ninguna prueba lo notara. Solo se vio mirando una captura.
+	var original := Localization.current_locale()
+	TranslationServer.set_locale("ja")
+	Localization.reload_strings()
+	assert_eq(Localization.current_locale(), &"es",
+		"en un idioma que no traducimos, el juego debe hablar español")
+	Localization.set_locale(original)
+
+
+func test_a_known_system_language_is_respected() -> void:
+	# La otra mitad de la regla: si la máquina habla uno de los idiomas que sí
+	# traducimos, no se le lleva la contraria.
+	var original := Localization.current_locale()
+	TranslationServer.set_locale("en")
+	Localization.reload_strings()
+	assert_eq(Localization.current_locale(), &"en",
+		"si la máquina está en inglés y lo traducimos, se respeta")
+	Localization.set_locale(original)

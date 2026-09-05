@@ -11,8 +11,10 @@ extends Control
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	_back_button.pressed.connect(
 		func() -> void: UIIntents.get_singleton().navigate_back_requested.emit())
+	UiMotion.wire_button_feedback(_back_button)
 
 
 func focus_default() -> void:

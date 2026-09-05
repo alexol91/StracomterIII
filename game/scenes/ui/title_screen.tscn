@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://src/ui/screens/title_screen.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/ui/components/menu_backdrop.tscn" id="2"]
 
 [node name="TitleScreen" type="Control"]
 layout_mode = 3
@@ -11,68 +12,90 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="MenuBackdrop" parent="." instance=ExtResource("2")]
+layout_mode = 1
+
+[node name="Content" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.04, 0.05, 0.07, 1)
+theme_override_constants/margin_left = 72
+theme_override_constants/margin_top = 64
+theme_override_constants/margin_right = 72
+theme_override_constants/margin_bottom = 56
 
-[node name="Center" type="CenterContainer" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="Root" type="VBoxContainer" parent="Center"]
+[node name="Row" type="HBoxContainer" parent="Content"]
 layout_mode = 2
-theme_override_constants/separation = 20
 
-[node name="TitleLabel" type="Label" parent="Center/Root"]
+[node name="TowerSpacer" type="Control" parent="Content/Row"]
 layout_mode = 2
-horizontal_alignment = 1
-theme_override_font_sizes/font_size = 40
+size_flags_horizontal = 3
+
+[node name="Align" type="VBoxContainer" parent="Content/Row"]
+layout_mode = 2
+size_flags_vertical = 3
+alignment = 2
+theme_override_constants/separation = 6
+
+[node name="TitleLabel" type="Label" parent="Content/Row/Align"]
+layout_mode = 2
+horizontal_alignment = 2
+theme_type_variation = &"TitleLabel"
 text = "TITLE_GAME_NAME"
 
-[node name="SubtitleLabel" type="Label" parent="Center/Root"]
+[node name="SubtitleLabel" type="Label" parent="Content/Row/Align"]
 layout_mode = 2
-horizontal_alignment = 1
+horizontal_alignment = 2
+theme_type_variation = &"SubtitleLabel"
 text = "TITLE_SUBTITLE"
 
-[node name="Menu" type="VBoxContainer" parent="Center/Root"]
+[node name="MenuSpacer" type="Control" parent="Content/Row/Align"]
 layout_mode = 2
-theme_override_constants/separation = 8
+custom_minimum_size = Vector2(0, 28)
 
-[node name="NewGameButton" type="Button" parent="Center/Root/Menu"]
-unique_name_in_owner = true
+[node name="Menu" type="VBoxContainer" parent="Content/Row/Align"]
 layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="NewGameButton" type="Button" parent="Content/Row/Align/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
+layout_mode = 2
+size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_NEW_GAME"
 
-[node name="ContinueButton" type="Button" parent="Center/Root/Menu"]
+[node name="ContinueButton" type="Button" parent="Content/Row/Align/Menu"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
+size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_CONTINUE"
 
-[node name="OptionsButton" type="Button" parent="Center/Root/Menu"]
+[node name="OptionsButton" type="Button" parent="Content/Row/Align/Menu"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
+size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_OPTIONS"
 
-[node name="CreditsButton" type="Button" parent="Center/Root/Menu"]
+[node name="CreditsButton" type="Button" parent="Content/Row/Align/Menu"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
+size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_CREDITS"
 
-[node name="QuitButton" type="Button" parent="Center/Root/Menu"]
+[node name="QuitButton" type="Button" parent="Content/Row/Align/Menu"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
 layout_mode = 2
+size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_QUIT"

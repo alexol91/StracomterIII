@@ -17,6 +17,7 @@ var _history := ConsoleHistory.new()
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_output.scroll_following = true

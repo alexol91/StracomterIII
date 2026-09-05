@@ -25,6 +25,13 @@ enum Overlay { NONE, CLASS_SELECT, OPTIONS, CREDITS }
 @onready var _game_over: GameOverScreen = %GameOver
 @onready var _victory: VictoryScreen = %Victory
 @onready var _floor_end: FloorEndScreen = %FloorEnd
+@onready var _console: ConsolePanel = %Console
+
+## Todas las pantallas propias (no incluye la consola: se abre/cierra por su
+## cuenta con `toggle_console`, no por `_refresh`), para aplicar el mismo
+## tema y la misma transición de aparición a todas por igual.
+var _screens: Array[Control] = []
+var _was_visible: Dictionary[Control, bool] = {}
 
 var _overlay: Overlay = Overlay.NONE
 var _floor_end_pending: bool = false
@@ -33,10 +40,32 @@ var _floor_end_pending: bool = false
 func _ready() -> void:
 	Localization.ensure_loaded()
 	SettingsService.get_singleton().apply_global()
+	_screens = [
+		_title, _class_select, _options, _credits, _strategy,
+		_hud, _pause, _game_over, _victory, _floor_end,
+	]
+	_apply_style_to_all()
+	PresentationStyle.style_changed.connect(_on_style_changed)
 	_wire_intents()
 	EventBus.zone_cleared.connect(_on_zone_cleared)
 	set_process(true)
 	_refresh()
+
+
+## Único punto de la interfaz que se suscribe a `PresentationStyle.style_
+## changed`: vive tanto como el propio `UiRoot` (toda la partida), así que la
+## conexión no puede sobrevivir a su receptor — no hace falta desconectarla.
+## Las pantallas sueltas (pruebas que instancian una `.tscn` sin pasar por
+## aquí) solo ven una FOTO del estilo actual en su propio `_ready`
+## (`UiStyle.apply_snapshot`), no esta suscripción en caliente.
+func _on_style_changed(_chutaos: bool) -> void:
+	_apply_style_to_all()
+
+
+func _apply_style_to_all() -> void:
+	for screen: Control in _screens:
+		UiStyle.apply_snapshot(screen)
+	UiStyle.apply_snapshot(_console)
 
 
 func _wire_intents() -> void:
@@ -93,29 +122,42 @@ func _refresh() -> void:
 	var mode := GameState.mode
 	var paused := get_tree().paused
 
-	_title.visible = mode == GameState.Mode.MENU and _overlay == Overlay.NONE
-	_class_select.visible = mode == GameState.Mode.MENU and _overlay == Overlay.CLASS_SELECT
-	_credits.visible = mode == GameState.Mode.CREDITS \
-		or (mode == GameState.Mode.MENU and _overlay == Overlay.CREDITS)
-	_options.visible = _overlay == Overlay.OPTIONS
+	_set_visible(_title, mode == GameState.Mode.MENU and _overlay == Overlay.NONE)
+	_set_visible(_class_select, mode == GameState.Mode.MENU and _overlay == Overlay.CLASS_SELECT)
+	_set_visible(_credits, mode == GameState.Mode.CREDITS
+		or (mode == GameState.Mode.MENU and _overlay == Overlay.CREDITS))
+	_set_visible(_options, _overlay == Overlay.OPTIONS)
 
-	_strategy.visible = mode == GameState.Mode.STRATEGY
+	_set_visible(_strategy, mode == GameState.Mode.STRATEGY)
 	if _strategy.visible:
 		_strategy.refresh()
 
-	_hud.visible = mode == GameState.Mode.ACTION
-	_pause.visible = mode == GameState.Mode.ACTION and paused and _overlay != Overlay.OPTIONS
+	_set_visible(_hud, mode == GameState.Mode.ACTION)
+	_set_visible(_pause, mode == GameState.Mode.ACTION and paused and _overlay != Overlay.OPTIONS)
 	if _pause.visible:
 		_pause.focus_default()
-	_game_over.visible = mode == GameState.Mode.ACTION \
-		and GameState.action_status == GameState.ActionStatus.GAME_OVER
+	_set_visible(_game_over, mode == GameState.Mode.ACTION
+		and GameState.action_status == GameState.ActionStatus.GAME_OVER)
 	if _game_over.visible:
 		_game_over.focus_default()
-	_victory.visible = mode == GameState.Mode.ACTION \
-		and GameState.action_status == GameState.ActionStatus.WIN
+	_set_visible(_victory, mode == GameState.Mode.ACTION
+		and GameState.action_status == GameState.ActionStatus.WIN)
 	if _victory.visible:
 		_victory.focus_default()
-	_floor_end.visible = mode == GameState.Mode.ACTION and _floor_end_pending \
-		and _overlay != Overlay.OPTIONS
+	_set_visible(_floor_end, mode == GameState.Mode.ACTION and _floor_end_pending
+		and _overlay != Overlay.OPTIONS)
 	if _floor_end.visible:
 		_floor_end.focus_default()
+
+
+## Aplica la visibilidad y, solo en el flanco oculto→visible, un
+## desvanecimiento de entrada (encargo: "nada instantáneo"). Se apoya en
+## `_was_visible` en vez de mirar `screen.visible` porque esta función es la
+## única que debe decidir cuándo algo "acaba de aparecer": mirar la propiedad
+## no distinguiría "llevaba visible varios frames" de "acaba de mostrarse".
+func _set_visible(screen: Control, should_be_visible: bool) -> void:
+	var was := bool(_was_visible.get(screen, false))
+	screen.visible = should_be_visible
+	if should_be_visible and not was:
+		UiMotion.fade_in(screen)
+	_was_visible[screen] = should_be_visible

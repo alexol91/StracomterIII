@@ -12,9 +12,13 @@ extends Control
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	var intents := UIIntents.get_singleton()
 	_restart_button.pressed.connect(func() -> void: intents.restart_requested.emit())
 	_menu_button.pressed.connect(func() -> void: intents.return_to_menu_requested.emit())
+	UiStyle.style_primary_button(_restart_button)
+	UiMotion.wire_button_feedback(_restart_button)
+	UiMotion.wire_button_feedback(_menu_button)
 
 
 func focus_default() -> void:

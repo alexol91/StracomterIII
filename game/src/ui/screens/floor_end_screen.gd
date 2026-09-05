@@ -12,8 +12,11 @@ extends Control
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	_continue_button.pressed.connect(
 		func() -> void: UIIntents.get_singleton().floor_end_acknowledged.emit())
+	UiStyle.style_primary_button(_continue_button)
+	UiMotion.wire_button_feedback(_continue_button)
 
 
 func show_summary(floor_number: int, zone: int, elapsed_s: float) -> void:

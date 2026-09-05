@@ -44,3 +44,23 @@ func test_hud_updates_time_label_from_process() -> void:
 	GameState.action_status = GameState.ActionStatus.NORMAL
 	hud._process(65.0)
 	assert_eq(time_label.text, HudFormat.format_time(65.0))
+
+
+## Escala de HUD (accesibilidad, GDD §10): un ajuste guardado que no se
+## aplicara a ningún nodo real sería una opción muerta — exactamente el tipo
+## de fallo silencioso que advierte `CLAUDE.md`. Se comprueba que el HUD SÍ
+## adopta `SettingsService.hud_scale`, tanto al arrancar como al avisar
+## `UIIntents.settings_applied` en caliente (el mismo evento que dispara
+## "Guardar y volver" en Opciones).
+func test_hud_applies_hud_scale_on_ready_and_on_settings_applied() -> void:
+	var settings := SettingsService.get_singleton()
+	var original_scale := settings.hud_scale
+	settings.hud_scale = 1.25
+	_node = UiTestSceneBuilders.instantiate_in_tree(UiTestSceneBuilders.HUD_SCENE)
+	var hud := _node as Hud
+	assert_almost_eq(hud.scale.x, 1.25, 0.001)
+
+	settings.hud_scale = 0.8
+	UIIntents.get_singleton().settings_applied.emit()
+	assert_almost_eq(hud.scale.x, 0.8, 0.001)
+	settings.hud_scale = original_scale

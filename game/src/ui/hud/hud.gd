@@ -25,14 +25,52 @@ var _damage_flash_timer: float = 0.0
 var _damage_angle_deg: float = 0.0
 
 
+## Fracción de munición por debajo de la cual el número se lee en el naranja
+## de alerta (dirección de arte: el naranja se reserva a avisos de peligro,
+## y quedarse sin munición en combate lo es). No es un dato de balanceo —no
+## cambia cuánta munición hay ni cuánto daño se hace—, es solo el umbral de
+## lectura visual, así que vive aquí y no en `Balance`.
+const LOW_AMMO_FRACTION: float = 0.2
+
+## Duplicado propio del `StyleBox` de relleno de la barra de vida: se crea
+## DESPUÉS de aplicar el tema (para partir del relleno azul Elite ya
+## redondeado, no del genérico del motor) y se muta su color según la vida
+## restante, en vez de reemplazar el `StyleBox` entero en cada cambio.
+var _fill_stylebox: StyleBoxFlat = null
+
+
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
+	_fill_stylebox = (_health_bar.get_theme_stylebox("fill") as StyleBoxFlat).duplicate()
+	_health_bar.add_theme_stylebox_override("fill", _fill_stylebox)
 	EventBus.character_damaged.connect(_on_character_damaged)
 	_damage_indicator.visible = false
 	_damage_indicator.draw.connect(_draw_damage_indicator)
+	resized.connect(_update_scale_pivot)
+	_update_scale_pivot()
+	_apply_hud_scale()
+	# `Hud` es un hijo permanente de `UiRoot` (nunca se libera en una partida
+	# real): conectarse aquí a una señal de un singleton "manual" que vive
+	# toda la partida es seguro y no necesita desconectarse (mismo argumento
+	# que la única conexión de `UiRoot` a `PresentationStyle.style_changed`).
+	UIIntents.get_singleton().settings_applied.connect(_apply_hud_scale)
 	_find_player()
 	set_process(true)
+
+
+## El original dibujaba a 800×600 fijo con posiciones absolutas
+## (`legacy-gameplay.md` §9.1): aquí la escala del HUD es un ajuste de
+## accesibilidad (`SettingsService.hud_scale`, GDD §10), no un número de
+## balanceo. Escalar desde el centro de pantalla (no desde la esquina)
+## mantiene los chips pegados a sus esquinas mientras crecen/encogen.
+func _update_scale_pivot() -> void:
+	pivot_offset = size * 0.5
+
+
+func _apply_hud_scale() -> void:
+	scale = Vector2.ONE * SettingsService.get_singleton().hud_scale
 
 
 func _process(delta: float) -> void:
@@ -79,10 +117,15 @@ func _on_health_changed(current: float, maximum: float) -> void:
 	_health_label.text = Localization.t(&"HUD_HEALTH_FMT") % [int(current), int(maximum)]
 	_health_bar.max_value = maxf(maximum, 1.0)
 	_health_bar.value = current
+	if _fill_stylebox != null:
+		_fill_stylebox.bg_color = Palette.health_color(current / maxf(maximum, 1.0))
 
 
 func _on_ammo_changed(current: int, maximum: int) -> void:
 	_ammo_label.text = Localization.t(&"HUD_AMMO_FMT") % [current, maximum]
+	var low := float(maximum) > 0.0 and float(current) / float(maximum) <= LOW_AMMO_FRACTION
+	_ammo_label.add_theme_color_override(
+		"font_color", Palette.THREAT_ORANGE if low else Palette.TEXT_PRIMARY)
 
 
 ## Solo reacciona si el daño es al jugador: no es la escuadra al completo la
@@ -135,11 +178,10 @@ func _apply_squad_icon(label: Label, character: Character) -> void:
 	var initial := String(character.archetype).left(1).to_upper()
 	label.text = initial
 	if not character.alive:
-		label.modulate = Color(0.4, 0.4, 0.4)
-	elif stats != null and character.health <= stats.max_health * 0.3:
-		label.modulate = Color(1.0, 0.4, 0.3)
+		label.modulate = Palette.NEUTRAL_500
 	else:
-		label.modulate = Color(0.5, 1.0, 0.6)
+		var max_health := stats.max_health if stats != null else maxf(character.health, 1.0)
+		label.modulate = Palette.health_color(character.health / maxf(max_health, 1.0))
 
 
 func _draw_damage_indicator() -> void:
@@ -153,5 +195,6 @@ func _draw_damage_indicator() -> void:
 	var tip := center + Vector2(cos(angle), sin(angle)) * radius
 	var left := center + Vector2(cos(angle + 2.6), sin(angle + 2.6)) * radius * 0.4
 	var right := center + Vector2(cos(angle - 2.6), sin(angle - 2.6)) * radius * 0.4
-	_damage_indicator.draw_colored_polygon(
-		PackedVector2Array([tip, left, right]), Color(1.0, 0.15, 0.1, alpha))
+	var color := Palette.THREAT_RED
+	color.a = alpha
+	_damage_indicator.draw_colored_polygon(PackedVector2Array([tip, left, right]), color)

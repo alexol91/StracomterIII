@@ -14,6 +14,7 @@ extends Control
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	_continue_button.disabled = not SaveSystem.has_save()
 	var intents := UIIntents.get_singleton()
 	_new_game_button.pressed.connect(func() -> void: intents.navigate_to_class_select_requested.emit())
@@ -21,4 +22,8 @@ func _ready() -> void:
 	_options_button.pressed.connect(func() -> void: intents.navigate_to_options_requested.emit())
 	_credits_button.pressed.connect(func() -> void: intents.navigate_to_credits_requested.emit())
 	_quit_button.pressed.connect(func() -> void: intents.quit_requested.emit())
+	for button: Button in [
+		_new_game_button, _continue_button, _options_button, _credits_button, _quit_button,
+	]:
+		UiMotion.wire_button_feedback(button)
 	_new_game_button.grab_focus()

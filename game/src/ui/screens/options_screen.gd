@@ -40,12 +40,16 @@ var _awaiting_rebind: Dictionary = {}
 func _ready() -> void:
 	Localization.ensure_loaded()
 	AutoLocalize.apply(self)
+	UiStyle.apply_snapshot(self)
 	_settings = SettingsService.get_singleton()
 	_populate_locale_option()
 	_populate_colorblind_option()
 	_load_values_into_controls()
 	_build_remap_list()
 	_wire_controls()
+	UiStyle.style_primary_button(_back_button)
+	UiMotion.wire_button_feedback(_reset_bindings_button)
+	UiMotion.wire_button_feedback(_back_button)
 
 
 func _wire_controls() -> void:
@@ -154,6 +158,7 @@ func _make_rebind_button(action: StringName, slot: InputRemapService.Slot) -> Bu
 	button.custom_minimum_size = Vector2(140.0, 0.0)
 	button.text = _binding_label(action, slot)
 	button.pressed.connect(func() -> void: _begin_rebind(action, slot, button))
+	UiMotion.wire_button_feedback(button)
 	return button
 
 
