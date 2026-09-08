@@ -136,6 +136,15 @@ sitio. Si registras un truco, comprueba en el mismo commit que alguien lo lee.
 Cuesta un minuto. Aprobar un entregable visual sin verlo es fiarse de una
 descripción, y una descripción no tiene ventanas flotando.
 
+Y el corolario, que ya ha costado dos veces: **mira desde donde se JUEGA**.
+El perímetro de los mapas es acero oscuro a propósito —oscuro es infranqueable,
+claro es tabique— y su `metallic` se bajó una vez de 0,85 a 0,45 porque «salía
+negro en el interior». La comprobación se hizo con una captura CENITAL, donde
+ese muro se lee como un borde y el fallo no se ve. En tercera persona, que es
+como se juega, seguía en luminancia 36 sobre 255 al lado de un tabique en 231:
+un agujero junto a un reflector. Una captura desde el ángulo equivocado no es
+media comprobación, es una comprobación que dice lo contrario de la verdad.
+
 Aviso de la propia herramienta: sin Vulkan cae al renderizador de
 Compatibilidad y el juego se exporta en Forward+. La silueta, la composición,
 el valor y la saturación son fiables; el ambiente de imagen, la oclusión de

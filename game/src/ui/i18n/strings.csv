@@ -1,6 +1,6 @@
 keys,es,en
 TITLE_GAME_NAME,STRACOMTER III,STRACOMTER III
-TITLE_SUBTITLE,": el mejor juego de la historia",": the best game ever made"
+TITLE_SUBTITLE,el mejor juego de la historia,the best game ever made
 TITLE_NEW_GAME,Nueva partida,New Game
 TITLE_CONTINUE,Continuar,Continue
 TITLE_OPTIONS,Opciones,Options
@@ -21,7 +21,7 @@ Rate of fire: %.1f shots/s
 Hit damage: %d
 Ability: %d s cooldown"
 STRATEGY_TITLE,Estrategia,Strategy
-STRATEGY_ZONES_SECTION,Planta siguiente,Next floor
+STRATEGY_ZONES_SECTION,Elige por dónde subes,Choose your way up
 STRATEGY_SQUAD_SECTION,Escuadra,Squad
 STRATEGY_FLOOR_FMT,Planta %d,Floor %d
 STRATEGY_XP_FMT,Experiencia disponible: %d,Experience available: %d

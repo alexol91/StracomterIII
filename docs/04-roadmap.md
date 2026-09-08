@@ -597,6 +597,37 @@ metros — indistinguible de no tener ninguna. Hay prueba del recuento.
 cámara a vista cenital antes de capturar: es la única forma de juzgar una
 planta entera sin que la cámara en tercera persona se meta en la geometría.
 
+### T-22 · El perímetro se veía negro desde dentro ✅ `arte-audio`
+
+Los muros del perímetro usan la superficie TRIM —acero oscuro— a propósito: es
+información táctica, oscuro es infranqueable y claro es tabique que alguien
+puede cruzar. Su `metallic` ya se había bajado una vez de 0,85 a 0,45 «porque
+salía negro en el interior», y seguía saliendo: **medido** sobre una captura en
+tercera persona, luminancia 36 sobre 255 (percentil 10 en 20) junto a un
+tabique en 231.
+
+Lo que falló fue el punto de vista de la comprobación: la primera corrección se
+validó con una captura CENITAL, donde ese mismo muro se lee como un borde del
+mapa y el defecto no aparece. Un metal sin sondas de reflexión solo tiene el
+cielo, y una cara vertical que mira a la mitad «suelo» del cielo procedural no
+refleja nada.
+
+Con `metallic` a 0,15, albedo 0,40 y rugosidad 0,52 el muro sube a 69 —el
+cepillado del acero se ve— y sigue siendo la superficie más oscura de la planta
+(tabique 0,74, suelo 0,44), así que la lectura táctica se mantiene sin depender
+de un reflejo que en un interior no existe.
+
+De paso, dos cosas de texto que solo se ven mirando: el subtítulo del menú
+empezaba con dos puntos («: el mejor juego de la historia», porque la clave
+llevaba el signo dentro) y la pantalla de Estrategia titulaba la rejilla de
+zonas «Planta siguiente», que se lee como que las zonas son de la planta que
+viene. Ahora es «Elige por dónde subes».
+
+Y el capturador acepta `SHOT_SEED`: sin semilla fija, `reset_run()` pone
+`run_seed = randi()` y dos capturas de la misma planta traen enemigos distintos
+en sitios distintos. Comparar dos capturas es justo para lo que existe esa
+herramienta.
+
 ### T-10 · La cámara en pasillos estrechos 🟨 `godot-gameplay`
 
 Ya no se mete dentro de las paredes (esfera de 28 cm en el `SpringArm3D`), pero

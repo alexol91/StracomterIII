@@ -24,6 +24,7 @@ run() {
         SHOT_SCENES="${SHOT_SCENES:-}" SHOT_LINEUP="${SHOT_LINEUP:-1}" \
         SHOT_GAMEPLAY="${SHOT_GAMEPLAY:-1}" SHOT_TOPDOWN="${SHOT_TOPDOWN:-}" \
         SHOT_FLOOR="${SHOT_FLOOR:-}" SHOT_ZONE="${SHOT_ZONE:-}" \
+        SHOT_SEED="${SHOT_SEED:-}" \
         xvfb-run -a "${GODOT}" \
         --path "${ROOT}/game" --rendering-driver opengl3 --resolution 1280x720 \
         --script res://_capture_tmp.gd 2>&1 | grep -E '\.png$' || true

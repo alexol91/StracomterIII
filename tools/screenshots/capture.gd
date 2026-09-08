@@ -21,6 +21,8 @@ extends SceneTree
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
 ##   SHOT_LINEUP   "1" para añadir una fila con los nueve arquetipos
 ##   SHOT_GAMEPLAY "1" para arrancar una partida de verdad y capturar la planta
+##   SHOT_SEED     semilla del encuentro (por defecto, fija). Dos capturas de
+##                 la misma planta solo se pueden comparar si es la misma.
 ##   SHOT_FLOOR    planta que se retrata (por defecto 1). La azotea es la 9.
 ##   SHOT_ZONE      zona de esa planta (por defecto 1).
 ##   SHOT_TOPDOWN  "1" para capturar la planta en vista cenital. Sirve para
@@ -225,7 +227,14 @@ func _capture_gameplay(out: String, suffix: String) -> void:
 		# la 1, zona 1: las zonas se numeran desde 1 en la pantalla de
 		# Estrategia, y un 0 se acepta sin protestar y deja la partida sin
 		# arrancar. La azotea (planta 9) se mira con SHOT_FLOOR=9.
+		# SEMILLA FIJA: sin ella `reset_run()` pone `run_seed = randi()` y dos
+		# capturas de la misma planta traen enemigos distintos en sitios
+		# distintos, así que no se pueden comparar. Comparar dos capturas es
+		# justo para lo que existe esta herramienta.
 		var state_node := root.get_node_or_null("GameState")
+		if state_node != null:
+			var seed_raw := OS.get_environment("SHOT_SEED")
+			state_node.set("run_seed", int(seed_raw) if seed_raw.is_valid_int() else 20120601)
 		var floor_raw := OS.get_environment("SHOT_FLOOR")
 		if state_node != null and floor_raw.is_valid_int():
 			state_node.set("current_floor", int(floor_raw))
