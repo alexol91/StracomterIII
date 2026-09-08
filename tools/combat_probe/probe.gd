@@ -26,11 +26,18 @@ const RUN_S: float = 30.0
 ## primera oleada.
 const WARMUP_S: float = 4.0
 const PHYSICS_HZ: float = 60.0
+## Distancia media a la que un compañero deja de estar acompañando. Los huecos
+## de formación están a menos de tres metros; con este margen cabe que uno se
+## haya ido a cubrirse sin que la comprobación se vuelva un test de precisión.
+const COMPANION_MAX_DISTANCE_M: float = 12.0
 
 var _shots: int = 0
 var _hits: int = 0
 var _damage: float = 0.0
+var _damage_squad: float = 0.0
 var _player: Character = null
+var _companion_shots: int = 0
+var _companion_hits: int = 0
 
 
 func _ready() -> void:
@@ -43,6 +50,11 @@ func _on_shot(shooter_id: int, hit: bool, _is_headshot: bool) -> void:
 	var who := instance_from_id(shooter_id) as Character
 	if who == null or who.team == Character.Team.PLAYER:
 		return
+	if who.team == Character.Team.COMPANION:
+		_companion_shots += 1
+		if hit:
+			_companion_hits += 1
+		return
 	_shots += 1
 	if hit:
 		_hits += 1
@@ -52,6 +64,10 @@ func _on_damaged(character_id: int, amount: float, _from: Vector3,
 		_attacker_id: int, _attacker_team: int) -> void:
 	if _player != null and character_id == _player.get_instance_id():
 		_damage += amount
+		return
+	var victim := instance_from_id(character_id) as Character
+	if victim != null and victim.team == Character.Team.COMPANION:
+		_damage_squad += amount
 
 
 func _run() -> void:
@@ -73,6 +89,8 @@ func _run() -> void:
 		return
 
 	var enemies := _count_enemies()
+	var companions := _count_team(Character.Team.COMPANION)
+	var start_distance := _mean_companion_distance()
 	await _wait(RUN_S)
 
 	print("[sonda] %.0f s de planta 1 con el jugador quieto:" % RUN_S)
@@ -80,6 +98,12 @@ func _run() -> void:
 	print("  disparos enemigos:   %d" % _shots)
 	print("  impactos:            %d" % _hits)
 	print("  daño al jugador:     %.1f  (vida %.0f %%)" % [_damage, _player.health_ratio() * 100.0])
+	print("  daño a la escuadra:  %.1f" % _damage_squad)
+	print("  compañeros:          %d al empezar, %d al terminar" % [
+		companions, _count_team(Character.Team.COMPANION)])
+	print("  disparos de ellos:   %d (aciertos %d)" % [_companion_shots, _companion_hits])
+	print("  distancia media al jugador: %.1f m → %.1f m" % [
+		start_distance, _mean_companion_distance()])
 
 	var failures: Array[String] = []
 	if enemies <= 0:
@@ -88,8 +112,16 @@ func _run() -> void:
 		failures.append("ningún enemigo llegó a disparar")
 	if _hits <= 0:
 		failures.append("dispararon %d veces y no acertaron ni una" % _shots)
-	if _damage <= 0.0:
-		failures.append("el jugador no recibió ni un punto de daño")
+	# Al BANDO del jugador, no al jugador: con compañeros delante los enemigos
+	# aciertan en ellos y es correcto que el jugador acabe intacto. Exigir daño
+	# al jugador convertiría "la escuadra te cubre" en un fallo.
+	if _damage + _damage_squad <= 0.0:
+		failures.append("nadie del bando del jugador recibió un punto de daño")
+	if companions <= 0:
+		failures.append("no bajó ningún compañero a la planta")
+	elif _mean_companion_distance() > COMPANION_MAX_DISTANCE_M:
+		failures.append("los compañeros se quedaron a %.1f m: no siguen a nadie"
+			% _mean_companion_distance())
 	if failures.is_empty():
 		print("[sonda] los enemigos pelean.")
 		get_tree().quit(0)
@@ -105,12 +137,33 @@ func _wait(seconds: float) -> void:
 
 
 func _count_enemies() -> int:
+	return _count_team(Character.Team.ENEMY)
+
+
+func _count_team(team: Character.Team) -> int:
 	var total := 0
 	for node: Node in get_tree().get_nodes_in_group(&"characters"):
 		var character := node as Character
-		if character != null and character.alive and character.team != Character.Team.PLAYER:
+		if character != null and character.alive and character.team == team:
 			total += 1
 	return total
+
+
+## Distancia media de los compañeros vivos al jugador. Es la medida de que la
+## formación funciona: si crece sin parar, nadie está siguiendo a nadie.
+func _mean_companion_distance() -> float:
+	if _player == null:
+		return -1.0
+	var total := 0.0
+	var count := 0
+	for node: Node in get_tree().get_nodes_in_group(&"characters"):
+		var character := node as Character
+		if character == null or not character.alive \
+				or character.team != Character.Team.COMPANION:
+			continue
+		total += character.global_position.distance_to(_player.global_position)
+		count += 1
+	return total / float(count) if count > 0 else -1.0
 
 
 func _find_player() -> Character:

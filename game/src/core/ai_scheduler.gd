@@ -109,6 +109,13 @@ func clear() -> void:
 	_decision_cursor = 0
 	_perception_cursor = 0
 	_clock_s = 0.0
+	# También los acumuladores. Sin esto `clear()` no deja el planificador como
+	# recién arrancado: la FASE de los ticks de decisión y comportamiento
+	# sobrevive, así que la primera decisión de una prueba caía antes o después
+	# según lo que hubiera corrido antes. El síntoma es el peor: una prueba que
+	# pasa sola y falla en la suite completa, o al revés.
+	_decision_accum = 0.0
+	_behavior_accum = 0.0
 
 
 ## Punto de referencia para la prioridad (normalmente el jugador).

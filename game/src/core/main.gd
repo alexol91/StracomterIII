@@ -47,9 +47,15 @@ func _on_run_continue_requested() -> void:
 
 ## El jugador ha elegido zona en la pantalla de Estrategia. Aquí es donde la
 ## decisión se convierte en una planta montada.
-func _on_strategy_confirmed(zone: int, xp_to_spend: int, _squad: Dictionary) -> void:
+func _on_strategy_confirmed(zone: int, xp_to_spend: int, squad: Dictionary) -> void:
 	GameState.current_zone = zone
 	GameState.experience = maxi(0, GameState.experience - xp_to_spend)
+	# A quién se lleva. Se ignoraba, así que la pantalla de Estrategia dejaba
+	# elegir compañeros y a la planta no bajaba nadie: una promesa de la
+	# interfaz que el juego no cumplía.
+	GameState.squad_taken.clear()
+	for key: Variant in squad:
+		GameState.squad_taken[StringName(str(key))] = bool(squad[key])
 	SaveSystem.save_game()
 	if not _runner.start_current_floor():
 		# No se pudo montar la planta. Se vuelve a Estrategia en vez de dejar al

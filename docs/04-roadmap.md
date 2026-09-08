@@ -193,28 +193,78 @@ Godot no protesta al conectar, protesta al emitir y por consola. El modelo de
 habilidad no contaba ni un punto del daño recibido, así que el jugador le
 parecía invencible y el director subía la dificultad.
 
-### T-03 · La escuadra enemiga está escrita y nadie la usa ⬜ `ai-escuadra`
+### T-03 · La escuadra enemiga está escrita y nadie la usa ✅ `ai-escuadra`
 
-`SquadDirector`, `SquadRunner`, `SquadRoleAssignment`, `SquadMorale` y
-`SquadOrder` no aparecen fuera de sus propias pruebas. En partida los enemigos
-son individuos sueltos: no hay roles, ni supresión, ni flanqueo coordinado, ni
-repliegue. Todo el hito 2.10 es código muerto en el juego.
+`AIRuntime` monta ahora un `SquadRunner` por grupo enemigo y le entrega el
+`BehaviorController` de cada bot, que es lo que hace que el reparto no se quede
+en la pizarra sino que llegue como `BehaviorFilter`. `EncounterRuntime` reparte
+los enemigos en grupos de cuatro por orden de aparición —sembrado, así que las
+escuadras son reproducibles—, que es el tamaño con el que `SquadTuning` reparte
+sus cuatro roles sin dejar a nadie de reserva mirando.
 
-**Hecho cuando**: `AIRuntime` monta un `SquadRunner` por escuadra, los enemigos
-reciben rol, y una prueba comprueba que con tres enemigos y un jugador visible
-hay al menos un `SUPPRESS` y un `FLANK` simultáneos.
+Efecto medido en la sonda: la precisión enemiga sube de 133 impactos en 143
+disparos a 43 en 43, porque el que fija fija y el que asalta asalta.
 
-### T-04 · El jugador no tiene compañeros ⬜ `ai-escuadra`
+**Y un fallo latente que solo salía con cuerpos de verdad**: `SquadRunner`
+guardaba el orden de sus bots en un `PackedInt32Array`. Un `bot_id` es un
+`get_instance_id()` de 64 bits, y ese contenedor lo TRUNCA sin decir nada: el
+índice guardado dejaba de existir en el diccionario y el recorrido reventaba
+con «Out of bounds get index». No se había visto porque las pruebas del
+subsistema usan ids sintéticos (1, 2, 3) — un doble más amable que la realidad.
+Corregido también en `CompanionSquad` y `SquadRoleAssignment`.
 
-La pantalla de Estrategia deja elegir a quién te llevas a la planta —Técnico,
-Especialista, Explosivo, con su casilla "Llevar a la planta"— y **no aparece
-nadie**. `LoadedLevel.companion_spawns` se rellena y no lo lee nadie;
-`CompanionController`, `CompanionSquad` y `CompanionFormation` no se instancian.
-Es una promesa de la interfaz que el juego no cumple.
+### T-04 · El jugador no tiene compañeros 🟨 `ai-escuadra`
 
-**Hecho cuando**: los compañeros marcados aparecen en la planta, siguen al
-jugador y una prueba comprueba que el estado de `GameState.squad` decide
-cuántos hay.
+Ya bajan, y ya son una escuadra:
+
+* `Main` guarda las casillas de la pantalla de Estrategia en
+  `GameState.squad_taken` —antes las tiraba— y `GameState.companions_for_floor()`
+  aplica las tres reglas: vivos, marcados, y nunca el propio jugador.
+* `LevelLoader` los coloca y `CompanionRunner` —la pieza que faltaba, gemela de
+  `SquadRunner`— los gobierna en el planificador: moral por cercanía al
+  Capitán, directiva por compañero, y el hueco de formación puesto en
+  `BehaviorContext.objective`, que es de donde `FOLLOW_LEADER` lo lee.
+* Medido: tres compañeros bajan, sobreviven los 30 s y se mantienen a 1–2,5 m
+  del jugador.
+
+**Lo que falta (T-18)**: no devuelven el fuego. Encajan 33 puntos de daño y
+disparan cero veces.
+
+Tres fallos ya corregidos por el camino:
+
+1. **Un compañero disparaba al jugador.** La percepción decidía la hostilidad
+   con `team != team`, y para un compañero (1) el jugador (0) es «otro equipo».
+   Ahora hay una sola regla, `Character.teams_are_hostile`, y solo cuenta si
+   eres ENEMY.
+2. **Un compañero se cayó de la torre**, a −78 m y bajando. Su hueco de
+   formación caía fuera del suelo —la planta de 2012 es un polígono, no un
+   rectángulo— y `move_along_path` hace la aproximación final en línea recta
+   cuando el destino está cerca sin ruta: eso es caminar por el aire.
+   `CompanionRunner` proyecta ahora el hueco sobre el navmesh, y aparecen en el
+   punto del jugador, que es el único que se sabe bueno.
+3. **«Bajo fuego» exigía verlos.** La oclusión es ASIMÉTRICA: un enemigo tras
+   un mueble a la altura de la cintura te acierta al pecho mientras tu rayo al
+   suyo se come el mueble. Definido así, un compañero encajaba cuarenta puntos
+   de daño sin que su propia lógica lo considerara en peligro.
+
+### T-18 · Los compañeros no devuelven el fuego ⬜ `ai-comportamiento`
+
+**Medido**: 33 puntos de daño encajados en 30 s, cero disparos. La causa NO es
+la lista de permitidos —`ATTACK` está en todas— ni el filtro ni la moral:
+`memory.best()` les vuelve vacío, así que `has_line_of_sight`,
+`target_confidence` y `known_threat_count` salen todos a cero.
+
+Al medirlo se ve que el enemigo que les dispara está tras un obstáculo a la
+altura de la cintura o tras un muro: su rayo de oclusión al pecho del enemigo
+lo para `Obstacle_23` o el `Floor` (que es donde vive la colisión de los muros
+de estos mapas). O sea que la oclusión funciona y el ángulo es de verdad malo.
+
+Lo que falta es el verbo que no existe: **reposicionarse para tener ángulo**.
+Un compañero que sabe de dónde le disparan y no puede verlo debería moverse,
+y hoy solo puede seguir al líder, cubrirse o replegarse. Hay que decidir si eso
+es un `BehaviorKind` nuevo o `INVESTIGATE` con la cobertura como destino, y de
+paso comprobar por qué la memoria de contactos no retiene el contacto que deja
+`report_damage_from` con `damage_confidence = 0.6`.
 
 ## Bloque B — Que la partida termine
 

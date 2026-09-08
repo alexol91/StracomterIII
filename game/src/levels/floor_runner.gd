@@ -53,7 +53,8 @@ func start_current_floor() -> bool:
 			% [GameState.current_zone, GameState.current_floor])
 		return false
 
-	var level := _loader.load_level(cfg.zone_maps[index], GameState.player_archetype)
+	var level := _loader.load_level(cfg.zone_maps[index], GameState.player_archetype,
+		true, GameState.companions_for_floor())
 	if level == null or level.player == null:
 		push_error("FloorRunner: no se pudo montar '%s'" % cfg.zone_maps[index])
 		return false

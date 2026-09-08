@@ -77,10 +77,21 @@ func decide(
 
 	var effective := morale()
 	var active_order := order if order != null else SquadOrder.none()
-	# "Bajo fuego" se deduce del estado, no de un parámetro extra: hay
-	# amenazas conocidas Y línea de visión despejada hacia el objetivo, que es
-	# lo mismo que decir que ellos te ven a ti.
-	var under_fire := state.has_line_of_sight and state.known_threat_count > 0
+	# "Bajo fuego" se deduce del estado, no de un parámetro extra.
+	#
+	# NO exige línea de visión, y esa es la corrección que importa: exigirla
+	# definía «bajo fuego» como «los veo», que es justo lo contrario del caso
+	# peligroso. La oclusión es ASIMÉTRICA —un enemigo de pie tras un mueble a
+	# la altura de la cintura te acierta al pecho mientras tu rayo al suyo se
+	# come el mueble— así que un compañero podía comerse cuarenta puntos de
+	# daño sin que su propia lógica lo considerara en peligro. Medido: tres
+	# compañeros con 43 de daño encajado y cero reacciones, plantados en
+	# formación.
+	#
+	# Basta con SABER que hay hostiles cerca: un contacto fresco por haber
+	# recibido un disparo cuenta igual que verlos.
+	var under_fire := state.known_threat_count > 0 \
+		and (state.has_line_of_sight or state.target_confidence > 0.0)
 
 	out.morale = effective
 	out.critical = SquadMorale.is_critical(state.health_ratio)

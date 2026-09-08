@@ -6,6 +6,19 @@ extends Node
 ## (lista de estados, contactos) -> asignación de roles.
 
 ## Roles que un SquadDirector puede asignar. Sin duplicados por grupo.
+## Grupo del jugador y sus compañeros en esta pizarra.
+##
+## Negativo a propósito: los grupos enemigos se numeran desde 0 según el orden
+## de aparición, y compartir número haría que un compañero leyera los contactos
+## de los enemigos como si fueran los suyos.
+##
+## Vive aquí, en `core/`, y no en `ai/squad/`, porque lo necesitan las dos
+## puntas de la cadena de dependencias: `ai/` para gobernar la escuadra y
+## `levels/` para etiquetar a los cuerpos al colocarlos. `levels/` no puede
+## conocer `ai/` (regla 2), así que el dato compartido tiene que estar debajo
+## de los dos.
+const PLAYER_SQUAD_ID: int = -1
+
 enum Role {
 	NONE,
 	PINNER,     ## Mantiene la presión frontal.

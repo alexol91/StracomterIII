@@ -68,6 +68,15 @@ var run_seed: int = 0
 
 ## Estado de la escuadra, indexado por arquetipo.
 var squad: Dictionary[StringName, CharacterSnapshot] = {}
+## A quién se lleva el jugador a la planta, indexado por arquetipo. Lo escribe
+## la confirmación de la pantalla de Estrategia; lo lee `FloorRunner` al montar
+## la planta.
+##
+## Vacío significa «nadie lo ha dicho todavía», y en ese caso vienen todos los
+## que estén vivos. NO se interpreta como «nadie viene»: la pantalla de
+## Estrategia trae las tres casillas marcadas por defecto, así que un
+## diccionario vacío es un dato que no ha llegado, no una decisión de ir solo.
+var squad_taken: Dictionary[StringName, bool] = {}
 
 
 func _ready() -> void:
@@ -84,6 +93,7 @@ func reset_run(seed_value: int = 0) -> void:
 	experience = 0
 	run_seed = seed_value if seed_value != 0 else randi()
 	squad.clear()
+	squad_taken.clear()
 	for id: StringName in [&"captain", &"technician", &"specialist", &"demolition"]:
 		var stats := Balance.character(id)
 		var snap := CharacterSnapshot.new()
@@ -93,6 +103,26 @@ func reset_run(seed_value: int = 0) -> void:
 		snap.score = 0
 		snap.alive = true
 		squad[id] = snap
+
+
+## Arquetipos que acompañan al jugador en la planta: vivos, marcados y sin
+## contar al propio jugador.
+##
+## Se calcula aquí y no en `FloorRunner` porque las tres reglas son del ESTADO
+## de la partida —quién sigue vivo, a quién se lleva, quién eres— y no del
+## montaje del nivel.
+func companions_for_floor() -> Array[StringName]:
+	var out: Array[StringName] = []
+	for id: StringName in squad:
+		if id == player_archetype:
+			continue
+		var snap: CharacterSnapshot = squad[id]
+		if snap == null or not snap.alive:
+			continue
+		if not squad_taken.is_empty() and not bool(squad_taken.get(id, false)):
+			continue
+		out.append(id)
+	return out
 
 
 func set_mode(new_mode: Mode) -> void:

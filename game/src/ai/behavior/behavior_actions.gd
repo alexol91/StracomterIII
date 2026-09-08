@@ -485,7 +485,15 @@ static func sweep_look(ctx: BehaviorContext, delta: float) -> void:
 	var heading := ctx.move_goal - from
 	heading.y = 0.0
 	if heading.length_squared() < 0.0001:
-		return
+		# Ya está donde iba —un compañero en su hueco de formación, un bot que
+		# ha llegado a su punto de patrulla—. Se barre alrededor de hacia donde
+		# mira AHORA, que es lo que hace un centinela. Volver aquí sin más
+		# dejaba al bot con el rumbo congelado y sin ver nada, que es
+		# exactamente el fallo que este barrido existe para arreglar.
+		if ctx.state != null:
+			heading = Vector3(ctx.state.forward.x, 0.0, ctx.state.forward.z)
+		if heading.length_squared() < 0.0001:
+			return
 	ctx.patrol_sweep_s += delta
 	var phase := sin(ctx.patrol_sweep_s * BehaviorTuning.PATROL_SWEEP_RATE_RAD_S)
 	var offset := deg_to_rad(BehaviorTuning.PATROL_SWEEP_HALF_DEG) * phase
@@ -510,6 +518,12 @@ static func follow_leader(ctx: BehaviorContext, delta: float) -> BehaviorTree.St
 		return BehaviorTree.Status.FAILURE
 	set_move_goal(ctx, ctx.objective)
 	var status := move_along_path(ctx, delta)
+	# Un compañero en formación VIGILA. Sin esto no gira nunca —`move_along_path`
+	# no fija punto de mira— y se pasaba la partida entera con el rumbo del
+	# frame en que nació: medido, tres compañeros a dos metros del jugador
+	# durante treinta segundos con `has_line_of_sight = false` y cero disparos,
+	# mientras los enemigos les daban a ellos.
+	sweep_look(ctx, delta)
 	if status == BehaviorTree.Status.SUCCESS:
 		return BehaviorTree.Status.RUNNING
 	return status

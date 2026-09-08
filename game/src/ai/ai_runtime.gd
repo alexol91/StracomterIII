@@ -30,6 +30,13 @@ var cover: CoverProviderBaked = null
 var spawn_provider: SpawnSampler = null
 
 var _brains: Dictionary[int, BotBrain] = {}
+## Una escuadra por `squad_id` de enemigo, creada al aparecer el primero de su
+## grupo. Es lo que reparte roles, supresión y flanqueo: sin esto los enemigos
+## son individuos sueltos que da la casualidad de que están en la misma sala.
+var _squads: Dictionary[int, SquadRunner] = {}
+## La escuadra del jugador. Se crea cuando aparece el primer compañero y vive
+## mientras quede alguno.
+var _companions: CompanionRunner = null
 var _built: bool = false
 var _mesh: NavigationMesh = null
 var _patrol_ring: PackedVector3Array = PackedVector3Array()
@@ -107,6 +114,13 @@ func teardown() -> void:
 		if brain != null:
 			brain.unregister()
 	_brains.clear()
+	for squad_id: int in _squads:
+		_retire_squad(_squads[squad_id])
+	_squads.clear()
+	if _companions != null:
+		_companions.unbind_event_bus()
+		_companions.unregister()
+		_companions = null
 	if nav != null:
 		nav.dispose()
 	_patrol_ring = PackedVector3Array()
@@ -191,6 +205,20 @@ func brain_of(character: Character) -> BotBrain:
 	return _brains.get(character.get_instance_id(), null)
 
 
+## La escuadra de un grupo enemigo, o `null` si no hay ninguno vivo.
+func squad_of(squad_id: int) -> SquadRunner:
+	return _squads.get(squad_id, null)
+
+
+func squad_count() -> int:
+	return _squads.size()
+
+
+## La escuadra del jugador, o `null` si no bajó ningún compañero.
+func companion_squad() -> CompanionRunner:
+	return _companions
+
+
 ## Objetivos visibles para la percepción: todo personaje vivo del mapa. Quién
 ## es enemigo de quién lo filtra `PerceptionSystem` por equipo; aquí no se
 ## decide nada, solo se enumera.
@@ -248,9 +276,15 @@ func _on_character_spawned(character: Node, _team: int, _archetype: StringName) 
 	_attach_brain(body)
 
 
-## Quién lleva cerebro: todo el que no sea el jugador humano. El jugador tiene
-## `PlayerInput` rellenando las mismas intenciones, y dos cosas escribiendo la
-## misma intención es una pelea que se ve como un personaje con tembleque.
+## Quién lleva cerebro: todo el que no sea el jugador humano —enemigos Y
+## compañeros—. El jugador tiene `PlayerInput` rellenando las mismas
+## intenciones, y dos cosas escribiendo la misma intención es una pelea que se
+## ve como un personaje con tembleque.
+##
+## Un compañero usa EL MISMO cerebro que un enemigo: mismo selector por
+## utilidad, mismos árboles, mismo controlador. Lo único que cambia entre
+## bandos es lo que entra por el filtro y por la tabla de pesos, y eso lo pone
+## `CompanionRunner` (GDD §8.5).
 func _needs_brain(character: Character) -> bool:
 	if character.team == Character.Team.PLAYER:
 		return false
@@ -267,6 +301,33 @@ func _attach_brain(character: Character) -> void:
 		brain.context.patrol_index = _nearest_patrol_index(character.global_position)
 	brain.register()
 	_brains[character.get_instance_id()] = brain
+	_enlist(character, brain)
+
+
+## Mete al bot en la escuadra de su grupo, creándola si es el primero.
+##
+## El `BehaviorController` se entrega junto al estado a propósito: es lo que
+## permite que el reparto no se quede en la pizarra sino que llegue al bot como
+## un `BehaviorFilter`. Sin él el reparto se calcularía igual y no cambiaría
+## nada en pantalla, que es exactamente lo que llevaba pasando.
+func _enlist(character: Character, brain: BotBrain) -> void:
+	if brain.state == null:
+		return
+	if character.team == Character.Team.COMPANION:
+		_enlist_companion(character, brain)
+		return
+	var squad_id := character.squad_id
+	var squad: SquadRunner = _squads.get(squad_id, null)
+	if squad == null:
+		squad = SquadRunner.new(squad_id, world)
+		squad.bind_event_bus()
+		squad.register()
+		_squads[squad_id] = squad
+	# El ancla de sala es lo que da un sitio al que replegarse. Se toma de
+	# donde aparece cada uno: el director los pone en puntos válidos del
+	# navmesh, así que son mejores anclas que cualquier punto calculado aparte.
+	squad.push_room_anchor(character.global_position)
+	squad.add_bot(brain.state, brain.controller)
 
 
 ## Ronda de patrulla común de la planta, repartida por el navmesh.
@@ -329,3 +390,69 @@ func _on_character_died(character_id: int, _team: int, _killer_id: int, _xp: int
 	# cuerpo que va a desaparecer.
 	brain.unregister()
 	_brains.erase(character_id)
+	# Se le da de baja de su escuadra AQUÍ y no se confía en que el
+	# `SquadRunner` lo haga por su cuenta: él también escucha `character_died`,
+	# pero el orden de entrega de una señal depende del orden de conexión, y
+	# esta clase se conecta en su `_ready`, antes. Confiando en el orden, la
+	# escuadra todavía se contaba a sí misma completa en este instante.
+	for squad_id: int in _squads:
+		_squads[squad_id].remove_bot(character_id)
+	_prune_squads()
+	if _companions != null and _companions.size() <= 0:
+		_companions.unbind_event_bus()
+		_companions.unregister()
+		_companions = null
+
+
+## Mete al compañero en la escuadra del jugador.
+##
+## El líder se busca en el grupo `characters` y no se recibe por parámetro: los
+## compañeros y el jugador nacen en el mismo frame y en un orden que decide
+## `LevelLoader`, así que quien llegue primero tiene que poder encontrar al
+## otro. Sin líder no se monta la escuadra —un compañero sin nadie a quien
+## seguir se queda como un enemigo más y eso se vería raro— y se reintenta con
+## el siguiente.
+func _enlist_companion(character: Character, brain: BotBrain) -> void:
+	if _companions == null:
+		var leader := _find_player()
+		if leader == null:
+			push_warning("AIRuntime: compañero sin jugador al que seguir")
+			return
+		_companions = CompanionRunner.new(leader, leader.archetype, world)
+		_companions.bind_event_bus()
+		_companions.register()
+	_companions.add_companion(character, brain)
+
+
+func _find_player() -> Character:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	for node: Node in tree.get_nodes_in_group(&"characters"):
+		var body := node as Character
+		if body != null and is_instance_valid(body) \
+				and body.team == Character.Team.PLAYER:
+			return body
+	return null
+
+
+## Da de baja las escuadras que se han quedado sin nadie.
+##
+## `SquadRunner` ya se quita a sus muertos —escucha `character_died` él mismo—,
+## pero nadie retiraba la escuadra vacía del planificador: quedaba pensando por
+## cada tick a cambio de nada. Quien llena un registro lo vacía.
+func _prune_squads() -> void:
+	var empty: Array[int] = []
+	for squad_id: int in _squads:
+		if _squads[squad_id].size() <= 0:
+			empty.append(squad_id)
+	for squad_id: int in empty:
+		_retire_squad(_squads[squad_id])
+		_squads.erase(squad_id)
+
+
+static func _retire_squad(squad: SquadRunner) -> void:
+	if squad == null:
+		return
+	squad.unbind_event_bus()
+	squad.unregister()

@@ -71,16 +71,22 @@ func allows(bot_id: int, kind: BehaviorKind.Kind) -> bool:
 	return allowed_of(bot_id).has(int(kind))
 
 
-func bot_ids() -> PackedInt32Array:
-	var out := PackedInt32Array()
+## Ojo: `Array[int]` y no `PackedInt32Array`. Un `bot_id` es un
+## `get_instance_id()` de Godot, que son 64 bits, y un `PackedInt32Array` los
+## TRUNCA sin decir nada: el índice guardado deja de existir en el diccionario
+## y el recorrido revienta con «Out of bounds get index». No se vio antes
+## porque las pruebas de este subsistema usan ids sintéticos (1, 2, 3) — un
+## doble más amable que la realidad.
+func bot_ids() -> Array[int]:
+	var out: Array[int] = []
 	for id: int in roles:
 		out.append(id)
 	out.sort()
 	return out
 
 
-func bots_with_role(role: Blackboard.Role) -> PackedInt32Array:
-	var out := PackedInt32Array()
+func bots_with_role(role: Blackboard.Role) -> Array[int]:
+	var out: Array[int] = []
 	for id: int in roles:
 		if roles[id] == role:
 			out.append(id)

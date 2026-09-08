@@ -102,6 +102,13 @@ correr un grupo de pruebas que no tocara ni materiales ni modelos y ver que abor
 igual—. Antes de arreglar, busca el dato que separa tus hipótesis; suele costar menos que
 el parche equivocado.
 
+Y una tercera, cara y silenciosa: **un `bot_id` no cabe en un
+`PackedInt32Array`.** Los identificadores de Godot (`get_instance_id()`) son de 64 bits y
+ese contenedor los TRUNCA sin decir nada; el índice guardado deja de existir en el
+diccionario y el recorrido revienta con «Out of bounds get index» la primera vez que se
+usa con cuerpos de verdad. Llevaba escrito y probado en tres ficheros de la escuadra
+porque sus pruebas usan ids sintéticos (1, 2, 3). Para ids: `Array[int]`.
+
 Corolario para los dobles de prueba: **un doble más amable que la realidad hace que las
 pruebas mientan.** Ya ha pasado tres veces —una máscara de colisión ignorada, rutas que
 siempre llegan al destino exacto, un mundo de cajas que dejó de parecerse al mapa—. Si
@@ -190,6 +197,20 @@ tools/combat_probe/probe.sh $GODOT   # 30 s de planta 1: ¿pelean los enemigos?
 
 Regla: **un subsistema verde no es un juego.** Cuando lo que se entrega es
 comportamiento, la comprobación tiene que ser una partida.
+
+Y dos avisos sobre las pruebas de integración, porque las dos costaron un rato:
+
+* **Los métodos de prueba son SÍNCRONOS y corren dentro del mismo frame**, así
+  que un `queue_free()` no se vacía hasta que el fichero entero ha terminado.
+  Los personajes de una prueba siguen en el grupo `characters` durante la
+  siguiente y `AIRuntime._adopt_existing` los adopta: una escuadra de tres sale
+  con diez. Se libera con `free()`, o se comprueban los propios y no el total.
+* **La pizarra y el planificador son autoloads.** Los contactos que otra
+  prueba dejó en la escuadra 0 —el grupo por defecto de un enemigo— los lee
+  este bot como suyos. Y `AIScheduler.clear()` no reseteaba los acumuladores,
+  así que la FASE de los ticks sobrevivía y la primera decisión caía antes o
+  después según lo que hubiera corrido antes. El síntoma es el peor: una prueba
+  que pasa sola y falla en la suite completa.
 
 ## Lo que solo se ve en el binario exportado
 

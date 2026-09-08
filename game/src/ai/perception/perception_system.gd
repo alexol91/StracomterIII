@@ -180,7 +180,7 @@ func hear_noise(position: Vector3, intensity: float, radius_m: float, source_id:
 ## Entrada del dolor: me han disparado desde ahí. No es percepción sensorial
 ## pero es información posicional, y el legacy ya la tenía (`Bot::atackers`).
 func report_damage_from(attacker_id: int, attacker_team: int, from_position: Vector3) -> void:
-	if attacker_id == bot_id or attacker_team == team:
+	if attacker_id == bot_id or not Character.teams_are_hostile(attacker_team, team):
 		return
 	memory.reinforce_damage(
 		attacker_id, attacker_team, from_position, effective_profile().damage_confidence
@@ -199,7 +199,7 @@ func absorb_squad_contacts(contacts: Array[Blackboard.Contact]) -> int:
 	for contact: Blackboard.Contact in contacts:
 		if contact == null or contact.reporter_id == bot_id:
 			continue
-		if contact.team == team or contact.target_id == bot_id:
+		if not Character.teams_are_hostile(contact.team, team) or contact.target_id == bot_id:
 			continue
 		memory.reinforce_from_squad(
 			contact.target_id, contact.team, contact.last_known_position, contact.confidence
@@ -314,7 +314,7 @@ func _refresh_targets() -> void:
 		var target: VisionSensor.Target = item
 		if target == null or not target.is_alive:
 			continue
-		if target.target_id == bot_id or target.team == team:
+		if target.target_id == bot_id or not Character.teams_are_hostile(target.team, team):
 			continue
 		_targets.append(target)
 
@@ -322,7 +322,7 @@ func _refresh_targets() -> void:
 func _absorb_noise(heard: HearingSensor.Heard) -> void:
 	var confidence := HearingSensor.confidence_from(heard.loudness, effective_profile())
 	var known := _known_target(heard.source_id)
-	if known != null and known.team != team:
+	if known != null and Character.teams_are_hostile(known.team, team):
 		memory.reinforce_sound(known.target_id, known.team, heard.estimated_position, confidence)
 		return
 	# Ruido de origen no identificado: no es un contacto, es una pista. El

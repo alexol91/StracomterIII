@@ -38,7 +38,13 @@ var stat_decisions: int = 0
 
 var _states: Dictionary[int, BotState] = {}
 var _controllers: Dictionary[int, BehaviorController] = {}
-var _order: PackedInt32Array = PackedInt32Array()
+## Ojo: `Array[int]` y no `PackedInt32Array`. Un `bot_id` es un
+## `get_instance_id()` de Godot, que son 64 bits, y un `PackedInt32Array` los
+## TRUNCA sin decir nada: el índice guardado deja de existir en el diccionario
+## y el recorrido revienta con «Out of bounds get index». No se vio antes
+## porque las pruebas de este subsistema usan ids sintéticos (1, 2, 3) — un
+## doble más amable que la realidad.
+var _order: Array[int] = []
 var _registered: bool = false
 var _event_bus_bound: bool = false
 

@@ -28,6 +28,12 @@ var _loader: LevelLoader = null
 var _runner: FloorRunner = null
 var _ai: AIRuntime = null
 var _director: EncounterDirector = null
+## Escuadra que se está llenando y cuántos lleva. Se ponen a cero al montar la
+## planta: las escuadras son de la zona, no de la partida. Se cuenta así, y no
+## con una división entera del total, porque GDScript trata el aviso de
+## división entera como error.
+var _squad_id: int = 0
+var _in_squad: int = 0
 
 
 func _ready() -> void:
@@ -70,6 +76,8 @@ func _on_level_ready(root: Node) -> void:
 	await get_tree().physics_frame
 	if _loader == null or not is_instance_valid(root):
 		return
+	_squad_id = 0
+	_in_squad = 0
 	var level := _loader.current()
 	if level == null:
 		return
@@ -120,10 +128,24 @@ func _build_context(level: LevelLoader.LoadedLevel) -> EncounterContext:
 	return context
 
 
+## Enemigos por escuadra.
+##
+## Cuatro y no todos juntos: `SquadTuning` deja como mucho dos flanqueadores y
+## dos asaltantes, así que un grupo de cuatro reparte los cuatro roles y uno de
+## veinte deja a dieciséis de reserva mirando. Y no de dos, porque con dos no
+## hay nadie que fije mientras el otro rodea.
+const ENEMIES_PER_SQUAD: int = 4
+
 func _on_enemy_requested(archetype: StringName, position: Vector3) -> void:
 	if _loader == null:
 		return
-	var enemy := _loader.spawn_enemy(archetype, position)
+	# El grupo sale del ORDEN de aparición, que el director produce sembrado
+	# desde `GameState.run_seed`: mismo sitio, misma semilla, mismas escuadras.
+	if _in_squad >= ENEMIES_PER_SQUAD:
+		_squad_id += 1
+		_in_squad = 0
+	_in_squad += 1
+	var enemy := _loader.spawn_enemy(archetype, position, _squad_id)
 	if enemy == null:
 		return
 	_director.report_enemy_spawned(enemy.get_instance_id())

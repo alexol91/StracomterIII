@@ -28,7 +28,13 @@ var order: SquadOrder = SquadOrder.new()
 
 var _controllers: Dictionary[int, CompanionController] = {}
 ## Orden de creación, para que `decide_all` sea determinista.
-var _order_of_ids: PackedInt32Array = PackedInt32Array()
+## Ojo: `Array[int]` y no `PackedInt32Array`. Un `bot_id` es un
+## `get_instance_id()` de Godot, que son 64 bits, y un `PackedInt32Array` los
+## TRUNCA sin decir nada: el índice guardado deja de existir en el diccionario
+## y el recorrido revienta con «Out of bounds get index». No se vio antes
+## porque las pruebas de este subsistema usan ids sintéticos (1, 2, 3) — un
+## doble más amable que la realidad.
+var _order_of_ids: Array[int] = []
 var _last_directives: Array[CompanionDirective] = []
 var _event_bus_bound: bool = false
 
@@ -65,7 +71,7 @@ func companion(bot_id: int) -> CompanionController:
 	return _controllers.get(bot_id, null)
 
 
-func companion_ids() -> PackedInt32Array:
+func companion_ids() -> Array[int]:
 	return _order_of_ids.duplicate()
 
 

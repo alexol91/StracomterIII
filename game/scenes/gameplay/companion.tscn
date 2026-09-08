@@ -1,0 +1,23 @@
+[gd_scene load_steps=3 format=3]
+
+; Compañero de escuadra del jugador.
+;
+; Es el cuerpo del enemigo con otro equipo y otra capa de colisión: mismo
+; `Character`, mismas intenciones, mismo `WeaponSystem`. Lo que le cambia el
+; bando no es la escena, es quién le rellena las intenciones —un
+; `CompanionController` a través de su cerebro— y eso vive en `ai/`.
+;
+; Sin habilidades ni cámara: el aura del Capitán y las habilidades son del
+; jugador, y un compañero con `PlayerInput` pelearía con su propio cerebro por
+; la misma intención.
+
+[ext_resource type="PackedScene" path="res://scenes/gameplay/character.tscn" id="1"]
+[ext_resource type="Script" path="res://src/gameplay/weapon_system.gd" id="2"]
+
+[node name="Companion" instance=ExtResource("1")]
+collision_layer = 4
+team = 1
+archetype = &"technician"
+
+[node name="WeaponSystem" type="Node" parent="."]
+script = ExtResource("2")

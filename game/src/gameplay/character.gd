@@ -139,9 +139,18 @@ func chest_position() -> Vector3:
 func is_hostile_to(other: Character) -> bool:
 	if other == null:
 		return false
-	var a_enemy := team == Team.ENEMY
-	var b_enemy := other.team == Team.ENEMY
-	return a_enemy != b_enemy
+	return teams_are_hostile(int(team), int(other.team))
+
+
+## ¿Son enemigos estos dos equipos? Estática y por número de equipo para que la
+## use quien no tiene los dos cuerpos delante — la percepción de `ai/` trabaja
+## con instantáneas, no con nodos, y necesita LA MISMA regla.
+##
+## Tenerla duplicada costó un compañero disparando al jugador: la percepción
+## comparaba `team != team` y para un compañero (1) el jugador (0) era «otro
+## equipo». Aquí solo hay dos bandos, y el que manda es si eres ENEMY.
+static func teams_are_hostile(a: int, b: int) -> bool:
+	return (a == int(Team.ENEMY)) != (b == int(Team.ENEMY))
 
 
 # --- Daño y muerte ---

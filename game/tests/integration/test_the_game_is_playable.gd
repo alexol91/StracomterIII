@@ -49,7 +49,7 @@ func test_the_ai_stack_builds_on_a_real_floor() -> void:
 	_tree().root.remove_child(runtime)
 	runtime.free()
 	_tree().root.remove_child(map)
-	map.queue_free()
+	map.free()
 
 
 func test_bots_get_a_patrol_route_so_they_are_not_statues() -> void:
@@ -75,7 +75,7 @@ func test_bots_get_a_patrol_route_so_they_are_not_statues() -> void:
 	_tree().root.remove_child(runtime)
 	runtime.free()
 	_tree().root.remove_child(map)
-	map.queue_free()
+	map.free()
 
 
 # --- El director pide enemigos para la primera zona del juego ---

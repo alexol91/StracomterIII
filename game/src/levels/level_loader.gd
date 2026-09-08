@@ -21,6 +21,7 @@ const OBSTACLE_SCENE: String = "res://scenes/gameplay/obstacle.tscn"
 const PICKUP_SCENE: String = "res://scenes/gameplay/pickup.tscn"
 const PLAYER_SCENE: String = "res://scenes/gameplay/player.tscn"
 const ENEMY_SCENE: String = "res://scenes/gameplay/enemy.tscn"
+const COMPANION_SCENE: String = "res://scenes/gameplay/companion.tscn"
 
 ## Nombre del subtipo del conversor → enum de obstáculo. El conversor emite el
 ## nombre del enumerado del legacy (`obs_desk`, `obs_sofa`…); traducirlo aquí
@@ -68,6 +69,8 @@ class LoadedLevel:
 	## cara: el centinela elegido era un valor legítimo del dato.
 	var has_spawn_marker: bool = false
 	var companion_spawns: Array[Transform3D] = []
+	## Compañeros efectivamente colocados en la planta.
+	var companions: Array[Character] = []
 	var doors: Array[Node] = []
 	var obstacles: Array[Node] = []
 	var pickups: Array[Node] = []
@@ -91,7 +94,8 @@ func current() -> LoadedLevel:
 ## `spawn_player` en false permite montar el nivel para pruebas o para el
 ## editor sin meter un personaje dentro.
 func load_level(map_scene_path: String, archetype: StringName = &"captain",
-		spawn_player: bool = true) -> LoadedLevel:
+		spawn_player: bool = true,
+		companions: Array[StringName] = [] as Array[StringName]) -> LoadedLevel:
 	unload()
 
 	if not ResourceLoader.exists(map_scene_path):
@@ -117,6 +121,7 @@ func load_level(map_scene_path: String, archetype: StringName = &"captain",
 	if spawn_player and level.has_spawn_marker:
 		level.player = _spawn_character(level, PLAYER_SCENE, archetype,
 			Character.Team.PLAYER, level.player_spawn)
+		_spawn_companions(level, companions)
 
 	_current = level
 	level_ready.emit(level.root)
@@ -144,6 +149,31 @@ func spawn_enemy(archetype: StringName, position: Vector3, squad_id: int = 0) ->
 	if enemy != null:
 		enemy.squad_id = squad_id
 	return enemy
+
+
+## Coloca a los compañeros que el jugador se lleva a la planta.
+##
+## TODOS en el punto de aparición del jugador, y no en los marcadores de hueco
+## que traen algunos mapas. Los marcadores son los offsets del original y
+## algunos caen FUERA del suelo: la planta de 2012 es un polígono, no un
+## rectángulo, y un compañero colocado en el vacío se cae de la torre —medido:
+## −78 m de altura y bajando—. El punto del jugador es el único que se sabe
+## bueno, porque el jugador se queda de pie en él.
+##
+## No se apilan de forma visible: no colisionan entre sí (su máscara es solo el
+## mundo) y en el primer segundo cada uno camina a su hueco de formación, que
+## `CompanionRunner` proyecta sobre el navmesh antes de dárselo.
+func _spawn_companions(level: LoadedLevel, companions: Array[StringName]) -> void:
+	if companions.is_empty() or level.player == null:
+		return
+	for archetype: StringName in companions:
+		var companion := _spawn_character(level, COMPANION_SCENE, archetype,
+			Character.Team.COMPANION, level.player_spawn)
+		if companion != null:
+			# Mismo grupo que el jugador en la pizarra: los contactos que ve un
+			# compañero tienen que llegarle al resto de la escuadra.
+			companion.squad_id = Blackboard.PLAYER_SQUAD_ID
+			level.companions.append(companion)
 
 
 # --- Poblado desde marcadores ---

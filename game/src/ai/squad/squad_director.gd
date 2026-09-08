@@ -571,9 +571,11 @@ func _allowed_searching() -> PackedInt32Array:
 func _assign_watch_angles(
 	out: SquadRoleAssignment, alive: Array[BotState], anchor: Vector3
 ) -> void:
-	var engaged := PackedInt32Array()
-	var flankers := PackedInt32Array()
-	var reserves := PackedInt32Array()
+	# `Array[int]`: un `bot_id` es un `get_instance_id()` de 64 bits y un
+	# `PackedInt32Array` lo truncaría en silencio.
+	var engaged: Array[int] = []
+	var flankers: Array[int] = []
+	var reserves: Array[int] = []
 	for state: BotState in alive:
 		match out.role_of(state.bot_id):
 			Blackboard.Role.PINNER, Blackboard.Role.ASSAULTER:
