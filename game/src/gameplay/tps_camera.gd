@@ -30,6 +30,21 @@ enum Mode { THIRD_PERSON, TOP_DOWN }
 @export var transition_speed: float = 6.0
 
 const GAMEPAD_LOOK_DEADZONE: float = 0.2
+## Elevación extra del pivote cuando el brazo está colapsado del todo, en
+## metros. En un rincón la cámara pasa de «sobre el hombro» a «sobre la
+## cabeza», que es la vista que sí queda libre.
+const COLLAPSE_LIFT_M: float = 0.35
+## Por debajo de esta distancia entre la cámara y la cabeza, el modelo del
+## PROPIO jugador se esconde. No es un truco: si el brazo se ha colapsado
+## tanto, lo único que queda en pantalla es su nuca, y esconderlo devuelve la
+## vista sin mover la cámara a un sitio donde no cabe.
+const SELF_HIDE_M: float = 1.05
+## Radio alrededor del eje cámara→cabeza dentro del cual un cuerpo se
+## considera que tapa el plano.
+const OCCLUDER_RADIUS_M: float = 0.75
+## Transparencia que se aplica a un aliado que tapa. No 1,0: que se adivine
+## dónde está sigue siendo información útil.
+const OCCLUDER_TRANSPARENCY: float = 0.75
 ## world | player | companion | enemy | door — igual que `WeaponSystem.HIT_MASK`
 ## (ver `project.godot` → `[layer_names]`). Duplicada a propósito: este nodo
 ## no depende de `weapon_system.gd`, solo comparte el mismo mapa de capas.
@@ -39,6 +54,8 @@ var mode: Mode = Mode.THIRD_PERSON
 var target: Node3D = null
 var _yaw: float = 0.0
 var _pitch: float = 0.0
+## Cuerpos a los que se les ha tocado la transparencia, para poder devolverla.
+var _faded: Array[Node3D] = []
 
 @onready var _spring_arm: SpringArm3D = $SpringArm3D
 @onready var _camera: Camera3D = $SpringArm3D/Camera3D
@@ -96,9 +113,157 @@ func _physics_process(delta: float) -> void:
 			rotation = Vector3(_pitch, _yaw, 0.0)
 			var desired_length := aim_spring_length_m if Input.is_action_pressed(&"aim") else tps_spring_length_m
 			_spring_arm.spring_length = lerpf(_spring_arm.spring_length, desired_length, t)
+			_resolve_tight_space(t)
 		Mode.TOP_DOWN:
 			rotation = Vector3(deg_to_rad(top_down_pitch_deg), _yaw, 0.0)
 			_spring_arm.spring_length = lerpf(_spring_arm.spring_length, top_down_height_m, t)
+			# En cenital no hay hombro ni nadie tapando: el brazo mira desde
+			# arriba y el jugador tiene que verse.
+			_spring_arm.position.x = 0.0
+			_restore_faded()
+			var own := _model_of(target)
+			if own != null:
+				own.visible = true
+
+
+## Lo que hace habitable un pasillo estrecho, y lo que aquí NO se intenta.
+##
+## El problema de T-10: en una esquina cóncava el brazo se come los cuatro
+## metros y la cámara acaba en la nuca. La solución que pide el roadmap es
+## mover la cámara en vez de acortar el brazo — elegir entre hombro, eje y
+## hombro contrario el que deje más sitio. Se intentó y se retiró, y merece
+## quedar escrito POR QUÉ, porque el motivo no es el que parecía:
+##
+## el banco de pruebas no servía. Se hizo un diagnóstico que teletransporta al
+## jugador contra el muro más cercano y le pone el `yaw` mirándolo, y ese `yaw`
+## NO se aplicaba como se creía: seis ejecuciones del mismo escenario dieron
+## 0,56 · 3,11 · 0,28 · 3,75 · 2,82 · 3,43 m de brazo porque la cámara miraba a
+## un sitio distinto en cada una. Comparar dos versiones con ese instrumento es
+## comparar ruido, y las conclusiones que salieron de ahí —«el eje está menos
+## libre que el hombro»— no están demostradas.
+##
+## Lo que sí quedó medido, y es lo que hay aquí:
+##
+##   * el rayo y la esfera barrida SÍ ven el perímetro desde dentro (2,35 m y
+##     2,07 m, que es exactamente el borde del polígono menos el radio), así
+##     que la colisión del zócalo funciona y la sospecha de que la cámara se
+##     salía del nivel por ahí no está confirmada;
+##   * leer `_camera.global_position` a mitad de frame da un valor que no
+##     existe: el rig ya se movió y el `SpringArm3D` todavía no ha recolocado a
+##     sus hijos. Mismo frame, 0,65 m aquí dentro y 3,80 m desde fuera.
+##
+## Así que el brazo se deja en paz y se atacan las dos consecuencias, que se
+## arreglan sin realimentar la colisión:
+##
+##   * el PIVOTE sube con el colapso, de «sobre el hombro» a «sobre la cabeza»;
+##   * y si el brazo se queda corto de verdad, se esconde el modelo del
+##     jugador: entre ver su nuca a diez centímetros y ver la habitación, la
+##     habitación.
+##
+## Mover la cámara sigue pendiente. Lo primero que necesita quien lo retome no
+## es código: es un banco de pruebas que controle de verdad hacia dónde mira.
+func _resolve_tight_space(_t: float) -> void:
+	# El pivote sube con el colapso: de «sobre el hombro» a «sobre la cabeza»,
+	# que en un rincón es la vista que queda libre. Es un desplazamiento del
+	# PIVOTE, no del brazo, así que no realimenta la colisión del brazo — que
+	# es exactamente lo que hundió los dos intentos anteriores.
+	var collapse := collapse_ratio(_spring_arm.get_hit_length(), _spring_arm.spring_length)
+	global_position += Vector3.UP * (collapse * COLLAPSE_LIFT_M)
+	_fade_occluders()
+
+
+## Esconde al jugador si la cámara se le ha metido encima, y hace
+## semitransparente a cualquier ALIADO que se ponga entre la cámara y él.
+##
+## Solo aliados: a un enemigo no se le toca la transparencia ni cuando tapa.
+## Su cuerpo es información —dónde está, hacia dónde mira— y ocultarla para
+## limpiar el plano es hacerle trampas al jugador en su contra.
+##
+## Los compañeros van a uno o dos metros por diseño (huecos de formación), así
+## que sin esto tres de ellos tapan media pantalla en cuanto el jugador se
+## detiene. Empujar la cámara con ellos sería peor: la haría temblar.
+func _fade_occluders() -> void:
+	if _camera == null or target == null:
+		return
+	# El ojo se estima con la longitud que el BRAZO dice tener, no con
+	# `_camera.global_position`. Esa posición se lee a mitad de frame: el rig ya
+	# se ha movido y el brazo todavía no ha recolocado a sus hijos, así que la
+	# composición de los dos da un valor que no existe en ningún instante. Se
+	# midió el mismo frame dando 0,65 m aquí dentro y 3,80 m desde fuera, y con
+	# eso el modelo del jugador desaparecía en mitad de un pasillo despejado.
+	#
+	# `get_hit_length()` es del frame anterior, que para decidir una visibilidad
+	# es exacto de sobra.
+	var head := global_position
+	var eye := head + global_transform.basis.z * _spring_arm.get_hit_length()
+	_restore_faded()
+
+	var own := _model_of(target)
+	if own != null:
+		own.visible = _spring_arm.get_hit_length() > SELF_HIDE_M
+
+	for node: Node in get_tree().get_nodes_in_group(&"characters"):
+		var body := node as Character
+		if body == null or body == target or not body.alive:
+			continue
+		if body.team == Character.Team.ENEMY:
+			continue
+		if not is_between(eye, head, body.global_position + Vector3.UP * 0.9,
+				OCCLUDER_RADIUS_M):
+			continue
+		var model := _model_of(body)
+		if model == null:
+			continue
+		_apply_transparency(model, OCCLUDER_TRANSPARENCY)
+		_faded.append(model)
+
+
+func _restore_faded() -> void:
+	for model: Node3D in _faded:
+		if is_instance_valid(model):
+			_apply_transparency(model, 0.0)
+	_faded.clear()
+
+
+## `GeometryInstance3D.transparency` se aplica por malla, así que hay que
+## recorrer el modelo. Es un puñado de nodos y solo cuando alguien tapa.
+##
+## AVISO: esta propiedad solo la respeta el renderizador Forward+, que es el
+## que exporta el juego. Bajo Compatibilidad —el del contenedor de capturas—
+## no hace nada, así que este efecto NO se puede juzgar en una captura de CI.
+func _apply_transparency(root: Node, value: float) -> void:
+	var geometry := root as GeometryInstance3D
+	if geometry != null:
+		geometry.transparency = value
+	for child: Node in root.get_children():
+		_apply_transparency(child, value)
+
+
+func _model_of(body: Node3D) -> Node3D:
+	return body.get_node_or_null(^"Model") as Node3D
+
+
+# ---- Geometría pura, probable sin escena ----
+
+## Cuánto se ha comido el entorno del brazo: 0 = mide lo que pidió, 1 = nada.
+static func collapse_ratio(hit_length: float, desired_length: float) -> float:
+	if desired_length <= 0.0:
+		return 0.0
+	return clampf(1.0 - hit_length / desired_length, 0.0, 1.0)
+
+
+## ¿Está `point` metido en el cilindro que va de `from` a `to` con ese radio?
+## Es la pregunta «¿me estás tapando?» sin trigonometría ni rayos.
+static func is_between(from: Vector3, to: Vector3, point: Vector3, radius: float) -> bool:
+	var axis := to - from
+	var length_squared := axis.length_squared()
+	if length_squared <= 0.0001:
+		return false
+	var along := (point - from).dot(axis) / length_squared
+	if along <= 0.0 or along >= 1.0:
+		return false
+	var closest := from + axis * along
+	return closest.distance_to(point) <= radius
 
 
 func toggle_mode() -> void:

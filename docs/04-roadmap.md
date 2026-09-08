@@ -630,14 +630,51 @@ herramienta.
 
 ### T-10 · La cámara en pasillos estrechos 🟨 `godot-gameplay`
 
-Ya no se mete dentro de las paredes (esfera de 28 cm en el `SpringArm3D`), pero
-en una esquina cóncava el brazo se colapsa y se acaba mirando la nuca. Falta la
-solución buena: desplazar la cámara en vez de acortarla.
+Ya no se mete dentro de las paredes (esfera de 28 cm en el `SpringArm3D`), y
+ahora tampoco se queda mirando una nuca ni deja que los compañeros tapen medio
+plano. Lo que sigue pendiente es lo de fondo: **desplazar** la cámara en vez de
+acortarla.
 
-Y desde que hay compañeros hay un caso nuevo: los tres van a un metro del
-jugador y a esa distancia le tapan media pantalla. La máscara del brazo es solo
-el mundo, así que no lo empujan —pero se ponen delante—. O el brazo los tiene
-en cuenta, o los huecos de formación se abren cuando la cámara está cerca.
+**Hecho**, porque son las dos consecuencias y se arreglan sin realimentar la
+colisión del brazo:
+
+* el PIVOTE sube con el colapso: en un rincón la vista pasa de «sobre el
+  hombro» a «sobre la cabeza», que es la que queda libre;
+* si el brazo se queda corto de verdad, se esconde el modelo del jugador. Entre
+  ver su nuca a diez centímetros y ver la habitación, la habitación;
+* y un ALIADO que se ponga entre la cámara y el jugador se vuelve
+  semitransparente. Solo aliados: a un enemigo no se le toca la transparencia
+  ni cuando tapa, porque su cuerpo es información y ocultarla para limpiar el
+  plano es hacerle trampas al jugador en su contra. Ojo: esa propiedad solo la
+  respeta Forward+, así que este efecto NO se puede juzgar en una captura de
+  CI, que corre en Compatibilidad.
+
+**Intentado y retirado**: elegir entre hombro, eje y hombro contrario el que
+deje más brazo. Y el motivo por el que se retiró no es el que parecía, así que
+queda escrito para quien lo retome:
+
+> **el banco de pruebas no servía.** El diagnóstico teletransportaba al jugador
+> contra el muro más cercano y le ponía el `yaw` mirándolo, y ese `yaw` no se
+> aplicaba como se creía: seis ejecuciones del MISMO escenario dieron
+> 0,56 · 3,11 · 0,28 · 3,75 · 2,82 · 3,43 m de brazo porque la cámara miraba a
+> un sitio distinto en cada una. Comparar dos versiones con ese instrumento es
+> comparar ruido, y las conclusiones que salieron de ahí —«el eje está menos
+> libre que el hombro»— **no están demostradas**.
+
+Lo que sí quedó medido, y ahorra tiempo al siguiente:
+
+* el rayo y la esfera barrida **sí** ven el perímetro desde dentro (2,35 m y
+  2,07 m, exactamente el borde del polígono y el borde menos el radio), así que
+  la colisión del zócalo funciona: la sospecha de que la cámara se salía del
+  nivel por ahí no está confirmada;
+* leer `_camera.global_position` a mitad de frame da un valor que no existe en
+  ningún instante — el rig ya se movió y el `SpringArm3D` no ha recolocado a
+  sus hijos—. Mismo frame: 0,65 m visto desde dentro del nodo y 3,80 m desde
+  fuera. Con eso, el modelo del jugador desaparecía en mitad de un pasillo
+  despejado. Lo que hay que preguntar es `get_hit_length()`.
+
+Lo primero que necesita quien lo retome no es código: es un banco de pruebas
+que controle de verdad hacia dónde mira la cámara.
 
 ### T-11 · Traducción inglesa incompleta ✅ NO REPRODUCE `ui-ux`
 
