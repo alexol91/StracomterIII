@@ -25,6 +25,20 @@ extends Node
 
 const SUN_ROTATION_MODERN := Vector3(-52.0, -35.0, 0.0)
 const SUN_ROTATION_CHUTAOS := Vector3(-70.0, -20.0, 0.0)
+## Azotea de noche (GDD §6: "Helipuerto, viento, noche"). La luna hace de sol:
+## misma clase de luz, un cuarto de energía y desplazada al azul.
+const MOON_ROTATION := Vector3(-58.0, 25.0, 0.0)
+const MOON_COLOR := Color(0.72, 0.80, 1.0)
+const MOON_ENERGY: float = 0.35
+const NIGHT_SKY_TOP := Color(0.03, 0.05, 0.11)
+const NIGHT_SKY_HORIZON := Color(0.10, 0.14, 0.24)
+const NIGHT_GROUND := Color(0.05, 0.06, 0.09)
+## Ambiente de la noche. Bajo, pero NO tan bajo que la azotea se vuelva el
+## agujero negro del que trata la mitad de este fichero: con 0,18 se distinguen
+## siluetas, coberturas y el jefe, que es lo que hay que poder ver para jugar.
+## Una noche de videojuego es azul oscuro legible, no oscuridad real.
+const NIGHT_AMBIENT := Color(0.34, 0.42, 0.62)
+const NIGHT_AMBIENT_ENERGY: float = 0.55
 
 ## Luminarias de techo. Separación en metros, altura y alcance.
 ##
@@ -49,6 +63,15 @@ const CEILING_COLOR := Color(1.0, 0.97, 0.92)
 ## por delante el presupuesto de render.
 const CEILING_MAX_LIGHTS: int = 48
 
+## ¿Es esta planta a cielo abierto? Lo dice la metadata que deja el conversor
+## (`--exterior`). Cambia dos cosas: no hay techo del que colgar luminarias, y
+## la iluminación es la de noche.
+##
+## Por defecto NO: los 27 mapas del original son interiores, y equivocarse
+## hacia "interior" solo cuesta luz de más; equivocarse hacia "exterior"
+## deja una planta a oscuras. Ante la duda, hay techo.
+var _exterior: bool = false
+
 var _environment: WorldEnvironment = null
 var _sun: DirectionalLight3D = null
 var _ceiling: Node3D = null
@@ -62,6 +85,9 @@ func _ready() -> void:
 
 
 func _build() -> void:
+	var root := get_parent()
+	_exterior = root != null and bool(root.get_meta(&"exterior", false))
+
 	_environment = WorldEnvironment.new()
 	_environment.name = "Environment"
 	_environment.environment = Environment.new()
@@ -74,7 +100,8 @@ func _build() -> void:
 	_ceiling = Node3D.new()
 	_ceiling.name = "CeilingLights"
 	add_child(_ceiling)
-	_build_ceiling_lights()
+	if not _exterior:
+		_build_ceiling_lights()
 
 
 func _apply_style() -> void:
@@ -82,10 +109,13 @@ func _apply_style() -> void:
 		return
 	if _ceiling != null:
 		# En 2012 no había luces de techo: había color plano. Encenderlas en
-		# modo Chutaos rompería justo lo que ese modo conserva.
-		_ceiling.visible = not PresentationStyle.chutaos_mode
+		# modo Chutaos rompería justo lo que ese modo conserva. Y en una azotea
+		# no hay ninguna que encender.
+		_ceiling.visible = not PresentationStyle.chutaos_mode and not _exterior
 	if PresentationStyle.chutaos_mode:
 		_apply_chutaos()
+	elif _exterior:
+		_apply_night()
 	else:
 		_apply_modern()
 
@@ -146,6 +176,49 @@ func _apply_modern() -> void:
 	_sun.shadow_opacity = 0.55
 	_sun.shadow_blur = 1.2
 	_sun.directional_shadow_max_distance = 60.0
+
+
+## Azotea de noche. No es la de dentro con el ambiente bajado: la fuente
+## cambia de sitio. Dentro, la luz venía del techo y el sol se quedaba fuera;
+## aquí no hay techo y la única luz direccional es la luna, así que el relleno
+## tiene que venir del cielo y del color de ambiente, y las sombras son largas
+## y suaves porque la fuente está baja.
+func _apply_night() -> void:
+	var env := _environment.environment
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = NIGHT_SKY_TOP
+	sky_material.sky_horizon_color = NIGHT_SKY_HORIZON
+	sky_material.ground_bottom_color = NIGHT_GROUND
+	sky_material.ground_horizon_color = NIGHT_SKY_HORIZON
+	sky_material.sun_angle_max = 30.0
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+	env.sky = sky
+	env.background_mode = Environment.BG_SKY
+	env.background_energy_multiplier = 1.0
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_color = NIGHT_AMBIENT
+	# Más aporte de color explícito que de cielo, por lo mismo que de día: el
+	# aporte del cielo es imagen y cambia con el renderizador.
+	env.ambient_light_sky_contribution = 0.30
+	env.ambient_light_energy = NIGHT_AMBIENT_ENERGY
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_white = 4.0
+	env.ssao_enabled = true
+	env.ssao_intensity = 1.1
+	env.ssao_radius = 0.6
+	env.ssil_enabled = false
+	env.sdfgi_enabled = false
+	env.glow_enabled = false
+
+	_sun.rotation_degrees = MOON_ROTATION
+	_sun.light_color = MOON_COLOR
+	_sun.light_energy = MOON_ENERGY
+	_sun.shadow_enabled = true
+	_sun.shadow_opacity = 0.45
+	_sun.shadow_blur = 1.6
+	_sun.directional_shadow_max_distance = 80.0
 
 
 ## 2012: color plano y sin sombras. No es una versión peor de la de arriba,

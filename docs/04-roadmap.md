@@ -398,10 +398,48 @@ un mapa grande los treinta segundos se iban en cero contactos. Disparar ejercita
 además el bucle completo —oído propagado por navmesh, investigar, adquirir,
 disparar—, que es justo lo que la sonda existe para vigilar.
 
-### T-06 · Planta 9 y combate final ⬜ `level-procedural`
+### T-06 · Planta 9 y combate final 🟨 `level-procedural`
 
-`floor_9.tres` existe; no hay azotea ni final. Ahora mismo la torre se acaba sin
-acabarse.
+`floor_9.tres` apuntaba a `res://maps/legacy/rooftop.tscn` y ese fichero **no
+existía**: llegar a la planta 9 era llegar a un `load()` nulo. Ninguna prueba
+lo cogía porque las de mapas recorren el directorio `legacy/` y comprueban lo
+que HAY, no lo que los datos de balanceo PIDEN. Ahora hay una prueba que mira
+desde el otro lado: de las nueve plantas hacia las escenas.
+
+**La azotea existe** (`game/maps/rooftop.tscn`, 597 m², navegación 100 %
+alcanzable). Se escribe en la misma gramática XML de 2012
+(`game/maps/source/rooftop.xml`) y se convierte con el mismo
+`tools/map_converter/` en vez de montarse a mano, porque el conversor ya sabe
+tres cosas que costaron caras: el bobinado que exige el horneador de
+navegación (contrario al del mesh visual), la triangulación del suelo con las
+aristas del perímetro, y que el zócalo del perímetro tiene que fundirse en el
+trimesh y no quedarse en cajas sueltas que rompen la conectividad. No es
+legacy y no vive en `legacy/`: el original acababa la torre en `finalMap` y
+nunca tuvo azotea.
+
+Planta: 30 × 22 m con la esquina noreste recortada, caseta de escalera con
+puerta por donde sale el jugador, dos cuerpos de máquinas y un depósito de
+agua como cobertura, paravientos partiendo el flanqueo por el este, y el
+MegaBoss en la esquina opuesta a 19 m. El helipuerto es el centro despejado
+—el descampado que hay que cruzar—; su marca en el suelo es presentación y
+está sin hacer.
+
+**Noche**, como pide el GDD: el conversor marca la planta con
+`metadata/exterior` (`--exterior`) y `WorldLighting` lo lee para dos cosas —no
+repartir luminarias de techo donde no hay techo, y cambiar a paleta nocturna
+con la luna haciendo de sol—. Ambiente nocturno LEGIBLE (0,55 con color
+explícito), no oscuridad real: la mitad de este proyecto es aprender que una
+planta a oscuras no se juega.
+
+Comprobado JUGÁNDOLO, con la sonda apuntada a la planta 9
+(`PROBE_FLOOR=9 PROBE_ZONE=1`, ahora también en CI): aparecen cuatro hostiles
+con el MegaBoss entre ellos, pelean, y un jugador quieto en la azotea se muere
+en cinco segundos. Y visto en captura cenital.
+
+**Lo que queda**: el viento (audio y partículas) y la marca del helipuerto son
+presentación sin hacer, y la pantalla de Victoria se dispara al limpiar
+cualquier zona en vez de al matar al MegaBoss — el final de la torre sigue sin
+ser un final.
 
 ### T-07 · Generador procedural de plantas ⬜ `level-procedural`
 

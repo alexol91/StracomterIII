@@ -57,6 +57,13 @@ jobs:
       - name: Sonda de combate
         run: bash tools/combat_probe/probe.sh ~/godot/godot
 
+      # La azotea es la única planta escrita para el remake y el único combate
+      # final que hay. Si no se juega aquí, no se juega en ningún sitio: no
+      # había ni escena hasta que se construyó, y llegar a la planta 9 era
+      # llegar a un `load()` nulo.
+      - name: Sonda de combate — azotea (planta 9)
+        run: PROBE_FLOOR=9 PROBE_ZONE=1 bash tools/combat_probe/probe.sh ~/godot/godot
+
   export:
     name: Exportar ${{ matrix.preset }}
     needs: tests

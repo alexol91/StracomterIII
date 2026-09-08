@@ -126,6 +126,12 @@ vieron a la primera captura de pantalla:
 * El mundo **no tenía ni una luz**, así que la biblioteca de materiales entera
   era invisible.
 
+Y una quinta de la misma tarde que las cuatro de arriba: el truco `god` de la
+consola escribía un metadato que **nadie leía**. Contestaba «Modo dios
+activado» y el jugador se seguía muriendo. Un truco, un comando o un flag que
+no hace nada es peor que uno que no existe: manda a buscar el problema a otro
+sitio. Si registras un truco, comprueba en el mismo commit que alguien lo lee.
+
 `tools/screenshots/capture.sh` renderiza las pantallas a PNG con `xvfb-run`.
 Cuesta un minuto. Aprobar un entregable visual sin verlo es fiarse de una
 descripción, y una descripción no tiene ventanas flotando.
@@ -234,7 +240,9 @@ que mide empieza a funcionar. Si tu comprobación asume que su escenario no
 llega hasta el final, no está comprobando el escenario.
 
 ```bash
-tools/combat_probe/probe.sh $GODOT   # 30 s de planta 1: ¿pelean los enemigos?
+tools/combat_probe/probe.sh $GODOT   # 30 s de planta 3-5: ¿pelean los enemigos?
+PROBE_FLOOR=9 PROBE_ZONE=1 tools/combat_probe/probe.sh $GODOT   # la azotea
+SHOT_FLOOR=9 SHOT_TOPDOWN=1 SHOT_LOCALE=es tools/screenshots/capture.sh $GODOT
 ```
 
 Regla: **un subsistema verde no es un juego.** Cuando lo que se entrega es

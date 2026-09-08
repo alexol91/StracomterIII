@@ -21,6 +21,8 @@ extends SceneTree
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
 ##   SHOT_LINEUP   "1" para añadir una fila con los nueve arquetipos
 ##   SHOT_GAMEPLAY "1" para arrancar una partida de verdad y capturar la planta
+##   SHOT_FLOOR    planta que se retrata (por defecto 1). La azotea es la 9.
+##   SHOT_ZONE      zona de esa planta (por defecto 1).
 ##   SHOT_TOPDOWN  "1" para capturar la planta en vista cenital. Sirve para
 ##                 juzgar la ILUMINACIÓN sin que la cámara en tercera persona se
 ##                 meta entre la geometría: desde dentro de un muro no se puede
@@ -219,9 +221,25 @@ func _capture_gameplay(out: String, suffix: String) -> void:
 		intents.emit_signal("run_start_requested", &"captain")
 		for _i: int in range(SETTLE_FRAMES):
 			await process_frame
-		# Zona 1: las zonas se numeran desde 1 en la pantalla de Estrategia, y
-		# un 0 se acepta sin protestar y deja la partida sin arrancar.
-		intents.emit_signal("strategy_confirmed", 1, 0, {})
+		# `SHOT_FLOOR` / `SHOT_ZONE` eligen qué planta se retrata. Por defecto
+		# la 1, zona 1: las zonas se numeran desde 1 en la pantalla de
+		# Estrategia, y un 0 se acepta sin protestar y deja la partida sin
+		# arrancar. La azotea (planta 9) se mira con SHOT_FLOOR=9.
+		var state_node := root.get_node_or_null("GameState")
+		var floor_raw := OS.get_environment("SHOT_FLOOR")
+		if state_node != null and floor_raw.is_valid_int():
+			state_node.set("current_floor", int(floor_raw))
+		var zone_raw := OS.get_environment("SHOT_ZONE")
+		var zone := int(zone_raw) if zone_raw.is_valid_int() else 1
+		intents.emit_signal("strategy_confirmed", zone, 0, {})
+
+	# Modo dios para el retrato. No es un adorno: en la azotea, con el
+	# MegaBoss delante y el jugador quieto, la partida se acaba en cinco
+	# segundos y lo que se capturaba era la pantalla de Game Over. Una captura
+	# de la planta tiene que retratar la planta.
+	var player := _find_player()
+	if player != null:
+		player.set_meta(&"godmode", true)
 
 	# Cinco segundos de partida: el director tarda en soltar la primera oleada
 	# y la cámara en tercera persona en asentarse detrás del jugador.
@@ -254,6 +272,16 @@ func _scenes() -> Array[String]:
 	for entry: String in raw.split(",", false):
 		out.append(entry.strip_edges())
 	return out
+
+
+## El jugador de la partida en curso, buscado por grupo como lo hace todo el
+## mundo en este proyecto. Devuelve `Node` porque `--script` no registra los
+## nombres de clase globales.
+func _find_player() -> Node:
+	for node: Node in root.get_tree().get_nodes_in_group(&"characters"):
+		if int(node.get("team")) == 0:
+			return node
+	return null
 
 
 func _find_tps_camera(node: Node) -> Node:

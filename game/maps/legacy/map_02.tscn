@@ -69,6 +69,7 @@ metadata/has_player = true
 metadata/has_mini_boss = false
 metadata/has_mega_boss = false
 metadata/load_status = 1
+metadata/exterior = false
 
 [node name="Floor" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

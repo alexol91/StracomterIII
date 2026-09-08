@@ -271,10 +271,18 @@ def _quad_ccw_up(quad: Tuple[int, int, int, int], verts3d: List[Tuple[float, flo
 # Construcción de la escena
 # ---------------------------------------------------------------------------
 
-def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
+def build_scene(m: "lm.LegacyMap", scene_name: str,
+                exterior: bool = False) -> Tuple[str, Dict]:
     """Construye el texto del .tscn y un resumen de conteos/metadatos para el
     informe de conversión. `scene_name` es el nombre del nodo raíz (== nombre
-    de fichero sin extensión)."""
+    de fichero sin extensión).
+
+    `exterior=True` marca la planta como a cielo abierto
+    (`metadata/exterior`). Lo lee `WorldLighting`: una azotea no tiene techo
+    del que colgar luminarias, y ponerlas sería dejar treinta luces flotando
+    sobre el helipuerto. Los 27 mapas del original son todos interiores; esto
+    existe para la azotea de la planta 9, que no venía en el corpus de 2012.
+    """
 
     sw = SceneWriter(root_name=scene_name)
     warnings: List[str] = list(m.load_warnings)
@@ -307,6 +315,7 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
         f'metadata/has_mini_boss = {"true" if m.mini_boss else "false"}',
         f'metadata/has_mega_boss = {"true" if m.mega_boss else "false"}',
         f'metadata/load_status = {m.status}',
+        f'metadata/exterior = {"true" if exterior else "false"}',
     ]
     if m.unknown_types:
         joined = ",".join(m.unknown_types)
@@ -555,10 +564,10 @@ def build_scene(m: "lm.LegacyMap", scene_name: str) -> Tuple[str, Dict]:
     return scene_text, summary
 
 
-def convert_file(xml_path: str, tscn_path: str) -> Dict:
+def convert_file(xml_path: str, tscn_path: str, exterior: bool = False) -> Dict:
     m = lm.load_map(xml_path)
     scene_name = os.path.splitext(os.path.basename(tscn_path))[0]
-    scene_text, summary = build_scene(m, scene_name)
+    scene_text, summary = build_scene(m, scene_name, exterior=exterior)
     os.makedirs(os.path.dirname(os.path.abspath(tscn_path)), exist_ok=True)
     with open(tscn_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(scene_text)
@@ -569,13 +578,15 @@ def main(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("xml", nargs="?", help="Mapa de origen (.xml)")
     parser.add_argument("tscn", nargs="?", help="Escena de salida (.tscn)")
+    parser.add_argument("--exterior", action="store_true",
+                        help="planta a cielo abierto: sin luminarias de techo")
     args = parser.parse_args(argv)
 
     if not args.xml or not args.tscn:
         parser.print_help()
         return 2
 
-    summary = convert_file(args.xml, args.tscn)
+    summary = convert_file(args.xml, args.tscn, exterior=args.exterior)
     print(f"OK  {args.xml} -> {args.tscn}  "
           f"(muros={summary['walls']} puertas={summary['doors']} "
           f"obstaculos={summary['obstacles']} pickups={summary['pickups']} "

@@ -33,8 +33,9 @@ Fuente: 26 mapas de `legacy/trunk/testFiles/maps/*.xml` más `legacy/trunk/edito
 | `legacy/trunk/testFiles/maps/mapaMolon.xml` | `mapaMolon` | 44 | 4 | 0 | 0 | 0 | sí | no | no | 893 / 100% | OK | — |
 | `legacy/trunk/testFiles/maps/pruebasMov.xml` | `pruebasMov` | 225 | 0 | 0 | 0 | 0 | sí | no | no | 1600 / 100% | OK | — |
 | `legacy/trunk/editorMap.xml` | `editorMap` | 852 | 15 | 6 | 37 | 5 | sí | sí | no | 1686 / 100% | OK | — |
+| `game/maps/source/rooftop.xml` | `rooftop` | 597 | 10 | 1 | 0 | 3 | sí | no | sí | 1386 / 100% | OK | — |
 
-**Totales**: 27 mapas convertidos, 25 validados sin fallos, 2 con fallos.
+**Totales**: 28 mapas convertidos, 26 validados sin fallos, 2 con fallos.
 
 Notas generales: "Navmesh (libres / alcanzable)" viene de la **rejilla propia** de `validate.py` (flood-fill sobre muros y huella de obstáculos) — es una comprobación rápida en tiempo de conversión, NO el navmesh que usa el juego. La comprobación que manda hornea de verdad con `NavigationServer3D` en `game/tests/maps/test_legacy_maps.gd` y `game/tests/ai/navigation/test_legacy_maps_navigation.gd`: ahí se encontraron y arreglaron dos bugs reales de horneado (bobinado de la colisión del suelo, y una `BoxShape3D` suelta por arista del perímetro que rompía la conectividad en zonas ajenas — ver `tools/map_converter/README.md` §"Bug real"), y con ambos arreglados los 25 mapas sin fallo de carga quedan al 100% salvo `mapaMolon` y `map_03` (bolsillos pequeños alrededor de obstáculos, no zonas enteras tabicadas). Las puertas, obstáculos, pickups y spawns se generan como nodos `Marker3D` con metadatos (`tipo`, posición, ángulo) — no llevan geometría ni colisión: otro agente instanciará las escenas de gameplay reales sobre estos marcadores.
 

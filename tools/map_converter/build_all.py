@@ -34,11 +34,23 @@ REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 LEGACY_MAPS_DIR = os.path.join(REPO_ROOT, "legacy", "trunk", "testFiles", "maps")
 EDITOR_MAP_XML = os.path.join(REPO_ROOT, "legacy", "trunk", "editorMap.xml")
 OUTPUT_DIR = os.path.join(REPO_ROOT, "game", "maps", "legacy")
+AUTHORED_DIR = os.path.join(REPO_ROOT, "game", "maps", "source")
+AUTHORED_OUTPUT_DIR = os.path.join(REPO_ROOT, "game", "maps")
 REPORT_PATH = os.path.join(OUTPUT_DIR, "CONVERSION.md")
 
 # Los 26 mapas de testFiles/maps/*.xml (se listan explícitamente, no con un
 # glob, para que el orden del informe sea siempre el mismo con independencia
 # del sistema de ficheros).
+# Mapas ESCRITOS PARA EL REMAKE, en la misma gramática de 2012 pero fuera de
+# `legacy/` porque no salen de allí: el original acababa la torre en
+# `finalMap` y nunca tuvo azotea. Salen a `game/maps/` y no a
+# `game/maps/legacy/`, que es exactamente lo que dice su nombre.
+#
+# Cada entrada es (basename.xml, nombre_escena, exterior).
+AUTHORED_SOURCES = [
+    ("rooftop.xml", "rooftop", True),
+]
+
 SOURCE_BASENAMES = [
     "finalMap.xml",
     "gallardoMap.xml",
@@ -78,12 +90,19 @@ REQUIRED_SCENE_NAMES = [
 ]
 
 
-def _source_list() -> List[Tuple[str, str]]:
-    """Devuelve [(ruta_xml, nombre_escena), ...] en orden determinista."""
+def _source_list() -> List[Tuple[str, str, str, bool]]:
+    """Devuelve [(ruta_xml, ruta_tscn, nombre_escena, exterior), ...] en orden
+    determinista."""
     out = []
     for base in SOURCE_BASENAMES:
-        out.append((os.path.join(LEGACY_MAPS_DIR, base), os.path.splitext(base)[0]))
-    out.append((EDITOR_MAP_XML, "editorMap"))
+        name = os.path.splitext(base)[0]
+        out.append((os.path.join(LEGACY_MAPS_DIR, base),
+                    os.path.join(OUTPUT_DIR, f"{name}.tscn"), name, False))
+    out.append((EDITOR_MAP_XML, os.path.join(OUTPUT_DIR, "editorMap.tscn"),
+                "editorMap", False))
+    for base, name, exterior in AUTHORED_SOURCES:
+        out.append((os.path.join(AUTHORED_DIR, base),
+                    os.path.join(AUTHORED_OUTPUT_DIR, f"{name}.tscn"), name, exterior))
     return out
 
 
@@ -98,13 +117,12 @@ def build_all(write_report: bool = True) -> int:
     rows = []
     any_fail = False
 
-    for xml_path, scene_name in sources:
-        tscn_path = os.path.join(OUTPUT_DIR, f"{scene_name}.tscn")
+    for xml_path, tscn_path, scene_name, exterior in sources:
         rel_xml = os.path.relpath(xml_path, REPO_ROOT)
         rel_tscn = os.path.relpath(tscn_path, REPO_ROOT)
 
         try:
-            summary = cv.convert_file(xml_path, tscn_path)
+            summary = cv.convert_file(xml_path, tscn_path, exterior=exterior)
             conv_error = None
         except Exception as exc:  # noqa: BLE001 — se informa en el reporte, no se oculta
             summary = None

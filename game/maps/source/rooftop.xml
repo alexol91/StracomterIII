@@ -1,0 +1,151 @@
+<?xml version="1.0" ?>
+<!--
+  Azotea de la Torre Chutaos: planta 9, combate final contra el MegaBoss
+  (GDD §6, tabla de plantas: "Helipuerto, viento, noche").
+
+  ESTE MAPA NO ES LEGACY. Los 27 de `game/maps/legacy/` salen de
+  `legacy/trunk/testFiles/maps/*.xml`, que es documento fuente de solo lectura;
+  el original nunca tuvo azotea —la torre se acababa en `finalMap`— así que
+  esta planta hay que construirla.
+
+  Se escribe en la MISMA gramática XML de 2012 y se convierte con el mismo
+  `tools/map_converter/`, en vez de montar la escena a mano, por tres razones
+  que ya costaron caro una vez: el conversor sabe el bobinado que exige el
+  horneador de navegación (contrario al del mesh visual), triangula el suelo
+  con las aristas del perímetro, y funde el zócalo del perímetro en el trimesh
+  en lugar de dejar cajas sueltas que rompen la conectividad del navmesh. Ver
+  la cabecera de `game/maps/legacy/_legacy_floor_mesh.gd`.
+
+  Unidades legacy: 75 u = 1 m. x → x de Godot, y → z de Godot.
+  Perímetro en orden HORARIO (Polygon::isClockwise), como el del original.
+
+  Planta: 30 × 22 m con la esquina noreste recortada (ahí el edificio tiene un
+  cuerpo más bajo). El helipuerto es el centro despejado — es el descampado que
+  el jugador tiene que cruzar y donde el MegaBoss tiene ángulo—, y la cobertura
+  son los cuerpos de máquinas y el depósito de agua, no mobiliario de oficina:
+  un sofá en una azotea sería comedia involuntaria.
+-->
+<map>
+    <!-- Perímetro de la azotea: el pretil. -->
+    <object type="perimeter">
+        <vertexlist>
+            <vertex id="0" x="-1125" y="-825" />
+            <vertex id="1" x="450" y="-825" />
+            <vertex id="2" x="450" y="-300" />
+            <vertex id="3" x="1125" y="-300" />
+            <vertex id="4" x="1125" y="825" />
+            <vertex id="5" x="-1125" y="825" />
+        </vertexlist>
+    </object>
+
+    <!-- Caseta de la escalera: por aquí sale el jugador a la azotea.
+         Cuatro paredes y una puerta al este. -->
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-900" y="-150" />
+            <vertex id="1" x="-900" y="-125" />
+            <vertex id="2" x="-600" y="-125" />
+            <vertex id="3" x="-600" y="-150" />
+        </vertexlist>
+    </object>
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-900" y="75" />
+            <vertex id="1" x="-900" y="100" />
+            <vertex id="2" x="-600" y="100" />
+            <vertex id="3" x="-600" y="75" />
+        </vertexlist>
+    </object>
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-900" y="-150" />
+            <vertex id="1" x="-900" y="100" />
+            <vertex id="2" x="-875" y="100" />
+            <vertex id="3" x="-875" y="-150" />
+        </vertexlist>
+    </object>
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-625" y="-150" />
+            <vertex id="1" x="-625" y="-50" />
+            <vertex id="2" x="-600" y="-50" />
+            <vertex id="3" x="-600" y="-150" />
+        </vertexlist>
+    </object>
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-625" y="25" />
+            <vertex id="1" x="-625" y="100" />
+            <vertex id="2" x="-600" y="100" />
+            <vertex id="3" x="-600" y="25" />
+        </vertexlist>
+    </object>
+    <object type="door">
+        <vertexlist>
+            <vertex id="0" x="-625" y="-50" />
+            <vertex id="1" x="-625" y="25" />
+            <vertex id="2" x="-600" y="25" />
+            <vertex id="3" x="-600" y="-50" />
+        </vertexlist>
+    </object>
+
+    <!-- Cuerpos de máquinas al norte del helipuerto: la cobertura de ida. -->
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-450" y="-600" />
+            <vertex id="1" x="-450" y="-500" />
+            <vertex id="2" x="-150" y="-500" />
+            <vertex id="3" x="-150" y="-600" />
+        </vertexlist>
+    </object>
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="100" y="-600" />
+            <vertex id="1" x="100" y="-500" />
+            <vertex id="2" x="400" y="-500" />
+            <vertex id="3" x="400" y="-600" />
+        </vertexlist>
+    </object>
+
+    <!-- Depósito de agua al sur: la única cobertura del lado del MegaBoss. -->
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-150" y="300" />
+            <vertex id="1" x="-150" y="450" />
+            <vertex id="2" x="150" y="450" />
+            <vertex id="3" x="150" y="300" />
+        </vertexlist>
+    </object>
+
+    <!-- Paravientos junto al recorte: parte en dos el acceso al este, así que
+         flanquear al jefe cuesta una decisión y no es gratis. -->
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="400" y="-300" />
+            <vertex id="1" x="400" y="0" />
+            <vertex id="2" x="425" y="0" />
+            <vertex id="3" x="425" y="-300" />
+        </vertexlist>
+    </object>
+
+    <!-- Pretil interior del oeste: cubre la salida de la caseta. -->
+    <object type="wall">
+        <vertexlist>
+            <vertex id="0" x="-1100" y="400" />
+            <vertex id="1" x="-1100" y="425" />
+            <vertex id="2" x="-800" y="425" />
+            <vertex id="3" x="-800" y="400" />
+        </vertexlist>
+    </object>
+
+    <!-- Recompensas: una de vida en el camino corto, munición en el largo. -->
+    <object type="objects" subtype="1" x="-200" y="700" angle="0" />
+    <object type="objects" subtype="4" x="600" y="-100" angle="0" />
+    <object type="objects" subtype="2" x="900" y="700" angle="0" />
+
+    <!-- El MegaBoss, en la esquina opuesta a la caseta: 19 m de azotea. -->
+    <object type="megaBoss" x="800" y="450" angle="0" />
+
+    <!-- El jugador sale de la caseta. -->
+    <object type="player" angle="0.0" rank="1" x="-500" y="-10" />
+</map>

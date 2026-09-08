@@ -31,4 +31,7 @@ TSCN
 # IA decide en instantes distintos en cada ejecución: con el MISMO código se
 # midieron entre 26 y 87 disparos enemigos. Con el paso fijo y la semilla fija
 # del encuentro, dos ejecuciones se parecen.
-"${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_probe_tmp.tscn
+# `PROBE_FLOOR` / `PROBE_ZONE` eligen dónde se juega (por defecto 3-5, la
+# primera zona con MiniBoss). La azotea se prueba con PROBE_FLOOR=9 PROBE_ZONE=1.
+PROBE_FLOOR="${PROBE_FLOOR:-}" PROBE_ZONE="${PROBE_ZONE:-}" \
+    "${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_probe_tmp.tscn

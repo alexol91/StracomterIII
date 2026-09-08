@@ -56,3 +56,24 @@ func test_stopping_is_immediate_and_does_not_wait_for_the_expiry() -> void:
 	body.move_to(Vector3.ZERO)
 	assert_eq(body.intent_move, Vector3.ZERO, "parar es inmediato")
 	body.free()
+
+
+func test_godmode_actually_stops_damage() -> void:
+	# El truco `god` de la consola escribía el metadato y nadie lo leía: decía
+	# "Modo dios activado" y el jugador seguía muriéndose. Un truco que no hace
+	# nada es peor que uno que no existe, porque manda a buscar el problema a
+	# otro sitio.
+	var body := Character.new()
+	body.archetype = &"captain"
+	var tree := Engine.get_main_loop() as SceneTree
+	var parent: Node = tree.current_scene if tree.current_scene != null else tree.root
+	parent.add_child(body)
+	var full := body.health
+	body.set_meta(Character.GODMODE_META, true)
+	body.apply_damage(Damage.new(50.0, Damage.Zone.TORSO, Vector3.ZERO, 0, 2))
+	assert_eq(body.health, full, "en modo dios no se pierde vida")
+	body.set_meta(Character.GODMODE_META, false)
+	body.apply_damage(Damage.new(50.0, Damage.Zone.TORSO, Vector3.ZERO, 0, 2))
+	assert_lt(body.health, full, "sin modo dios sí")
+	parent.remove_child(body)
+	body.free()

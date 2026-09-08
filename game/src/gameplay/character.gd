@@ -195,8 +195,20 @@ static func teams_are_hostile(a: int, b: int) -> bool:
 
 # --- Daño y muerte ---
 
+## Metadato que hace invulnerable a un personaje. Lo pone el truco `god` de la
+## consola y lo usa el capturador de pantallas.
+##
+## Estaba a medias: `GameCheats` escribía el metadato y NADIE lo leía, así que
+## el truco contestaba «Modo dios activado» y el jugador seguía muriéndose.
+## Un truco que no hace nada es peor que uno que no existe: parece que el
+## problema está en otro sitio.
+const GODMODE_META: StringName = &"godmode"
+
+
 func apply_damage(damage: Damage) -> void:
 	if not alive:
+		return
+	if get_meta(GODMODE_META, false):
 		return
 	var final_amount := damage.effective_amount()
 	health = maxf(health - final_amount, 0.0)

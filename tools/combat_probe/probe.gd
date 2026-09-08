@@ -59,6 +59,9 @@ const SEED: int = 20120601
 ## Planta y zona que se juega. La 3-5 es la primera con MiniBoss, así que la
 ## sonda comprueba de paso que el jefe aparece: es contenido que estuvo escrito
 ## y desconectado, y lo único que lo delata es contarlo en partida.
+## Se pueden cambiar con `PROBE_FLOOR` / `PROBE_ZONE`, que es como se prueba
+## la azotea (`PROBE_FLOOR=9 PROBE_ZONE=1`): planta 9, MegaBoss y a cielo
+## abierto son tres cosas que no se parecen a una oficina con MiniBoss.
 const FLOOR: int = 3
 const ZONE: int = 5
 ## Cada cuántos segundos dispara el jugador de la sonda.
@@ -90,6 +93,12 @@ var _player: Character = null
 ## que mide.
 var _player_health_ratio: float = 1.0
 var _player_died: bool = false
+## Identificador del jugador. Se guarda aparte de la referencia porque la
+## referencia deja de servir en cuanto el nodo se libera.
+var _player_id: int = 0
+## Último recuento con el jugador vivo. Después el nivel ya no existe.
+var _enemies_at_death: int = -1
+var _companions_at_death: int = -1
 var _player_shots: int = 0
 var _companion_shots: int = 0
 var _companion_hits: int = 0
@@ -98,6 +107,12 @@ var _companion_hits: int = 0
 func _ready() -> void:
 	EventBus.shot_resolved.connect(_on_shot)
 	EventBus.character_damaged.connect(_on_damaged)
+	# La muerte del jugador se escucha por señal y no se sondea con
+	# `_player.alive`: `FloorRunner._fail()` desmonta el nivel en el mismo
+	# frame, y para cuando la sonda vuelve del `await` no queda nada que
+	# contar. Esta conexión se hace ANTES de que el nivel exista, así que
+	# llega antes que la del runner y los recuentos todavía valen.
+	EventBus.character_died.connect(_on_died)
 	_run()
 
 
@@ -118,13 +133,33 @@ func _on_shot(shooter_id: int, hit: bool, _is_headshot: bool) -> void:
 		_hits += 1
 
 
+## El jugador ha muerto: se congelan los recuentos antes del desmontaje.
+func _on_died(character_id: int, _team: int, _killer_id: int, _xp: int) -> void:
+	if _player_id == 0 or character_id != _player_id:
+		return
+	_player_died = true
+	_player_health_ratio = 0.0
+	_enemies_at_death = _count_enemies()
+	_companions_at_death = _count_team(Character.Team.COMPANION)
+	_player = null
+
+
+## El daño se reparte por BANDO y no por identidad, a propósito.
+##
+## Antes se comparaba con el id del jugador, que solo se conoce después del
+## calentamiento: los disparos y los impactos se contaban desde el primer
+## frame y el daño desde el cuarto segundo. Una ejecución en la que los
+## enemigos acertaban durante el calentamiento y fallaban después informaba de
+## «impactos sí, daño no» y la sonda fallaba sola. Dos contadores con orígenes
+## de tiempo distintos no se pueden comparar entre sí.
 func _on_damaged(character_id: int, amount: float, _from: Vector3,
 		_attacker_id: int, _attacker_team: int) -> void:
-	if _player != null and character_id == _player.get_instance_id():
-		_damage += amount
-		return
 	var victim := instance_from_id(character_id) as Character
-	if victim != null and victim.team == Character.Team.COMPANION:
+	if victim == null:
+		return
+	if victim.team == Character.Team.PLAYER:
+		_damage += amount
+	elif victim.team == Character.Team.COMPANION:
 		_damage_squad += amount
 
 
@@ -147,11 +182,13 @@ func _run() -> void:
 	# El proyecto ya prometía determinismo desde `run_seed` (regla 6): aquí
 	# solo se usa la promesa.
 	GameState.run_seed = SEED
-	GameState.current_floor = FLOOR
-	intents.strategy_confirmed.emit(ZONE, 0, {})
+	GameState.current_floor = _floor()
+	intents.strategy_confirmed.emit(_zone(), 0, {})
 
 	await _wait(WARMUP_S)
 	_player = _find_player()
+	if _player != null:
+		_player_id = _player.get_instance_id()
 	if _player == null:
 		printerr("[sonda] no hay jugador en la planta: la partida no arrancó")
 		get_tree().quit(1)
@@ -164,9 +201,10 @@ func _run() -> void:
 	await _wait(RUN_S)
 
 	print("[sonda] %.0f s de la planta %d zona %d con el jugador quieto:" % [
-		RUN_S, FLOOR, ZONE])
-	print("  enemigos al empezar: %d (al terminar: %d), de ellos jefes: %d" % [
-		enemies, _count_enemies(), bosses])
+		RUN_S, _floor(), _zone()])
+	var tail := " (último con el jugador vivo)" if _player_died else ""
+	print("  enemigos al empezar: %d (al terminar: %d%s), de ellos jefes: %d" % [
+		enemies, _enemies_now(), tail, bosses])
 	print("  disparos del jugador:%d" % _player_shots)
 	print("  disparos enemigos:   %d" % _shots)
 	print("  impactos:            %d" % _hits)
@@ -174,10 +212,13 @@ func _run() -> void:
 		_damage, _player_health_ratio * 100.0, ", MUERTO" if _player_died else ""])
 	print("  daño a la escuadra:  %.1f" % _damage_squad)
 	print("  compañeros:          %d al empezar, %d al terminar" % [
-		companions, _count_team(Character.Team.COMPANION)])
+		companions, _companions_now()])
 	print("  disparos de ellos:   %d (aciertos %d)" % [_companion_shots, _companion_hits])
-	print("  distancia media al jugador: %.1f m → %.1f m" % [
-		start_distance, _mean_companion_distance()])
+	if _player_died:
+		print("  distancia media al jugador: %.1f m → (el jugador murió)" % start_distance)
+	else:
+		print("  distancia media al jugador: %.1f m → %.1f m" % [
+			start_distance, _mean_companion_distance()])
 
 	var failures: Array[String] = []
 	if enemies <= 0:
@@ -207,6 +248,31 @@ func _run() -> void:
 	get_tree().quit(1)
 
 
+## Recuentos finales: los del instante de la muerte si el jugador murió, y si
+## no los de ahora.
+func _enemies_now() -> int:
+	if _player_died and _enemies_at_death >= 0:
+		return _enemies_at_death
+	return _count_enemies()
+
+
+func _companions_now() -> int:
+	if _player_died and _companions_at_death >= 0:
+		return _companions_at_death
+	return _count_team(Character.Team.COMPANION)
+
+
+## Planta y zona a probar. El entorno manda sobre la constante.
+func _floor() -> int:
+	var raw := OS.get_environment("PROBE_FLOOR")
+	return int(raw) if raw.is_valid_int() else FLOOR
+
+
+func _zone() -> int:
+	var raw := OS.get_environment("PROBE_ZONE")
+	return int(raw) if raw.is_valid_int() else ZONE
+
+
 ## Espera N segundos de física haciendo lo que hace un jugador: disparar de vez
 ## en cuando. `Character.fire()` solo pone la intención; la resuelve
 ## `WeaponSystem` en el paso de física siguiente.
@@ -219,14 +285,21 @@ func _wait(seconds: float) -> void:
 		# `WeaponSystem` la lea.
 		if _player != null and is_instance_valid(_player) and _player.alive:
 			_player_health_ratio = _player.health_ratio()
+			# Recuento periódico, porque `FloorRunner._fail()` desmonta el
+			# nivel EN EL MISMO FRAME en que muere el jugador: preguntar
+			# después cuántos enemigos quedan devuelve cero y parece que se los
+			# ha llevado por delante alguien. En la azotea, con el MegaBoss
+			# delante y el jugador quieto, pasa siempre.
+			if i % int(PHYSICS_HZ) == 0:
+				_enemies_at_death = _count_enemies()
+				_companions_at_death = _count_team(Character.Team.COMPANION)
 			if (i % every) < BURST_FRAMES:
 				_player.fire()
-		elif _player != null:
-			# Ha muerto: se suelta la referencia antes de que el nodo se libere.
-			# Que muera no es un fallo de la sonda, es el escenario funcionando.
+		else:
+			# Muerto o liberado: se suelta la referencia antes de tocarla. Que
+			# el jugador muera no es un fallo de la sonda, es el escenario
+			# funcionando — quien lo declara es `_on_died`.
 			_player = null
-			_player_died = true
-			_player_health_ratio = 0.0
 		await get_tree().physics_frame
 
 
