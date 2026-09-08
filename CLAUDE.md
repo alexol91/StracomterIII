@@ -248,6 +248,26 @@ SHOT_FLOOR=9 SHOT_TOPDOWN=1 SHOT_LOCALE=es tools/screenshots/capture.sh $GODOT
 Regla: **un subsistema verde no es un juego.** Cuando lo que se entrega es
 comportamiento, la comprobación tiene que ser una partida.
 
+Y la otra mitad de lo mismo: que la partida **TERMINE**.
+
+```bash
+tools/run_probe/probe.sh $GODOT    # 9 plantas seguidas: ¿se acaba la torre?
+```
+
+Esa sonda juega las nueve plantas con el truco `killall` y comprueba a dónde
+lleva cada una. En diecisiete segundos encontró tres fallos que llevaban meses
+puestos: una zona limpia tardaba 45 segundos en darse por limpia (la
+comprobación preguntaba «¿ha acabado la curva de tensión?» —que incluye 15 s de
+alivio y 30 s de silencio forzado— en vez de «¿queda algo por soltar?»); el
+resumen de fin de planta se ponía a la vista y desaparecía en el MISMO frame,
+porque quien lo mostraba solo lo muestra en modo Acción y el modo cambiaba a
+continuación; y la pantalla de Victoria, escrita y con sus dos botones, no se
+veía JAMÁS porque la azotea limpia saltaba directa a los créditos.
+
+Ninguno daba un error. Los tres son de la misma familia: **una pantalla que se
+muestra y se tapa en el mismo frame no existe**, y nadie lo nota escribiendo
+pruebas de un frame.
+
 Y dos avisos sobre las pruebas de integración, porque las dos costaron un rato:
 
 * **Los métodos de prueba son SÍNCRONOS y corren dentro del mismo frame**, así

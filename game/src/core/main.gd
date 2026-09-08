@@ -20,6 +20,8 @@ func _ready() -> void:
 	_intents.run_start_requested.connect(_on_run_start_requested)
 	_intents.run_continue_requested.connect(_on_run_continue_requested)
 	_intents.strategy_confirmed.connect(_on_strategy_confirmed)
+	_intents.floor_end_acknowledged.connect(_on_floor_end_acknowledged)
+	_intents.navigate_to_credits_requested.connect(_on_navigate_to_credits)
 	_intents.restart_requested.connect(_on_restart_requested)
 	_intents.return_to_menu_requested.connect(_on_return_to_menu)
 	_intents.quit_requested.connect(_on_quit_requested)
@@ -66,6 +68,28 @@ func _on_strategy_confirmed(zone: int, xp_to_spend: int, squad: Dictionary) -> v
 		GameState.set_mode(GameState.Mode.STRATEGY)
 
 
+## El jugador ha leído el resumen de fin de planta. Hasta ahora esta intención
+## no la escuchaba nadie —`UiRoot` lo dejaba escrito en su cabecera— y el
+## resumen no llevaba a ningún sitio: era el `FloorRunner` el que entraba en
+## Estrategia sin esperar a nadie, en el mismo frame.
+func _on_floor_end_acknowledged() -> void:
+	if GameState.mode != GameState.Mode.ACTION:
+		return
+	_loader.unload()
+	GameState.set_mode(GameState.Mode.STRATEGY)
+
+
+## Botón "Créditos" de la pantalla de Victoria. Los créditos abiertos desde el
+## MENÚ los gobierna la propia interfaz como superposición; aquí solo se
+## atiende el final de la torre, que sí desmonta la partida.
+func _on_navigate_to_credits() -> void:
+	if GameState.mode != GameState.Mode.ACTION \
+			or GameState.action_status != GameState.ActionStatus.WIN:
+		return
+	_loader.unload()
+	GameState.set_mode(GameState.Mode.CREDITS)
+
+
 func _on_restart_requested() -> void:
 	_loader.unload()
 	GameState.reset_run()
@@ -85,9 +109,12 @@ func _on_run_failed() -> void:
 	_loader.unload()
 
 
+## La torre está limpia. NO se salta a los créditos: eso es lo que hacía que la
+## pantalla de Victoria no llegara a verse nunca. Lo único que toca aquí es que
+## una partida terminada deje de ser continuable — si no, "Continuar" del menú
+## reanuda una torre acabada, en una planta 10 que no existe.
 func _on_run_completed() -> void:
-	_loader.unload()
-	GameState.set_mode(GameState.Mode.CREDITS)
+	SaveSystem.delete_save()
 
 
 func _register_console_commands() -> void:

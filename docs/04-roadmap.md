@@ -437,9 +437,45 @@ con el MegaBoss entre ellos, pelean, y un jugador quieto en la azotea se muere
 en cinco segundos. Y visto en captura cenital.
 
 **Lo que queda**: el viento (audio y partículas) y la marca del helipuerto son
-presentación sin hacer, y la pantalla de Victoria se dispara al limpiar
-cualquier zona en vez de al matar al MegaBoss — el final de la torre sigue sin
-ser un final.
+presentación sin hacer.
+
+### T-21 · La partida no terminaba ✅ `ui-ux` + `director-encuentros`
+
+Tres fallos en cadena entre limpiar una zona y ver el final de la torre. Los
+tres silenciosos, y los tres encontrados por una sonda nueva
+(`tools/run_probe/`) que juega las NUEVE plantas seguidas con el truco
+`killall` y comprueba a dónde lleva cada una. Tarda diecisiete segundos y ya
+está en CI.
+
+1. **Una zona limpia tardaba 45 segundos en darse por limpia.** `FloorRunner`
+   pregunta `has_pending_budget()` antes de declarar la victoria, y eso
+   devolvía `_active`, que no se apaga hasta que la curva de tensión llega a
+   DONE: 15 s de alivio MÁS 30 s de silencio forzado. Con todos los enemigos
+   muertos, el jugador daba vueltas por una planta vacía sin que nada le
+   dijera por qué. Nueve plantas así son siete minutos de espera. Lo que hay
+   que preguntar no es «¿ha acabado la curva?» sino «¿queda algo por
+   soltar?»: el descanso de la curva es silencio, no contenido pendiente.
+2. **El resumen de fin de planta duraba un frame.** Se ponía a la vista y
+   `FloorRunner` entraba en modo Estrategia acto seguido; `UiRoot` solo lo
+   muestra en modo Acción. Un resumen que dura un frame es un resumen que no
+   existe. La intención `floor_end_acknowledged` no la escuchaba NADIE — la
+   propia cabecera de `UiRoot` lo dejaba escrito— así que el botón
+   «Continuar» no llevaba a ningún sitio.
+3. **La pantalla de Victoria no se veía jamás.** La azotea limpia saltaba
+   directa a los créditos: `advance_floor()` dejaba la planta en 10 y
+   `run_completed` desmontaba y cambiaba de modo en el mismo frame. La
+   pantalla estaba escrita, con sus dos botones, su prueba de estilo y su
+   comentario explicando que es «el final de la partida, no el paso a la
+   siguiente». Ahora la planta se queda montada detrás mientras el jugador
+   lee, y los créditos son una decisión suya.
+
+Y dos trucos de consola que **no hacían nada**: `god` y `noclip` escribían un
+metadato que nadie leía. Contestaban «Modo dios activado» y el jugador se
+seguía muriendo y chocando con las paredes. Un truco que no hace nada es peor
+que uno que no existe: manda a buscar el problema a otro sitio. El primero lo
+usa ahora `Character.apply_damage` (y el capturador de pantallas, que sin él
+retrataba la pantalla de Game Over en vez de la azotea); el segundo,
+`CharacterController`.
 
 ### T-07 · Generador procedural de plantas ⬜ `level-procedural`
 

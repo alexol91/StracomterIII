@@ -125,3 +125,47 @@ func test_a_spawn_at_the_world_origin_still_counts_as_a_spawn() -> void:
 			"un marcador en el origen sigue siendo un marcador")
 	tree.root.remove_child(loader)
 	loader.queue_free()
+
+
+func test_acknowledging_the_floor_summary_is_what_returns_to_strategy() -> void:
+	# El resumen de fin de planta se ponía a la vista y desaparecía en el mismo
+	# frame: `FloorRunner` entraba en Estrategia sin esperar a nadie y `UiRoot`
+	# solo muestra el resumen en modo Acción. Nadie escuchaba esta intención —
+	# la propia cabecera de `UiRoot` lo dejaba escrito.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.set_mode(GameState.Mode.ACTION)
+	GameState.action_status = GameState.ActionStatus.NORMAL
+	UIIntents.get_singleton().floor_end_acknowledged.emit()
+	assert_eq(GameState.mode, GameState.Mode.STRATEGY,
+		"leer el resumen tiene que llevar a elegir la siguiente zona")
+
+
+func test_the_victory_screen_is_what_leads_to_the_credits() -> void:
+	# La azotea limpia saltaba directa a los créditos, así que la pantalla de
+	# Victoria —escrita, con sus dos botones y su prueba de estilo— no se veía
+	# jamás. Ahora los créditos son una decisión del jugador desde ella.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.set_mode(GameState.Mode.ACTION)
+	GameState.action_status = GameState.ActionStatus.WIN
+	UIIntents.get_singleton().navigate_to_credits_requested.emit()
+	assert_eq(GameState.mode, GameState.Mode.CREDITS, "desde la Victoria, a los créditos")
+
+
+func test_the_credits_of_the_menu_do_not_end_a_run() -> void:
+	# La misma intención la usa el menú principal como superposición. Si `Main`
+	# no distinguiera, abrir los créditos desde el menú desmontaría la partida.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.set_mode(GameState.Mode.MENU)
+	GameState.action_status = GameState.ActionStatus.NORMAL
+	UIIntents.get_singleton().navigate_to_credits_requested.emit()
+	assert_eq(GameState.mode, GameState.Mode.MENU,
+		"los créditos del menú son una superposición, no el final de una partida")

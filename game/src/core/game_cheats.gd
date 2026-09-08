@@ -141,6 +141,31 @@ func _register_world_cheats() -> void:
 	# El paquete de voces NO tiene truco propio: forma parte del eje Chutaos y
 	# lo mueve `PresentationStyle`. Dos conmutadores para el mismo eje era lo
 	# que había antes, y permitía activar media nostalgia.
+	# Existe para poder RECORRER la torre en una prueba: sin una forma de
+	# limpiar una zona a mano, comprobar que la partida termina —resumen de
+	# planta, Estrategia, azotea, Victoria, créditos— exigía jugarse nueve
+	# plantas a mano. Con esto lo hace `tools/run_probe/`.
+	Cheats.register("killall", "killall — mata a todos los hostiles vivos.", 0,
+		func(_args: Array[String]) -> String:
+			var tree := get_tree()
+			if tree == null:
+				return "No hay escena."
+			var player := _find_player()
+			var killer := player.get_instance_id() if player != null else 0
+			var team := int(player.team) if player != null else int(Character.Team.PLAYER)
+			var killed := 0
+			# Se mata por la vía normal (daño atribuido al jugador) y no
+			# liberando nodos: así corren la puntuación, la experiencia y la
+			# comprobación de zona limpia, que es lo que se quiere probar.
+			for node: Node in tree.get_nodes_in_group(&"characters"):
+				var c := node as Character
+				if c == null or not c.alive or c.team != Character.Team.ENEMY:
+					continue
+				c.apply_damage(Damage.new(1.0e9, Damage.Zone.TORSO,
+					c.global_position, killer, team))
+				killed += 1
+			return "Hostiles eliminados: %d" % killed)
+
 	Cheats.register("noclip", "noclip — atravesar la geometría.", 0,
 		func(_args: Array[String]) -> String:
 			var player := _find_player()

@@ -64,6 +64,13 @@ jobs:
       - name: Sonda de combate — azotea (planta 9)
         run: PROBE_FLOOR=9 PROBE_ZONE=1 bash tools/combat_probe/probe.sh ~/godot/godot
 
+      # Y la otra mitad de "esto es un juego": que la partida TERMINE. Las nueve
+      # plantas enlazadas, el resumen de fin de planta llevando a Estrategia, la
+      # azotea acabando en la pantalla de Victoria y de ahí a los créditos. Dos
+      # de esos cuatro pasos estaban roto y no daban ningún error.
+      - name: Sonda de partida completa
+        run: bash tools/run_probe/probe.sh ~/godot/godot
+
   export:
     name: Exportar ${{ matrix.preset }}
     needs: tests

@@ -122,7 +122,6 @@ func _director_finished() -> bool:
 func _clear() -> void:
 	_running = false
 	set_process(false)
-	GameState.action_status = GameState.ActionStatus.WIN
 	EventBus.zone_cleared.emit(GameState.current_floor, GameState.current_zone, _elapsed_s)
 	floor_cleared.emit(GameState.current_floor, GameState.current_zone, _elapsed_s)
 
@@ -140,11 +139,27 @@ func _clear() -> void:
 				_:
 					pass
 
-	GameState.advance_floor()
-	if GameState.current_floor > GameState.ROOFTOP_FLOOR:
+	# Aquí NO se cambia de pantalla, y es el arreglo de dos finales que no se
+	# veían:
+	#
+	#   * el resumen de fin de planta se ponía a la vista y desaparecía en el
+	#     MISMO frame, porque esto entraba en modo Estrategia acto seguido y
+	#     `UiRoot` solo lo muestra en modo Acción. Un resumen que dura un
+	#     frame es un resumen que no existe;
+	#   * la azotea limpia saltaba directa a los créditos —`advance_floor()`
+	#     dejaba la planta en 10, `run_completed` desmontaba y cambiaba de
+	#     modo— así que la pantalla de Victoria, escrita y con sus dos
+	#     botones, no se veía JAMÁS.
+	#
+	# Quien decide la siguiente pantalla es el jugador, pulsando: `Main`
+	# traduce `floor_end_acknowledged` y el botón de la Victoria. La planta se
+	# queda montada detrás mientras lee, que además es lo que se quiere ver.
+	if GameState.is_on_rooftop():
+		GameState.action_status = GameState.ActionStatus.WIN
 		run_completed.emit()
-	else:
-		GameState.set_mode(GameState.Mode.STRATEGY)
+		return
+	GameState.action_status = GameState.ActionStatus.NORMAL
+	GameState.advance_floor()
 
 
 func _fail() -> void:

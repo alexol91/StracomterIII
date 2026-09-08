@@ -107,12 +107,22 @@ func _apply_tint() -> void:
 	mesh.material_override = material
 
 
+## Metadato del truco `noclip`. Igual que `god`, lo escribía la consola y nadie
+## lo leía: contestaba "Noclip activado" y el jugador seguía chocándose con las
+## paredes.
+const NOCLIP_META: StringName = &"noclip"
+
+
 func _physics_process(delta: float) -> void:
 	if stats == null or not alive:
 		return
 
 	# Antes de aplicar: si la intención ha vencido, este paso ya no la usa.
 	age_move_intent(delta)
+
+	if get_meta(NOCLIP_META, false):
+		_move_noclip(delta)
+		return
 	_apply_gravity(delta)
 	_apply_horizontal_velocity()
 	if intent_look_at != Vector3.INF:
@@ -122,6 +132,19 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_sync_animation()
 	# Ver nota de orden de ejecución en la cabecera del fichero.
+	clear_intents.call_deferred()
+
+
+## Movimiento del truco `noclip`: ni gravedad ni colisión. No se usa
+## `move_and_slide()` a propósito — ese método resuelve colisiones, que es
+## exactamente lo que aquí no se quiere.
+func _move_noclip(delta: float) -> void:
+	_apply_horizontal_velocity()
+	velocity.y = 0.0
+	global_position += velocity * delta
+	if intent_look_at != Vector3.INF:
+		_face_towards(intent_look_at)
+	_sync_animation()
 	clear_intents.call_deferred()
 
 

@@ -184,8 +184,24 @@ func context() -> EncounterContext:
 
 ## ¿Queda encuentro por delante? Lo pregunta `FloorRunner` antes de dar la zona
 ## por limpia: sin esto, el hueco entre dos oleadas se leería como victoria.
+##
+## Lo que se pregunta es si queda algo POR SOLTAR, no si la curva ha terminado.
+## Antes devolvía `_active`, y `_active` no se apaga hasta que la curva llega a
+## DONE — es decir, tras `relief_duration_s` (15 s) MÁS el silencio forzado de
+## `rest_duration_s` (30 s). Con eso, una zona con todos los enemigos muertos
+## tardaba CUARENTA Y CINCO SEGUNDOS en darse por limpia, y el jugador los
+## pasaba dando vueltas por una planta vacía sin que nada le dijera por qué.
+## Nueve plantas así son siete minutos de espera, y la sonda de partida no
+## llegaba nunca al final de la torre.
+##
+## El descanso de la curva es SILENCIO, no contenido pendiente: existe para que
+## el director no encadene oleadas, no para retener la victoria. Y ninguna
+## oleada se queda atrás sin poder soltarse: la curva no cambia de fase
+## mientras le quede una pendiente en la actual (`_has_pending_in`).
 func has_pending_budget() -> bool:
-	return _active
+	if not _active or curve == null:
+		return false
+	return curve.pending_wave_count() > 0
 
 
 func is_active() -> bool:

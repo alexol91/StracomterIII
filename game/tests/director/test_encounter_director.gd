@@ -195,3 +195,44 @@ func test_hostile_count_tracks_spawns_and_deaths() -> void:
 	director._on_character_died(999, 1, 0, 5)
 	assert_eq(director.hostiles_alive(), 1, "una muerte ajena no descuenta")
 	director.free()
+
+
+## Una zona sin nada por soltar está limpia, aunque la curva de tensión siga
+## corriendo su descanso.
+##
+## `FloorRunner` pregunta `has_pending_budget()` antes de dar la zona por
+## limpia, y eso devolvía `_active`, que no se apaga hasta que la curva llega a
+## DONE: `relief_duration_s` (15 s) MÁS el silencio forzado de
+## `rest_duration_s` (30 s, con suelo de 20). Con todos los enemigos muertos,
+## la zona tardaba cuarenta y cinco segundos en darse por limpia y el jugador
+## los pasaba dando vueltas por una planta vacía. Nueve plantas así son siete
+## minutos de espera; la sonda de partida no llegaba nunca al final de la torre.
+##
+## El descanso de la curva es SILENCIO, no contenido pendiente.
+func test_a_zone_with_nothing_left_to_release_is_clear_before_the_rest_ends() -> void:
+	var director := EncounterDirector.new()
+	director.configure(GridProvider.new())
+	director.reseed(7)
+	director.set_player_pose(Vector3.ZERO, Vector3(0.0, 0.0, -1.0))
+	var spawned: Array[int] = [0]
+	director.enemy_requested.connect(
+		func(_archetype: StringName, _position: Vector3) -> void: spawned[0] += 1)
+	director.begin_zone(_context(11))
+	assert_true(director.has_pending_budget(), "al empezar queda encuentro por soltar")
+
+	# Se sueltan todas las oleadas sin que nadie llame a
+	# `report_enemy_spawned`, así que para el director no hay ningún hostil
+	# vivo: es el caso del jugador que mata a cada enemigo en el acto y va por
+	# delante de las oleadas.
+	var guard := 0
+	while director.has_pending_budget() and guard < 2000:
+		director.tick(0.1)
+		guard += 1
+	assert_lt(guard, 2000, "el bucle no debería agotar el guardia")
+	assert_gt(spawned[0], 0, "algo tiene que haber salido")
+
+	assert_false(director.has_pending_budget(),
+		"sin oleadas pendientes, la zona está limpia: el descanso es silencio, no contenido")
+	assert_false(director.curve.is_finished(),
+		"y esto se comprueba ANTES de que la curva acabe su descanso, que es el caso que fallaba")
+	director.free()
