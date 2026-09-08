@@ -5,6 +5,7 @@
 [resource]
 script = ExtResource("1")
 id = &"sniper"
+sfx_id = &"pistol"
 display_name_key = "WEAPON_SNIPER"
 kind = 0
 cadence_ms = 900

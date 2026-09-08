@@ -247,7 +247,8 @@ func _aim_direction_from(origin: Vector3) -> Vector3:
 
 func _emit_shot_feedback(weapon: Weapon, origin: Vector3, hit: bool, is_headshot: bool) -> void:
 	AudioDirector.play_sfx_3d(
-		weapon.stats.id, origin, weapon.stats.noise_intensity, weapon.stats.noise_radius_m,
+		weapon.stats.effective_sfx_id(), origin,
+		weapon.stats.noise_intensity, weapon.stats.noise_radius_m,
 		character.get_instance_id())
 	EventBus.shot_resolved.emit(character.get_instance_id(), hit, is_headshot)
 

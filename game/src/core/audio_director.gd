@@ -35,6 +35,13 @@ var joke_pack_enabled: bool = false:
 		joke_pack_enabled = value
 		_reload_pack()
 
+## Telemetría: efectos que han llegado a sonar y el último de ellos. Para las
+## pruebas y para la consola — un sistema de audio sin forma de comprobar qué
+## ha sonado es un sistema que se puede quedar mudo sin que nadie se entere,
+## que es justo lo que pasó.
+var stat_sfx_played: int = 0
+var last_sfx_id: StringName = &""
+
 var _buffers: Dictionary[StringName, AudioStream] = {}
 var _players: Array[AudioStreamPlayer3D] = []
 var _music_player: AudioStreamPlayer = null
@@ -45,7 +52,32 @@ var _next_player: int = 0
 const VOICE_COUNT: int = 20
 
 
+## Segundos mínimos entre dos quejidos. Sin esto, una ráfaga de ametralladora
+## sobre un compañero suena como una ametralladora de quejidos: cada bala
+## publica su `character_damaged`.
+const HURT_COOLDOWN_S: float = 0.35
+
+## Momento del último quejido por víctima, en tiempo de simulación.
+var _last_hurt_s: Dictionary[int, float] = {}
+var _clock_s: float = 0.0
+
+
+func _process(delta: float) -> void:
+	_clock_s += delta
+
+
 func _ready() -> void:
+	# El director de audio ESCUCHA el bus. Es la única forma de que un disparo,
+	# una muerte o un cambio de pantalla suenen sin que `gameplay/` y `ui/`
+	# tengan que acordarse de avisar — y de que suenen TODOS, que es lo que no
+	# pasaba: de las ocho muestras cargadas solo se oía el disparo. `dead`,
+	# `ouch`, `explosion`, `step` y `go` estaban en el repositorio, importadas,
+	# y no las pedía nadie; `play_music` no la llamaba NI UN fichero, así que la
+	# pista de créditos —la única que se puede distribuir, compuesta por el
+	# propio equipo— tampoco se oía nunca.
+	EventBus.character_died.connect(_on_character_died)
+	EventBus.character_damaged.connect(_on_character_damaged)
+	EventBus.game_mode_changed.connect(_on_game_mode_changed)
 	for i: int in range(VOICE_COUNT):
 		var player := AudioStreamPlayer3D.new()
 		player.bus = String(BUS_SFX)
@@ -124,13 +156,73 @@ func play_sfx_3d(
 	if noise_intensity > 0.0:
 		EventBus.emit_noise(position, noise_intensity, noise_radius_m, source_id)
 	var stream: AudioStream = _buffers.get(id, null)
-	if stream == null or _players.is_empty():
+	if stream == null:
+		# Un id que no existe se AVISA. Es exactamente lo que ocultó que tres de
+		# las cuatro clases jugables disparasen en silencio durante meses:
+		# `WeaponSystem` pedía el sonido por el id del arma (`smg`,
+		# `machinegun`, `sniper`, `grenade_launcher`) y ninguno de esos es el
+		# nombre de una muestra. No sonaba nada y nada lo decía. Con el aviso,
+		# la comprobación de arranque limpio lo convierte en un fallo de CI.
+		push_warning("AudioDirector: nadie ha cargado el efecto '%s'" % id)
+		return
+	if _players.is_empty():
 		return
 	var player := _players[_next_player]
 	_next_player = (_next_player + 1) % _players.size()
 	player.stream = stream
 	player.global_position = position
 	player.play()
+	stat_sfx_played += 1
+	last_sfx_id = id
+
+
+func _exit_tree() -> void:
+	if EventBus.character_died.is_connected(_on_character_died):
+		EventBus.character_died.disconnect(_on_character_died)
+	if EventBus.character_damaged.is_connected(_on_character_damaged):
+		EventBus.character_damaged.disconnect(_on_character_damaged)
+	if EventBus.game_mode_changed.is_connected(_on_game_mode_changed):
+		EventBus.game_mode_changed.disconnect(_on_game_mode_changed)
+
+
+func _on_character_died(character_id: int, _team: int, _killer_id: int, _xp: int) -> void:
+	var body := instance_from_id(character_id) as Node3D
+	if body == null or not is_instance_valid(body):
+		return
+	_last_hurt_s.erase(character_id)
+	# Sin ruido para la IA: un muerto no hace ruido táctico, y si lo hiciera
+	# la escuadra iría a investigar a su propio cadáver.
+	play_sfx_3d(&"dead", body.global_position)
+
+
+func _on_character_damaged(
+	character_id: int, _amount: float, _from: Vector3, _attacker_id: int, _attacker_team: int
+) -> void:
+	var body := instance_from_id(character_id) as Node3D
+	if body == null or not is_instance_valid(body):
+		return
+	var last: float = _last_hurt_s.get(character_id, -INF)
+	if _clock_s - last < HURT_COOLDOWN_S:
+		return
+	_last_hurt_s[character_id] = _clock_s
+	play_sfx_3d(&"ouch", body.global_position)
+
+
+## Música por estado de juego. Solo la de créditos existe; los demás estados
+## quedan en silencio hasta tener pista propia, pero el cableado está y se ve
+## en `current_music`.
+func _on_game_mode_changed(_previous: int, current: int) -> void:
+	match current:
+		GameState.Mode.MENU:
+			play_music(MusicState.MENU)
+		GameState.Mode.STRATEGY:
+			play_music(MusicState.STRATEGY)
+		GameState.Mode.ACTION:
+			play_music(MusicState.COMBAT)
+		GameState.Mode.CREDITS:
+			play_music(MusicState.CREDITS)
+		_:
+			stop_music()
 
 
 func play_ui(_id: StringName) -> void:

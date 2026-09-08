@@ -563,12 +563,44 @@ evolutivo E-02 está sin empezar. Los 24 mapas de 2012 dan para una partida.
 
 ## Bloque C — Que se note que es un juego
 
-### T-08 · Audio de verdad ⬜ `arte-audio`
+### T-08 · Audio de verdad 🟨 `arte-audio`
 
-18 ficheros de sonido en total y una sola pista de música (`credits.ogg`). Hay
-buses, `AudioDirector` y el conmutador del paquete de broma; falta el contenido:
-música por estado (menú, exploración, combate, jefe) y los eventos 3D que ya
-tienen sus llamadas.
+El diagnóstico era «falta contenido». Falta, pero antes faltaba algo peor: **el
+juego estaba mudo con el contenido puesto**.
+
+De las ocho muestras del paquete solo se oía UNA, el disparo. `dead`, `ouch`,
+`step`, `explosion` y `go` estaban en el repositorio, importadas, y no las pedía
+ni un fichero. `play_music` no la llamaba NADIE, así que la pista de créditos
+—la única distribuible, compuesta por el propio equipo— no llegaba a sonar
+nunca. Y el disparo solo sonaba con **pistola y cuchillo**: `WeaponSystem` pedía
+el efecto por el id del ARMA, y `smg`, `machinegun`, `sniper` y
+`grenade_launcher` no son nombres de muestra. El Técnico, el Especialista y el
+Explosivo disparaban en silencio; tres de las cuatro clases jugables.
+
+Nada de eso daba un error, porque un juego mudo arranca perfectamente.
+
+Hecho:
+
+* `WeaponStats.sfx_id` dice qué muestra usa cada arma (seis armas, siete
+  muestras, nombres que no coinciden), con el id del arma como respaldo;
+* pedir una muestra que no existe **avisa**. Eso convierte el silencio en un
+  fallo de la comprobación de arranque limpio, que es lo que faltaba para que
+  esto no volviera a pasar;
+* `AudioDirector` escucha el bus: muerte (`dead`), impacto (`ouch`, con
+  enfriamiento POR VÍCTIMA — una ráfaga de diez balas no son diez quejidos, y
+  un enfriamiento global dejaría mudos a cuatro de cinco cuerpos en un
+  tiroteo) y música por estado de juego;
+* pisadas, con la cadencia sacada del recorrido y no de un temporizador, así
+  que sale de la velocidad de cada clase. Con intensidad de ruido CERO: que la
+  IA oiga pisadas cambia el sigilo del juego entero y es una decisión de
+  diseño, no un efecto secundario de un fichero de audio.
+
+Medido jugando 20 s de la planta 3-5 con el Técnico: **27 disparos de
+ametralladora y 101 pisadas oídas**, donde antes había cero de las dos cosas.
+
+**Lo que queda es contenido**: la música de menú, exploración, combate y jefe.
+La del original son dos temas de The Prodigy y no se puede distribuir, así que
+esos estados están cableados y en silencio hasta que haya pista propia.
 
 ### T-09 · Iluminación interior ✅ `arte-audio`
 

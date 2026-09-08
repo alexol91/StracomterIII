@@ -7,6 +7,16 @@ enum Kind { HITSCAN, MELEE, EXPLOSIVE }
 
 @export var id: StringName = &""
 @export var display_name_key: String = ""
+## Muestra de sonido que usa esta arma, de las que carga `AudioDirector`
+## (`pistol`, `machine`, `knife`, `explosion`...). Vacío = el propio `id`.
+##
+## Existe porque el paquete de 2012 tiene SIETE muestras y el remake tiene SEIS
+## armas cuyos nombres no coinciden: `WeaponSystem` pedía el sonido por el id
+## del arma, así que `pistol` y `knife` suenan y `smg`, `machinegun`, `sniper` y
+## `grenade_launcher` estaban MUDOS. Y tres de las cuatro clases jugables llevan
+## una de esas: el Técnico, el Especialista y el Explosivo disparaban en
+## silencio.
+@export var sfx_id: StringName = &""
 @export var kind: Kind = Kind.HITSCAN
 
 @export_group("Balística")
@@ -42,3 +52,10 @@ enum Kind { HITSCAN, MELEE, EXPLOSIVE }
 ## oído de la IA y, con E-04, la información táctica del jugador.
 @export var noise_intensity: float = 1.0
 @export var noise_radius_m: float = 45.0
+
+
+## Muestra que hay que pedirle al director de audio. Sin `sfx_id` se prueba con
+## el propio id, que es lo que hace que `pistol` y `knife` funcionen sin
+## declarar nada.
+func effective_sfx_id() -> StringName:
+	return sfx_id if sfx_id != &"" else id

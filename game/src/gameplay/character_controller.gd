@@ -35,6 +35,8 @@ var _standing_capsule_height: float = -1.0
 ## referencia y no se busca cada frame: `get_node` en `_physics_process` de
 ## treinta bots es tiempo tirado.
 var _animator: Node = null
+## Metros recorridos desde la última pisada.
+var _step_accum: float = 0.0
 
 
 func _ready() -> void:
@@ -111,6 +113,10 @@ func _apply_tint() -> void:
 ## lo leía: contestaba "Noclip activado" y el jugador seguía chocándose con las
 ## paredes.
 const NOCLIP_META: StringName = &"noclip"
+## Metros de recorrido horizontal entre dos pisadas. A 2 m/s son unos 0,4 s,
+## que es un paso creíble; a la velocidad del Capitán (5,3 m/s) salen más
+## seguidas, que es lo que hace un hombre corriendo.
+const STEP_DISTANCE_M: float = 0.85
 
 
 func _physics_process(delta: float) -> void:
@@ -130,6 +136,7 @@ func _physics_process(delta: float) -> void:
 	_apply_crouch_shape(intent_crouch)
 
 	move_and_slide()
+	_accumulate_steps(delta)
 	_sync_animation()
 	# Ver nota de orden de ejecución en la cabecera del fichero.
 	clear_intents.call_deferred()
@@ -146,6 +153,29 @@ func _move_noclip(delta: float) -> void:
 		_face_towards(intent_look_at)
 	_sync_animation()
 	clear_intents.call_deferred()
+
+
+## Pisadas: el juego se jugaba en silencio absoluto mientras andabas. La
+## muestra `step` estaba en el repositorio, importada, y no la pedía nadie.
+##
+## Se cuenta el recorrido y no el tiempo para que la cadencia salga de la
+## velocidad del personaje: el Técnico (6,7 m/s) pisa más veces por segundo que
+## el Especialista (5,3), sin un número de cadencia por clase que mantener.
+##
+## Y con intensidad de ruido CERO: esto es sonido, no información táctica. Que
+## la IA oiga pisadas es una decisión de diseño distinta —cambia el sigilo del
+## juego entero— y no se cuela por la puerta de atrás de un efecto de audio.
+func _accumulate_steps(delta: float) -> void:
+	if not is_on_floor():
+		return
+	var travel := Vector2(velocity.x, velocity.z).length() * delta
+	if travel <= 0.0:
+		return
+	_step_accum += travel
+	if _step_accum < STEP_DISTANCE_M:
+		return
+	_step_accum = 0.0
+	AudioDirector.play_sfx_3d(&"step", global_position)
 
 
 func _apply_gravity(delta: float) -> void:
