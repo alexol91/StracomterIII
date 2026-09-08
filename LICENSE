@@ -1,0 +1,72 @@
+MIT License
+
+Copyright (c) 2011-2012 Chutaos Team
+Copyright (c) 2026 Chutaos Team (remake en Godot 4)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+ALCANCE, Y UN HECHO QUE CONVIENE SABER
+================================================================================
+
+El proyecto original de 2011-2012 NO TIENE NINGÚN TEXTO DE LICENCIA. Se buscó:
+no hay `LICENSE`, `COPYING` ni cláusula alguna en `legacy/trunk/`; lo único que
+declara autoría son las cabeceras de los ficheros fuente («Author: Chutaos
+Team», y las firmas individuales `rellik`, `ruben`, `gallardo`). Los únicos
+textos de licencia del árbol de 2012 son de sus DEPENDENCIAS de terceros.
+
+Así que no había licencia que copiar. Lo que sí se ha copiado literalmente es
+la ATRIBUCIÓN: el copyright de arriba mantiene el titular tal y como aparece en
+el código de 2012 («Chutaos Team») y añade el año del remake. La licencia
+elegida es MIT, que es la más permisiva de uso común y la que hace válida una
+decisión ya tomada y documentada en `docs/analisis/legacy-motores.md`: se
+DESCARTA `WankelParticles` por ser GPLv3, «copyleft incompatible con cualquier
+licencia no-GPL del port». Cambiarla por BSD-2, BSD-3 o zlib es sustituir este
+fichero; no hay nada más que tocar.
+
+--------------------------------------------------------------------------------
+ESTA LICENCIA CUBRE EL REMAKE, NO `legacy/`
+--------------------------------------------------------------------------------
+
+Cubre: `game/`, `tools/`, `docs/`, `.github/` y los ficheros de la raíz. Es todo
+código, documentación y datos escritos para el remake.
+
+NO cubre `legacy/`, que está en el repositorio como DOCUMENTO FUENTE de
+solo lectura (ver `CLAUDE.md`, regla 1) y no se compila ni se distribuye en el
+ejecutable. Dentro de `legacy/trunk/3rdParty/` viven bibliotecas de terceros con
+sus propias licencias, y algunas son incompatibles con la de arriba:
+
+  * SFML, Box2D, tinyXML, FTGL — licencias permisivas propias (zlib/libpng y
+    similares), cada una con su texto en su directorio;
+  * GPC (General Polygon Clipper) — libre SOLO para uso no comercial;
+  * WankelParticles — GPLv3.
+
+Y bajo `legacy/trunk/Graphics/`, `sound/` y `testFiles/` hay assets cuya
+procedencia la auditoría no pudo cerrar: fuentes de Valve (`TF2.ttf`,
+`tf2build.ttf`), modelos `.3ds` de bibliotecas de terceros, pistas de música de
+origen no documentado y algún efecto de SoundJay. El detalle está en
+`docs/analisis/legacy-datos-assets.md`.
+
+NADA de eso se reutiliza en el remake: los modelos son CC0 (Quaternius, KayKit),
+las texturas se generan por procedimiento y el código es nuevo. Pero mientras
+`legacy/` siga publicado en un repositorio público, ese contenido de terceros se
+publica con él, y esta licencia no puede —ni pretende— relicenciarlo.
+
+Los assets CC0 que sí entran en el ejecutable llevan su propia procedencia
+documentada en `game/assets/` y `tools/character_skins/README.md`.

@@ -28,4 +28,27 @@ TSCN
 
 # Paso fijo por lo mismo que en la sonda de combate: sin él, cuántas oleadas
 # ha soltado el director cuando la sonda limpia depende del reloj de pared.
-"${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_run_probe_tmp.tscn
+# Un error de sintaxis en el script de la sonda no da un fallo: da un CUELGUE.
+# La escena carga sin script, nadie llama a `quit()` y el proceso se queda
+# girando al 100 % de CPU sin imprimir nada. Ha pasado tres veces. El tope de
+# tiempo acota el cuelgue y el `grep` de abajo lo NOMBRA — que es la
+# diferencia entre "la sonda falla" y "la sonda no arrancó".
+#
+# El pre-vuelo con `--check-only --script` no sirve: en ese modo el motor no
+# registra los autoloads como identificadores globales y toda referencia a
+# `GameState` o `AIScheduler` se denuncia como error inexistente.
+LOG="$(mktemp)"
+trap 'rm -f "${SCRIPT}" "${SCRIPT}.uid" "${SCENE}" "${LOG}"' EXIT
+set +e
+timeout 600 "${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_run_probe_tmp.tscn 2>&1 | tee "${LOG}"
+status=${PIPESTATUS[0]}
+set -e
+if grep -qE "Parse Error|Compile Error|Compilation failed|Failed to load script" "${LOG}"; then
+    echo "[sonda] el script de la sonda NO COMPILA: el error está arriba." >&2
+    exit 1
+fi
+if [ "${status}" -eq 124 ]; then
+    echo "[sonda] la sonda no terminó en 600 s: se ha quedado colgada." >&2
+    exit 1
+fi
+exit "${status}"

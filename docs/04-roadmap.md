@@ -5,6 +5,66 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 
 ---
 
+## Dónde está el proyecto
+
+Tres cuentas distintas, porque mezclarlas es lo que produce un «90 %» que no
+significa nada.
+
+### 1. Paridad con el original: **16 de 17 requisitos, ~95 %**
+
+| Estado | Requisitos |
+|---|---|
+| ✅ completos (15) | P01 clases · P03 plantas y zonas · P04 recompensas · P05 compañeros · P06 combate · P07 percepción · P08 puertas que alteran la navegación · P09 mobiliario como cobertura · P10 pathfinding · P11 Simplex · P12 guardado y puntuación · P13 consola · P14 menús y Estrategia · P16 los 26 mapas · P17 cámara 2D/3D |
+| 🟨 al 90 % (1) | **P02** — los tres arquetipos, MiniBoss y MegaBoss existen, aparecen y pelean con sus fases; faltan los **refuerzos del MegaBoss** al cambiar de fase (T-05) |
+| ✅ por rediseño (1) | **P15** editor de mapas: no se reimplementa, los mapas son `.tscn` en texto y se editan en el propio editor de Godot |
+
+Fuera de la lista de paridad, dos cosas del original que **no** están y no van a
+estar tal cual:
+
+* **La música.** El original usaba dos temas de The Prodigy en menú y acción:
+  no se puede distribuir. Solo se reutiliza `credits.ogg`, que compuso el
+  equipo (`ARTIST=Chutaos Team`). Los otros dos estados están en silencio hasta
+  tener pista propia (T-08).
+* **El «modo libre»** del menú de 2012: `GameState.Mode.FREE` está declarado y
+  no lo usa nadie. Es el último hueco de P14.
+
+### 2. Lo que hace que esto no sea un port: **~90 %**
+
+Los subsistemas que el GDD justifica como la razón del remake, no como paridad.
+Todos funcionando y probados: percepción con oclusión real y memoria con
+confianza que decae, oído propagado por navmesh, selector por utilidad con
+histéresis más árboles de comportamiento, arquetipos como tablas de pesos,
+director de escuadra con roles y flanqueo por rutas disjuntas, compañeros con
+moral, nube de coberturas horneada y puntuada en ejecución, reglas justas de
+aparición, Simplex de racionales exactos con el problema reformulado, modelo
+vivo de habilidad del jugador, curva de tensión, pantalla de Estrategia como
+decisión informada, conversor automático de los 26 mapas, cel-shading, i18n,
+y las cuatro sondas que comprueban que todo eso *se juega*.
+
+Lo que falta de este bloque: la revisión adversarial de las rutas críticas
+(T-17) y mover `NavTuning`/`BehaviorTuning` a datos (T-16).
+
+### 3. Evolutivos ideados para después: **4 de 13, ~35 %**
+
+| Estado | Evolutivos |
+|---|---|
+| ✅ | E-01 habilidades de clase · E-03 director adaptativo · E-04 sonido como información táctica · E-11 cámara conmutable |
+| 🟨 | E-05 destructibilidad (la habilidad del Explosivo abre un muro y rehornea navegación; no hay física de oficina) |
+| ⬜ | E-02 generación procedural · E-06 meta-progresión · E-07 cooperativo · E-08 modo Horda (la azotea ya existe: es el escenario) · E-09 editor en el juego · E-10 personalidad y aprendizaje · E-12 repeticiones · E-13 Workshop |
+
+### ¿Se juega?
+
+Sí, de principio a fin, y está comprobado en cada empujón por CI:
+
+```
+717 pruebas · arranque limpio sin un aviso
+sonda de combate    → los enemigos pelean (planta 3-5 y azotea)
+sonda de partida    → 9 plantas, Victoria y créditos en 17 s
+sonda de rendimiento→ 40 bots: 5,1 ms de simulación por frame (2,1 de IA)
+```
+
+---
+
 ## Hito 0 — Arqueología y fundamentos
 
 | # | Tarea | Agente | Estado |
@@ -47,8 +107,8 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 2.7 | Arquetipos como tablas de pesos | P02 | `ai-comportamiento` | ✅ |
 | 2.8 | Horneado y puntuación de puntos de cobertura | P09 | `ai-navegacion` | ✅ |
 | 2.9 | Rutas alternativas disjuntas para flanqueo | — | `ai-navegacion` | ✅ |
-| 2.10 | `SquadDirector`, roles, supresión, repliegue | — | `ai-escuadra` | 🟨 escrito y **sin enchufar** (T-03) |
-| 2.11 | Compañeros + moral + órdenes del jugador | P05 | `ai-escuadra` | 🟨 escrito y **sin enchufar** (T-04) |
+| 2.10 | `SquadDirector`, roles, supresión, repliegue | — | `ai-escuadra` | ✅ |
+| 2.11 | Compañeros + moral + órdenes del jugador | P05 | `ai-escuadra` | ✅ |
 | 2.12 | Escenarios de comportamiento con aserciones (GDD §12) | — | `qa-tests` | ✅ |
 
 ## Hito 3 — Director de encuentros
@@ -84,10 +144,10 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 | 5.1 | Cel-shading + materiales + paleta | — | `arte-audio` | ✅ |
 | 5.2 | Personajes y mobiliario con modelos de verdad | — | `arte-audio` | ✅ |
 | 5.3 | **Auditoría de licencias de los assets del legacy** | — | `arte-audio` | ✅ |
-| 5.4 | Buses de audio, música por estado, eventos 3D | — | `arte-audio` | 🟨 |
+| 5.4 | Buses de audio, música por estado, eventos 3D | — | `arte-audio` | 🟨 falta música propia: la del original son dos temas de The Prodigy |
 | 5.5 | Paquete de sonido opcional "Chutaos" | — | `arte-audio` | 🟨 |
-| 5.6 | MiniBoss y MegaBoss con fases | P02 | `ai-comportamiento` | ⬜ |
-| 5.7 | Planta 9 (azotea) y combate final | — | `level-procedural` | ⬜ |
+| 5.6 | MiniBoss y MegaBoss con fases | P02 | `ai-comportamiento` | 🟨 aparecen y pelean; faltan los refuerzos del MegaBoss (T-05) |
+| 5.7 | Planta 9 (azotea) y combate final | — | `level-procedural` | ✅ |
 | 5.8 | Generador procedural de plantas | E-02 | `level-procedural` | ⬜ |
 | 5.9 | Habilidades de clase | E-01 | `godot-gameplay` | ✅ |
 | 5.10 | Revisión adversarial de rutas críticas | — | `revisor-critico` | ⬜ |
@@ -546,10 +606,31 @@ reproduce.
 
 ## Bloque D — Publicable
 
-### T-12 · Rendimiento: 60 fps con 40 bots ⬜ `qa-tests`
+### T-12 · Rendimiento: 60 fps con 40 bots 🟨 `qa-tests`
 
-Sin medir. Con `AIScheduler` y sus techos debería salir, pero "debería" no es un
-número.
+Ya es un número. `tools/perf_probe/probe.sh` mide dos tramos iguales en la
+planta 5 zona 5 con **40 bots**, uno con el planificador de IA encendido y otro
+con él apagado: la diferencia es el coste de la IA. Medir solo el total no
+distingue «la IA es cara» de «esta máquina es lenta», y el contenedor de CI es
+lento.
+
+```
+40 bots · 50 clientes en el planificador
+frame con IA:  media 5,1 ms · p95 10,9 ms · peor 25,6 ms
+frame sin IA:  media 3,1 ms · p95  3,5 ms
+coste de la IA: 2,1 ms de media (40 % del frame)
+techos respetados: ≤48 rayos/frame, ≤8 decisiones/tick
+```
+
+La media cabe con holgura en el frame de 16,6 ms **antes de dibujar**, y los
+techos duros de ADR-002 se respetan con 50 clientes. Lo que queda por mirar son
+los **picos**: un p95 de 11 ms y algún frame de 25 deja poco sitio al
+renderizado, y no son ruido de la máquina —el tramo sin IA tiene un p95 de
+3,5 ms—. La sospecha está en el horneado de coberturas y en los lotes de
+peticiones de camino; la sonda falla si el p95 pasa de 16,6 ms, así que la
+regresión se vería.
+
+Y no está medido lo que no se puede medir en `--headless`: el coste de dibujar.
 
 ### T-13 · Export de macOS ⬜ `devops-ci`
 

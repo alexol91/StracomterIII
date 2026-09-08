@@ -78,6 +78,22 @@ macOS no está: exportarlo desde Linux falla en una comprobación de configuraci
 que Godot no nombra, y un binario sin firmar tampoco se abre en un Mac sin
 desactivar Gatekeeper.
 
+## Licencia
+
+**MIT** para el remake — `game/`, `tools/`, `docs/`, `.github/` y la raíz.
+
+El proyecto de 2012 **no tenía ninguna licencia**: no hay `LICENSE` ni `COPYING`
+en `legacy/trunk/`, y lo único que declara autoría son las cabeceras de los
+fuentes («Author: Chutaos Team»). No había, por tanto, licencia que copiar; lo
+que se conserva literal es el titular del copyright.
+
+`legacy/` **no está cubierto**: es documento fuente de solo lectura y arrastra
+dependencias de terceros con licencias propias, algunas incompatibles (GPC es
+no comercial, WankelParticles es GPLv3) y assets de procedencia sin cerrar
+(fuentes de Valve, modelos `.3ds`, música sin documentar). Nada de eso se
+reutiliza en el remake, pero mientras `legacy/` esté publicado se publica con
+él. Los detalles, en `LICENSE` y `docs/analisis/legacy-datos-assets.md`.
+
 ## Cómo contribuir
 
 El proyecto lo desarrollan agentes especializados con **propiedad exclusiva de

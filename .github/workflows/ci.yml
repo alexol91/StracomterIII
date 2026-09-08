@@ -71,6 +71,13 @@ jobs:
       - name: Sonda de partida completa
         run: bash tools/run_probe/probe.sh ~/godot/godot
 
+      # 40 bots. La promesa del GDD era 60 fps con esa carga y estaba "sin
+      # medir"; con los techos de ADR-002 debería salir, pero "debería" no es un
+      # número. Mide dos tramos iguales, con la IA encendida y apagada, para
+      # que la cifra no sea "esta máquina es lenta".
+      - name: Sonda de rendimiento (40 bots)
+        run: bash tools/perf_probe/probe.sh ~/godot/godot
+
   export:
     name: Exportar ${{ matrix.preset }}
     needs: tests
