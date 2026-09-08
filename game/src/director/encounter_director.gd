@@ -208,6 +208,15 @@ func _release(wave: TensionCurve.Wave) -> void:
 	wave_released.emit(wave)
 
 
+## Puntos de aparición JUSTOS para algo que no es una oleada — un jefe, por
+## ejemplo. Público porque las reglas de justicia (navegable, fuera del cono de
+## visión, sin línea de visión, a distancia mínima) valen para cualquier cosa
+## que aparezca, y reimplementarlas fuera sería la forma segura de que
+## divergieran.
+func pick_spawn_positions(count: int) -> Array[Vector3]:
+	return _positions_for(count)
+
+
 func _positions_for(count: int) -> Array[Vector3]:
 	var out: Array[Vector3] = []
 	if spawn_provider == null or count <= 0:

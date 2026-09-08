@@ -85,11 +85,71 @@ func _on_level_ready(root: Node) -> void:
 	if _ai.spawn_provider != null:
 		_director.configure(_ai.spawn_provider)
 	level.navigable_area_m2 = _ai.navigable_area_m2()
+	_spawn_bosses(level)
 	_director.begin_zone(_build_context(level))
 
 
 func _on_level_unloaded() -> void:
 	_ai.teardown()
+
+
+## Pone al jefe de la planta si toca.
+##
+## Los jefes estaban completos y desconectados, como todo lo demás: sus
+## estadísticas, su modelo, sus tablas de utilidad POR FASE y los marcadores
+## `miniBoss`/`megaBoss` de los mapas convertidos existían, y
+## `LoadedLevel.miniboss_spawn` no lo leía nadie. Una planta con
+## `has_miniboss = true` se jugaba exactamente igual que una sin él.
+##
+## El jefe NO cuenta contra el presupuesto del Simplex: se pone antes de
+## `begin_zone` y aparte. El presupuesto del director es para la tropa; un jefe
+## es contenido de la planta, no una composición de encuentro.
+##
+## Y va en su PROPIA escuadra: un jefe metido en el grupo de cuatro sicarios se
+## llevaría un rol de reserva y se quedaría esperando en cobertura.
+func _spawn_bosses(level: LevelLoader.LoadedLevel) -> void:
+	var cfg := Balance.floor_config(GameState.current_floor)
+	if cfg == null:
+		return
+	# La regla de qué zonas tienen jefe es la MISMA que la interfaz ya le
+	# promete al jugador en la pantalla de Estrategia. Si se escribiera aparte,
+	# el aviso «⚠ Posible jefe» y la realidad divergirían sin que nada falle.
+	if not ZoneThreatReading.has_boss_presence(cfg, GameState.current_zone):
+		return
+	if cfg.has_miniboss:
+		_spawn_boss(level, &"miniboss", level.miniboss_spawn)
+	if cfg.has_megaboss:
+		_spawn_boss(level, &"megaboss", level.megaboss_spawn)
+
+
+func _spawn_boss(level: LevelLoader.LoadedLevel, archetype: StringName,
+		marker: Vector3) -> void:
+	var position := marker
+	if not _is_finite(position):
+		# Sin marcador se recurre al muestreador, que ya sabe qué es justo.
+		# Ante la duda, el jefe aparece: una planta que promete jefe y no lo
+		# tiene es peor que uno colocado a ojo.
+		var fallback := _ai.spawn_provider
+		if fallback == null or not fallback.is_ready():
+			push_warning("EncounterRuntime: sin sitio para el jefe '%s'" % archetype)
+			return
+		var candidates := _director.pick_spawn_positions(1)
+		if candidates.is_empty():
+			push_warning("EncounterRuntime: el muestreador no da sitio para '%s'" % archetype)
+			return
+		position = candidates[0]
+	_squad_id += 1
+	_in_squad = ENEMIES_PER_SQUAD  # fuerza grupo nuevo para la tropa siguiente
+	var boss := _loader.spawn_enemy(archetype, position, _squad_id)
+	if boss == null:
+		return
+	_director.report_enemy_spawned(boss.get_instance_id())
+	if _runner != null:
+		_runner.register_hostile(boss)
+
+
+static func _is_finite(point: Vector3) -> bool:
+	return is_finite(point.x) and is_finite(point.y) and is_finite(point.z)
 
 
 ## Contexto de la zona: lo que el Simplex necesita saber del sitio.

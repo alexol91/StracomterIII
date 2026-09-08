@@ -18,7 +18,15 @@ extends Node
 ## jugador quieto en medio de una planta poblada.
 ##
 ## Uso: tools/combat_probe/probe.sh <ruta-a-godot>
-## Sale con código 1 si el jugador no recibe ni un punto de daño.
+## Sale con código 1 si algo de la lista de comprobaciones falla.
+##
+## HASTA DÓNDE LLEGA SU DETERMINISMO, para que nadie lo persiga en vano: con la
+## semilla fija y `--fixed-fps 60`, el VEREDICTO es estable y los disparos del
+## jugador son exactos. Los números de la IA no: los identificadores de
+## instancia cambian entre ejecuciones, y hay desempates que dependen de ellos
+## —`ContactMemory.best()` ordena por `target_id`—, así que dos ejecuciones
+## dan entre 9 y 33 disparos enemigos. Sirve como umbral («¿pelean?»), no como
+## medida exacta.
 
 ## Segundos de partida que se dejan correr antes de juzgar.
 const RUN_S: float = 30.0
@@ -29,6 +37,21 @@ const PHYSICS_HZ: float = 60.0
 ## Semilla del encuentro. Cualquier valor sirve; lo que importa es que sea
 ## SIEMPRE el mismo.
 const SEED: int = 20120601
+## Planta y zona que se juega. La 3-5 es la primera con MiniBoss, así que la
+## sonda comprueba de paso que el jefe aparece: es contenido que estuvo escrito
+## y desconectado, y lo único que lo delata es contarlo en partida.
+const FLOOR: int = 3
+const ZONE: int = 5
+## Cada cuántos segundos dispara el jugador de la sonda.
+##
+## Un jugador que no dispara no hace ruido, y sin ruido nadie tiene motivo para
+## acercarse: en un mapa grande los treinta segundos se iban en cero contactos.
+## Disparar es además lo que ejercita el bucle completo —oído propagado por
+## navmesh, investigar, adquirir, disparar—, que es justo lo que la sonda existe
+## para vigilar.
+const PLAYER_SHOT_EVERY_S: float = 2.0
+## Frames seguidos que se mantiene la intención de disparo en cada ráfaga.
+const BURST_FRAMES: int = 6
 ## Distancia media a la que un compañero deja de estar acompañando. Los huecos
 ## de formación están a menos de tres metros; con este margen cabe que uno se
 ## haya ido a cubrirse sin que la comprobación se vuelva un test de precisión.
@@ -39,6 +62,7 @@ var _hits: int = 0
 var _damage: float = 0.0
 var _damage_squad: float = 0.0
 var _player: Character = null
+var _player_shots: int = 0
 var _companion_shots: int = 0
 var _companion_hits: int = 0
 
@@ -51,7 +75,10 @@ func _ready() -> void:
 
 func _on_shot(shooter_id: int, hit: bool, _is_headshot: bool) -> void:
 	var who := instance_from_id(shooter_id) as Character
-	if who == null or who.team == Character.Team.PLAYER:
+	if who == null:
+		return
+	if who.team == Character.Team.PLAYER:
+		_player_shots += 1
 		return
 	if who.team == Character.Team.COMPANION:
 		_companion_shots += 1
@@ -92,7 +119,8 @@ func _run() -> void:
 	# El proyecto ya prometía determinismo desde `run_seed` (regla 6): aquí
 	# solo se usa la promesa.
 	GameState.run_seed = SEED
-	intents.strategy_confirmed.emit(1, 0, {})
+	GameState.current_floor = FLOOR
+	intents.strategy_confirmed.emit(ZONE, 0, {})
 
 	await _wait(WARMUP_S)
 	_player = _find_player()
@@ -102,12 +130,16 @@ func _run() -> void:
 		return
 
 	var enemies := _count_enemies()
+	var bosses := _count_bosses()
 	var companions := _count_team(Character.Team.COMPANION)
 	var start_distance := _mean_companion_distance()
 	await _wait(RUN_S)
 
-	print("[sonda] %.0f s de planta 1 con el jugador quieto:" % RUN_S)
-	print("  enemigos al empezar: %d (al terminar: %d)" % [enemies, _count_enemies()])
+	print("[sonda] %.0f s de la planta %d zona %d con el jugador quieto:" % [
+		RUN_S, FLOOR, ZONE])
+	print("  enemigos al empezar: %d (al terminar: %d), de ellos jefes: %d" % [
+		enemies, _count_enemies(), bosses])
+	print("  disparos del jugador:%d" % _player_shots)
 	print("  disparos enemigos:   %d" % _shots)
 	print("  impactos:            %d" % _hits)
 	print("  daño al jugador:     %.1f  (vida %.0f %%)" % [_damage, _player.health_ratio() * 100.0])
@@ -121,6 +153,8 @@ func _run() -> void:
 	var failures: Array[String] = []
 	if enemies <= 0:
 		failures.append("el director no puso un solo enemigo")
+	if bosses <= 0:
+		failures.append("la zona promete jefe y no apareció ninguno")
 	if _shots <= 0:
 		failures.append("ningún enemigo llegó a disparar")
 	if _hits <= 0:
@@ -144,13 +178,37 @@ func _run() -> void:
 	get_tree().quit(1)
 
 
+## Espera N segundos de física haciendo lo que hace un jugador: disparar de vez
+## en cuando. `Character.fire()` solo pone la intención; la resuelve
+## `WeaponSystem` en el paso de física siguiente.
 func _wait(seconds: float) -> void:
-	for _i: int in range(int(seconds * PHYSICS_HZ)):
+	var every := int(PLAYER_SHOT_EVERY_S * PHYSICS_HZ)
+	for i: int in range(int(seconds * PHYSICS_HZ)):
+		# Se mantiene la intención unos frames seguidos: `fire()` solo la pone
+		# y `CharacterController` la limpia al final del paso de física, así
+		# que ponerla en UN frame desde un `await` puede perderse antes de que
+		# `WeaponSystem` la lea.
+		if _player != null and is_instance_valid(_player) and _player.alive \
+				and (i % every) < BURST_FRAMES:
+			_player.fire()
 		await get_tree().physics_frame
 
 
 func _count_enemies() -> int:
 	return _count_team(Character.Team.ENEMY)
+
+
+## Jefes vivos. Es lo que separa «la planta 3 tiene MiniBoss» de «la planta 3
+## dice que tiene MiniBoss».
+func _count_bosses() -> int:
+	var total := 0
+	for node: Node in get_tree().get_nodes_in_group(&"characters"):
+		var character := node as Character
+		if character == null or not character.alive:
+			continue
+		if character.archetype == &"miniboss" or character.archetype == &"megaboss":
+			total += 1
+	return total
 
 
 func _count_team(team: Character.Team) -> int:

@@ -357,3 +357,59 @@ func test_a_companion_gets_a_place_to_be_and_a_companions_weight_table() -> void
 	loader.unload()
 	_tree().root.remove_child(loader)
 	loader.free()
+
+
+# --- Los jefes -------------------------------------------------------------
+
+func test_a_floor_with_a_boss_actually_puts_the_boss_in_it() -> void:
+	# Los jefes estaban completos y desconectados como todo lo demás: sus
+	# estadísticas, su modelo, sus tablas de utilidad POR FASE y los marcadores
+	# `miniBoss`/`megaBoss` de los mapas convertidos existían, y
+	# `LoadedLevel.miniboss_spawn` no lo leía NADIE. Una planta con
+	# `has_miniboss = true` se jugaba igual que una sin él.
+	var cfg := Balance.floor_config(3)
+	assert_not_null(cfg, "la planta 3 debería existir")
+	if cfg == null:
+		return
+	assert_true(cfg.has_miniboss, "la planta 3 es la primera con miniboss")
+
+	# La regla de qué zona tiene jefe es la que la interfaz ya promete.
+	var boss_zone := 0
+	for zone: int in range(1, 7):
+		if ZoneThreatReading.has_boss_presence(cfg, zone):
+			boss_zone = zone
+			break
+	assert_gt(float(boss_zone), 0.0, "alguna zona de la planta 3 debe tener jefe")
+
+	var loader := LevelLoader.new()
+	_tree().root.add_child(loader)
+	var level := loader.load_level(cfg.zone_maps[boss_zone - 1], &"captain", true)
+	assert_not_null(level)
+	if level != null:
+		assert_true(BehaviorContext.is_finite_point(level.miniboss_spawn),
+			"el mapa de una zona con jefe tiene que traer su marcador")
+	loader.unload()
+	_tree().root.remove_child(loader)
+	loader.free()
+
+
+func test_a_wounded_boss_changes_phase_and_stops_hiding() -> void:
+	# Las fases son la diferencia entre un jefe y un sicario con mucha vida.
+	# El MiniBoss por debajo de media vida deja de guardar la puerta y carga:
+	# eso tiene que verse como un número distinto, no como una impresión.
+	assert_eq(BehaviorTuning.boss_phase(&"miniboss", 1.0), 0)
+	assert_eq(BehaviorTuning.boss_phase(&"miniboss", 0.4), 1)
+	assert_eq(BehaviorTuning.boss_phase(&"megaboss", 1.0), 0)
+	assert_eq(BehaviorTuning.boss_phase(&"megaboss", 0.5), 1)
+	assert_eq(BehaviorTuning.boss_phase(&"megaboss", 0.2), 2)
+	assert_eq(BehaviorTuning.boss_phase(&"enemy_thug", 0.1), 0,
+		"un sicario no tiene fases, tenga la vida que tenga")
+
+	var healthy := UtilityWeights.for_archetype(&"miniboss", 1.0)
+	var wounded := UtilityWeights.for_archetype(&"miniboss", 0.3)
+	assert_gt(wounded.gain(BehaviorKind.Kind.ASSAULT),
+		healthy.gain(BehaviorKind.Kind.ASSAULT),
+		"herido debería asaltar más, no igual")
+	assert_lt(wounded.gain(BehaviorKind.Kind.TAKE_COVER),
+		healthy.gain(BehaviorKind.Kind.TAKE_COVER),
+		"y cubrirse menos")

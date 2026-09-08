@@ -299,10 +299,41 @@ Ahora dos ejecuciones seguidas dan el mismo número.
 
 ## Bloque B — Que la partida termine
 
-### T-05 · MiniBoss y MegaBoss con fases ⬜ `ai-comportamiento`
+### T-05 · MiniBoss y MegaBoss con fases 🟨 `ai-comportamiento`
 
-Existen como arquetipos con estadísticas y modelo, pero se comportan igual que
-un sicario. El GDD les pide fases.
+Las fases **ya estaban** y funcionan: `BOSS_PHASE_THRESHOLDS` (media vida para
+el MiniBoss; dos tercios y un tercio para el MegaBoss) y `BOSS_PHASE_GAIN`
+desplazan las ganancias, así que un MiniBoss herido deja de guardar la puerta y
+carga. Ahora hay prueba de que los números cambian de verdad.
+
+Lo que faltaba era peor: **los jefes no los instanciaba nadie.** Los marcadores
+`miniBoss`/`megaBoss` de los mapas convertidos se leían a
+`LoadedLevel.miniboss_spawn` y esa variable no la usaba ningún fichero. Una
+planta con `has_miniboss = true` se jugaba exactamente igual que una sin él.
+
+`EncounterRuntime` los pone ahora, con tres decisiones:
+
+* la regla de qué zona tiene jefe es la MISMA que la interfaz ya le promete al
+  jugador (`ZoneThreatReading.has_boss_presence`). Escrita aparte, el aviso
+  «⚠ Posible jefe» y la realidad divergirían sin que nada falle;
+* el jefe NO cuenta contra el presupuesto del Simplex: ese presupuesto es para
+  la tropa, un jefe es contenido de la planta;
+* va en su PROPIA escuadra. Metido en el grupo de cuatro sicarios se llevaría
+  un rol de reserva y se quedaría esperando en cobertura.
+
+Sin marcador se recurre a `EncounterDirector.pick_spawn_positions()`, que aplica
+las mismas reglas de justicia que una oleada. Ante la duda, el jefe aparece.
+
+**Lo que queda**: los refuerzos que el GDD le pide al MegaBoss («Fases +
+refuerzos»). Hay dónde engancharlo —`BehaviorController` ya detecta el cambio de
+fase— pero no está escrito.
+
+La sonda de combate juega ahora la **planta 3 zona 5**, que es la primera con
+MiniBoss, y falla si no aparece. Y su jugador **dispara cada dos segundos**: un
+jugador que no hace ruido no le da a nadie un motivo para acercarse, así que en
+un mapa grande los treinta segundos se iban en cero contactos. Disparar ejercita
+además el bucle completo —oído propagado por navmesh, investigar, adquirir,
+disparar—, que es justo lo que la sonda existe para vigilar.
 
 ### T-06 · Planta 9 y combate final ⬜ `level-procedural`
 
