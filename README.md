@@ -91,17 +91,20 @@ en consola. Los cuatro apartados que más ahorran:
 * **El principio de los valores por defecto** — el valor por defecto de un dato
   que no ha llegado nunca puede ser el permisivo.
 * **Si el entregable es visual, míralo** — `tools/screenshots/capture.sh`.
-* **Lo que solo se ve JUGANDO** — `tools/combat_probe/probe.sh`. Un subsistema
-  verde no es un juego.
+* **Lo que solo se ve JUGANDO** — `tools/combat_probe/probe.sh` (¿pelean?) y
+  `tools/run_probe/probe.sh` (¿se acaba la torre?). Un subsistema verde no es un
+  juego, y una pantalla que se muestra y se tapa en el mismo frame no existe.
 * **Lo que solo se ve en el binario exportado** — exporta y ARRANCA el
   ejecutable antes de dar algo por bueno.
 
 Lo que tiene que estar en verde antes de un PR:
 
 ```bash
-godot --headless --path game res://tests/run_tests.tscn   # 690 pruebas
+godot --headless --path game res://tests/run_tests.tscn   # 717 pruebas
 bash tools/ci/check_clean_boot.sh <godot>                 # ni un aviso
 bash tools/combat_probe/probe.sh <godot>                  # ¿pelean los enemigos?
+bash tools/run_probe/probe.sh <godot>                     # ¿se acaba la torre?
+bash tools/perf_probe/probe.sh <godot>                    # ¿cabe en el frame?
 ```
 
 Convenciones que CI hace cumplir: GDScript con **tipado estático estricto** (los

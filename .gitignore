@@ -21,6 +21,16 @@ Thumbs.db
 game/probe_*.gd
 game/probe_*.gd.uid
 game/tests/_probe/
+# Scripts y escenas que las sondas copian dentro de `game/` porque Godot solo
+# acepta rutas `res://`. Se borran al terminar, pero si una sonda muere a
+# medias (o alguien mira el repositorio mientras corre) no deben colarse en un
+# commit: no forman parte del proyecto y el exportador las metería en el
+# ejecutable.
+game/_probe_tmp.*
+game/_run_probe_tmp.*
+game/_perf_probe_tmp.*
+game/_capture_tmp.*
+game/_countlights.*
 game/tests/_bisect/
 
 # Python
