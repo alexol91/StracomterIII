@@ -114,6 +114,7 @@ class Facts:
 	var squad_broken: float = 0.0
 	var outnumbered: float = 0.0
 	var calm: float = 0.0
+	var lead: float = 0.0
 	var stale: float = 0.0
 	var lull: float = 0.0
 
@@ -251,7 +252,11 @@ static func _collect_facts(state: BotState, board: BlackboardScript) -> Facts:
 		f.raw_has_suppression = board.has_active_suppression(state.squad_id)
 
 	f.contact = f.raw_confidence
-	f.calm = 1.0 - f.raw_confidence
+	# La calma no es el complemento de la certeza: se rompe de golpe. Ver
+	# `BehaviorTuning.CALM_BREAK_CONFIDENCE`.
+	f.lead = clampf(
+		f.raw_confidence / maxf(BehaviorTuning.CALM_BREAK_CONFIDENCE, 0.0001), 0.0, 1.0)
+	f.calm = 1.0 - f.lead
 	f.line_of_sight = 1.0 if f.raw_has_los else 0.0
 	f.blocked = 1.0 - f.line_of_sight
 	f.incoming = f.line_of_sight
@@ -386,6 +391,8 @@ static func _term_value(term: StringName, kind: BehaviorKind.Kind, f: Facts) -> 
 			return f.outnumbered
 		BehaviorTuning.TERM_CALM:
 			return f.calm
+		BehaviorTuning.TERM_LEAD:
+			return f.lead
 		BehaviorTuning.TERM_STALE:
 			return f.stale
 		BehaviorTuning.TERM_LULL:

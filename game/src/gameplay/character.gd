@@ -29,8 +29,32 @@ var health: float = 100.0
 var ammo: int = 0
 var alive: bool = true
 
+## Segundos que sobrevive la intención de MOVIMIENTO sin que nadie la refresque.
+##
+## Existe porque `intent_move` no es un evento como disparar: es un NIVEL —
+## «quiero ir hacia allí»— y hasta ahora se borraba al final de cada paso de
+## física como si fuera un evento. El input humano lo reescribe en cada paso,
+## así que al jugador no le pasaba nada. Un cerebro de IA lo escribe en su tick
+## de COMPORTAMIENTO, a 20 Hz (ADR-002), y la física va a 60: dos de cada tres
+## pasos encontraban la intención ya borrada y el bot avanzaba a UN TERCIO de
+## su velocidad. El Sicario, con 2 m/s en su ficha, se medía a 0,66 m/s en la
+## sonda de combate.
+##
+## Ni un error ni un aviso: solo enemigos que tardan el triple en llegar, que
+## desde el sofá es indistinguible de «la IA es pasiva». Y el efecto se
+## multiplicaba con el resto de la cadena: un bot que tarda treinta segundos en
+## cruzar la planta no llega a disparar dentro de la ventana de la sonda.
+##
+## 0,15 s cubre dos periodos de comportamiento con holgura. Nadie depende del
+## vencimiento para PARAR: quien quiere parar lo dice (`move_to(Vector3.ZERO)`,
+## `CharacterActuator.stop()`), y el vencimiento es solo la red que evita que
+## un cuerpo cuyo cerebro ha muerto siga caminando para siempre.
+const MOVE_INTENT_TTL_S: float = 0.15
+
 ## --- Intenciones. Las rellena el controlador (humano o IA) cada frame. ---
 ## Dirección de movimiento deseada, normalizada, en espacio de mundo.
+##
+## Sobrevive entre pasos de física hasta `MOVE_INTENT_TTL_S`; ver esa constante.
 var intent_move: Vector3 = Vector3.ZERO
 ## Punto al que se quiere mirar/apuntar. `Vector3.INF` = sin objetivo.
 var intent_look_at: Vector3 = Vector3.INF
@@ -52,6 +76,9 @@ var intent_crouch: bool = false
 ## La resuelve `WeaponSystem`; `Character` solo la almacena.
 var equipped_weapon_override: StringName = &""
 
+## Segundos desde el último `move_to`. Ver `MOVE_INTENT_TTL_S`.
+var _move_intent_age_s: float = 0.0
+
 
 func _ready() -> void:
 	stats = Balance.character(archetype)
@@ -71,20 +98,33 @@ func _ready() -> void:
 	EventBus.character_spawned.emit(self, int(team), archetype)
 
 
-## Limpia las intenciones. Debe llamarse al final de cada tick de física para
-## que una intención no persista un frame de más.
+## Limpia las intenciones de EVENTO. Debe llamarse al final de cada tick de
+## física para que una intención no persista un frame de más.
+##
+## `intent_move` no está aquí: es un nivel, no un evento, y lo caduca
+## `age_move_intent()`. `intent_look_at` tampoco, por lo mismo.
 func clear_intents() -> void:
-	intent_move = Vector3.ZERO
 	intent_fire = false
 	intent_melee = false
 	intent_reload = false
 	intent_ability = false
 
 
+## Envejece la intención de movimiento y la descarta al vencer. La llama quien
+## mueve el cuerpo, una vez por paso de física.
+func age_move_intent(delta: float) -> void:
+	if intent_move == Vector3.ZERO:
+		return
+	_move_intent_age_s += delta
+	if _move_intent_age_s > MOVE_INTENT_TTL_S:
+		intent_move = Vector3.ZERO
+
+
 # --- API de intención. Es lo único que un cerebro de IA debe llamar. ---
 
 func move_to(direction: Vector3) -> void:
 	intent_move = direction.normalized() if direction.length_squared() > 0.0 else Vector3.ZERO
+	_move_intent_age_s = 0.0
 
 
 func look_at_point(point: Vector3) -> void:

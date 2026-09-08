@@ -191,6 +191,48 @@ con mensaje de error:
 
 Con 681 pruebas en verde y el arranque limpio, el juego no se jugaba.
 
+Y una segunda tanda, peor: la sonda pasaba **una vez de cada dos** con el mismo
+código y la misma semilla. Un instrumento que alterna verde y rojo parece roto,
+pero no lo estaba: lo inestable era el juego. Cinco fallos encadenados, todos en
+la frontera entre «la IA decide» y «el cuerpo hace»:
+
+* **Una intención de NIVEL borrada como si fuera de EVENTO.** `intent_move` se
+  limpiaba al final de cada paso de física, igual que `intent_fire`. Pero
+  moverse no es un evento: el input humano reescribe la dirección en cada paso
+  —así que al jugador no le pasaba nada— y un cerebro de IA la escribe en su
+  tick de comportamiento, a 20 Hz, con la física a 60. Dos de cada tres pasos
+  encontraban la intención ya borrada y **los bots caminaban a un tercio de su
+  velocidad**. Ni error ni aviso: enemigos que tardan el triple en llegar, que
+  desde el sofá es indistinguible de «la IA es pasiva».
+* **Dos ramas excluyentes que no lo eran.** Un ruido se convertía en contacto O
+  en pista, nunca en las dos, y como la comprobación de «origen conocido» mira
+  la lista de objetivos registrados —que son todos los personajes del nivel— un
+  disparo hostil entraba siempre por la primera. El contacto que deja un tiro
+  oído vale ~0,2: no llega ni a amenaza ni a difusión. Resultado: el bot te oye
+  disparar a tres metros y se va a patrullar.
+* **Una curva lineal contra un margen absoluto.** La calma que sostiene
+  PATROL era `1 − confianza`. Con confianza 0,15 daba 0,37 contra 0,40 de ir a
+  mirar: gana, pero por menos que el margen de histéresis (0,12), así que el
+  bot no cambiaba de idea nunca. Cuando una decisión tiene margen de
+  conmutación, **una diferencia que no supera el margen es una diferencia que
+  no existe**.
+* **Depender de habérselo contado a alguien.** El árbol de comportamiento leía
+  el objetivo solo de la pizarra de escuadra, y a la pizarra solo llegan los
+  contactos por encima de un umbral de difusión. La pizarra es para
+  COMPARTIR; para RECORDAR está la memoria del bot. Un bot no puede necesitar
+  haber publicado algo para poder actuar sobre lo que sabe.
+* **Otro reloj de pared.** `Blackboard` guardaba la marca de supresión en
+  `Time.get_ticks_msec()`. `AIScheduler` ya llevaba su propio reloj simulado
+  por esta razón exacta y lo dejaba escrito en su cabecera. Una regla del GDD
+  —«nadie asalta sin supresión activa»— decidida por lo ocupado que estuviera
+  el procesador.
+
+Y una del propio instrumento, del tipo más irónico: en cuanto la IA funcionó,
+el jugador quieto **murió**, su nodo se liberó y el informe final llamó a un
+método sobre un objeto muerto. SIGSEGV. Una sonda que se cae justo cuando lo
+que mide empieza a funcionar. Si tu comprobación asume que su escenario no
+llega hasta el final, no está comprobando el escenario.
+
 ```bash
 tools/combat_probe/probe.sh $GODOT   # 30 s de planta 1: ¿pelean los enemigos?
 ```

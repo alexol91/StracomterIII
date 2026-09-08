@@ -26,8 +26,32 @@ extends Node
 const SUN_ROTATION_MODERN := Vector3(-52.0, -35.0, 0.0)
 const SUN_ROTATION_CHUTAOS := Vector3(-70.0, -20.0, 0.0)
 
+## Luminarias de techo. Separación en metros, altura y alcance.
+##
+## Existen porque la cara INTERIOR de un muro no ve el sol: solo le llega el
+## ambiente, y en una vista cenital de la planta 1 esas caras salían casi
+## negras mientras las exteriores se leían en gris claro. Subir el ambiente no
+## es la respuesta —a partir de cierto punto el suelo se sobreexpone y se come
+## la dirección de arte— y depender más del aporte del cielo tampoco: eso es
+## imagen, cambia con el renderizador y es exactamente lo que este fichero se
+## propuso no hacer.
+##
+## Una oficina se ilumina desde el techo. Es la solución que sobrevive al
+## cambio de renderizador porque no es un truco de ambiente: son luces.
+const CEILING_SPACING_M: float = 4.5
+const CEILING_HEIGHT_M: float = 2.75
+const CEILING_RANGE_M: float = 8.5
+const CEILING_ENERGY: float = 1.6
+const CEILING_COLOR := Color(1.0, 0.97, 0.92)
+## Techo de luminarias por planta. Con 4,5 m de separación, un mapa grande
+## (~40 × 25 m con la mitad de su caja envolvente ocupada) pide unas 40; el
+## tope evita que un mapa raro meta doscientas luces en la escena y se lleve
+## por delante el presupuesto de render.
+const CEILING_MAX_LIGHTS: int = 48
+
 var _environment: WorldEnvironment = null
 var _sun: DirectionalLight3D = null
+var _ceiling: Node3D = null
 
 
 func _ready() -> void:
@@ -47,10 +71,19 @@ func _build() -> void:
 	_sun.name = "Sun"
 	add_child(_sun)
 
+	_ceiling = Node3D.new()
+	_ceiling.name = "CeilingLights"
+	add_child(_ceiling)
+	_build_ceiling_lights()
+
 
 func _apply_style() -> void:
 	if _environment == null or _sun == null:
 		return
+	if _ceiling != null:
+		# En 2012 no había luces de techo: había color plano. Encenderlas en
+		# modo Chutaos rompería justo lo que ese modo conserva.
+		_ceiling.visible = not PresentationStyle.chutaos_mode
 	if PresentationStyle.chutaos_mode:
 		_apply_chutaos()
 	else:
@@ -141,3 +174,137 @@ func _apply_chutaos() -> void:
 
 func _on_style_changed(_chutaos: bool) -> void:
 	_apply_style()
+
+
+## Reparte luminarias por la planta, en rejilla sobre el suelo REAL.
+##
+## La huella sale de los triángulos que el conversor deja en el nodo `Floor`
+## (`floor_vertices` + `floor_indices`): son propiedades exportadas, así que
+## están rellenas al instanciar la escena y no dependen de que la física, la
+## navegación o el `_ready` de nadie hayan corrido. Una planta en L tiene la
+## mitad de su caja envolvente fuera del edificio, y una luz ahí no ilumina
+## nada: solo gasta presupuesto.
+##
+## Si no hay suelo del que fiarse se cae a la caja envolvente legacy, y si
+## tampoco la hay no se pone ninguna luminaria. Ante la duda, no se inventa
+## geometría.
+func _build_ceiling_lights() -> void:
+	var root := get_parent()
+	if root == null:
+		return
+	var triangles := _floor_triangles(root)
+	var extent := _floor_extent(root, triangles)
+	if extent.size.x <= 0.0 or extent.size.y <= 0.0:
+		return
+
+	var spacing := CEILING_SPACING_M
+	var points := _ceiling_grid(extent, spacing, triangles)
+	# Un mapa muy grande pediría más luces de las que se pueden pagar. Antes
+	# que dejar media planta a oscuras —que es lo que hace un tope aplicado
+	# mientras se recorre la rejilla: corta a mitad de columna— se separan más
+	# las luminarias y se vuelve a repartir. Peor resolución, cobertura
+	# completa. El bucle termina porque al crecer la separación la rejilla
+	# acaba en un solo punto.
+	while points.size() > CEILING_MAX_LIGHTS:
+		spacing *= 1.25
+		points = _ceiling_grid(extent, spacing, triangles)
+
+	for point: Vector2 in points:
+		var light := OmniLight3D.new()
+		light.light_color = CEILING_COLOR
+		light.light_energy = CEILING_ENERGY
+		light.omni_range = CEILING_RANGE_M
+		# Sin sombras: son cuarenta luces y la dirección de la escena ya la da
+		# el sol. Sombras aquí serían cuarenta pasadas por nada. El efecto
+		# secundario es útil: la luz atraviesa los muros y también alumbra la
+		# cara interior del de al lado, que es justo lo que faltaba.
+		light.shadow_enabled = false
+		light.position = Vector3(point.x, CEILING_HEIGHT_M, point.y)
+		_ceiling.add_child(light)
+
+
+## Centros de las celdas de la rejilla que caen sobre el suelo.
+##
+## El paso se REDONDEA en vez de truncarse: con `floor()`, un mapa de 14 × 9 m
+## y 5 m de separación daba 2 columnas × 1 fila —dos luminarias para toda la
+## planta, repartidas cada 7 m— y el resultado era indistinguible de no tener
+## ninguna. Ese fue el fallo real de la primera versión de este fichero.
+func _ceiling_grid(
+		extent: Rect2, spacing: float, triangles: Array[PackedVector2Array]) -> PackedVector2Array:
+	var columns := maxi(int(round(extent.size.x / spacing)), 1)
+	var rows := maxi(int(round(extent.size.y / spacing)), 1)
+	var step_x := extent.size.x / float(columns)
+	var step_z := extent.size.y / float(rows)
+	var out := PackedVector2Array()
+	for column: int in range(columns):
+		for row: int in range(rows):
+			# A media celda del borde: una luminaria pegada al muro ilumina el
+			# muro y deja la sala a medias.
+			var point := Vector2(
+				extent.position.x + (float(column) + 0.5) * step_x,
+				extent.position.y + (float(row) + 0.5) * step_z)
+			if triangles.is_empty() or _is_over_floor(point, triangles):
+				out.append(point)
+	return out
+
+
+func _is_over_floor(point: Vector2, triangles: Array[PackedVector2Array]) -> bool:
+	for tri: PackedVector2Array in triangles:
+		if Geometry2D.point_is_inside_triangle(point, tri[0], tri[1], tri[2]):
+			return true
+	return false
+
+
+## Triángulos del suelo proyectados al plano XZ, tal cual los exportó el
+## conversor. Vacío si el mapa no trae suelo del que fiarse.
+func _floor_triangles(root: Node) -> Array[PackedVector2Array]:
+	var out: Array[PackedVector2Array] = []
+	var floor_node := root.get_node_or_null(^"Floor")
+	if floor_node == null:
+		return out
+	var vertices: Variant = floor_node.get(&"floor_vertices")
+	var indices: Variant = floor_node.get(&"floor_indices")
+	if not (vertices is PackedVector3Array) or not (indices is PackedInt32Array):
+		return out
+	var points := vertices as PackedVector3Array
+	var order := indices as PackedInt32Array
+	var count := order.size() - order.size() % 3
+	for base: int in range(0, count, 3):
+		var a := order[base]
+		var b := order[base + 1]
+		var c := order[base + 2]
+		if a >= points.size() or b >= points.size() or c >= points.size():
+			continue
+		out.append(PackedVector2Array([
+			Vector2(points[a].x, points[a].z),
+			Vector2(points[b].x, points[b].z),
+			Vector2(points[c].x, points[c].z)]))
+	return out
+
+
+## Extensión sobre la que se reparte la rejilla: la del suelo si lo hay, y si
+## no la caja envolvente que dejó el conversor en la metadata.
+func _floor_extent(root: Node, triangles: Array[PackedVector2Array]) -> Rect2:
+	if not triangles.is_empty():
+		var extent := Rect2(triangles[0][0], Vector2.ZERO)
+		for tri: PackedVector2Array in triangles:
+			for point: Vector2 in tri:
+				extent = extent.expand(point)
+		return extent
+	# `get_meta` con un `null` por defecto NO se calla si la clave no existe:
+	# Godot interpreta el nil como «sin valor por defecto» y suelta un error.
+	# Se pregunta antes.
+	if not root.has_meta(&"legacy_bbox"):
+		return Rect2()
+	var bbox: Variant = root.get_meta(&"legacy_bbox")
+	var scale_u: float = float(root.get_meta(&"scale_u_to_m", 0.0))
+	if not (bbox is Rect2) or scale_u <= 0.0:
+		return Rect2()
+	var area := bbox as Rect2
+	return Rect2(area.position * scale_u, area.size * scale_u)
+
+
+## Cuántas luminarias de techo se han puesto. Para las pruebas: una planta sin
+## ninguna se ve como se veía antes, y eso hay que poder detectarlo.
+func ceiling_light_count() -> int:
+	return _ceiling.get_child_count() if _ceiling != null else 0

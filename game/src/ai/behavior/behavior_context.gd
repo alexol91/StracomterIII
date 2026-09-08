@@ -117,6 +117,23 @@ func refresh_from_board() -> void:
 			best = contact
 	if best != null:
 		target_position = best.last_known_position
+		return
+	# La pizarra no sabe nada: se usa lo que sabe el propio bot.
+	#
+	# La pizarra es para COMPARTIR, no para recordar. A ella solo llegan los
+	# contactos que superan `min_broadcast_confidence` (0,45 en el perfil
+	# descuidado), así que un bot que ha oído un disparo cerca tiene un
+	# contacto propio de 0,2 y un árbol de comportamiento sin ningún punto al
+	# que ir ni al que apuntar. Depender de habérselo contado a alguien para
+	# poder actuar es lo que hacía que un enemigo a tres metros se fuera a
+	# patrullar.
+	#
+	# Esto no le da vista de rayos X: disparar sigue exigiendo
+	# `state.has_line_of_sight`, que solo se pone a `true` con un rayo
+	# confirmado en el tick. Lo único que gana es un sitio al que ir a mirar.
+	if is_finite_point(state.believed_target_position):
+		target_position = state.believed_target_position
+		threats.append(target_position)
 
 
 ## Punto al que investigar: el ruido si es más reciente que el contacto, y si

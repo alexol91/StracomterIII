@@ -247,7 +247,7 @@ Tres fallos ya corregidos por el camino:
    suyo se come el mueble. Definido así, un compañero encajaba cuarenta puntos
    de daño sin que su propia lógica lo considerara en peligro.
 
-### T-18 · Los compañeros no devuelven el fuego 🟨 `ai-comportamiento`
+### T-18 · Los compañeros no devuelven el fuego ✅ `ai-comportamiento`
 
 **Cuatro fallos encontrados y corregidos**, y el problema sigue a medias.
 
@@ -276,12 +276,16 @@ Tres fallos ya corregidos por el camino:
 `FOLLOW_LEADER` e `INVESTIGATE` también devuelven fuego ahora: es donde pasa la
 mayor parte del tiempo un compañero.
 
-**Lo que queda**: siguen disparando muy poco (1 de 76 disparos en la sonda).
-Ven al enemigo y se cubren, pero el enemigo que les dispara suele estar tras un
-obstáculo a la altura de la cintura o tras un muro: la oclusión es asimétrica y
-el ángulo es de verdad malo. Falta el verbo que no existe —**reposicionarse
-para tener ángulo**— y decidir si es un `BehaviorKind` nuevo o `INVESTIGATE`
-con la cobertura como destino.
+**Cerrado por la cadena de T-20**, y no por donde se buscaba. La hipótesis era
+que faltaba un verbo («reposicionarse para tener ángulo»); era falsa. Los
+compañeros disparaban poco por lo mismo que los enemigos no disparaban nada:
+caminaban a un tercio de su velocidad, la supresión aliada caducaba con el
+reloj de pared y su árbol leía el objetivo de una pizarra vacía. Con eso
+arreglado, la misma sonda que medía 1 disparo mide **52 con 37 aciertos**, y el
+jugador quieto baja de 155 puntos de daño recibidos a 8: la escuadra le cubre.
+
+Queda como observación, no como tarea: si en el futuro se ve a un compañero
+atascado sin ángulo, el verbo sigue sin existir.
 
 ### T-19 · La sonda de combate ya es un instrumento ✅ `qa-tests`
 
@@ -296,6 +300,65 @@ fallaba sola en CI de vez en cuando. Dos causas:
   de IA decidía en instantes distintos. `--fixed-fps 60`.
 
 Ahora dos ejecuciones seguidas dan el mismo número.
+
+**Corrección a esa última frase**: no lo daban. La sonda seguía alternando
+entre «los enemigos pelean» y cero disparos con el MISMO código y la misma
+semilla — verde una vez de cada dos. Esa inestabilidad no era del instrumento,
+era lo que medía; ver T-20.
+
+Y la sonda tenía un fallo propio, del tipo más irónico: en cuanto la IA
+funcionó de verdad, el jugador quieto MURIÓ, su nodo se liberó y el informe
+final llamaba a `_player.health_ratio()` sobre un objeto muerto — SIGSEGV. Una
+sonda que se cae justo cuando lo que mide empieza a funcionar. Ahora cachea la
+vida en cada paso y publica «MUERTO» como resultado legítimo.
+
+### T-20 · El combate era una moneda al aire ✅ `ai-comportamiento`
+
+Cinco fallos encadenados, ninguno con mensaje de error, todos en la frontera
+entre «la IA decide» y «el cuerpo hace». El síntoma agregado era el peor
+posible: la sonda pasaba la mitad de las veces.
+
+1. **Los bots caminaban a un TERCIO de su velocidad.** `intent_move` se
+   borraba al final de cada paso de física, junto a disparar y recargar. Pero
+   moverse no es un evento, es un NIVEL: el input humano lo reescribe en cada
+   paso y al jugador no le pasaba nada, mientras un cerebro de IA lo escribe en
+   su tick de comportamiento a 20 Hz y la física va a 60. Dos de cada tres
+   pasos con la intención ya borrada. El Sicario, con 2 m/s en su ficha, medido
+   a 0,66 m/s. Con eso, cruzar la planta no cabía en los treinta segundos de la
+   sonda, y desde el sofá se lee como «la IA es pasiva».
+2. **El ruido se lo comía el contacto.** `_absorb_noise` hacía contacto O
+   pista, nunca las dos, y como `_known_target` busca en la lista de objetivos
+   registrados —que son todos los personajes del nivel— un disparo hostil
+   entraba SIEMPRE por la rama del contacto. El contacto que deja un disparo
+   oído tiene confianza ~0,2: por debajo del 0,25 que cuenta como amenaza y del
+   0,45 que se difunde a la escuadra. El bot se quedaba sin ninguna de las dos
+   entradas que le harían moverse. INVESTIGATE existía y estaba muerto para el
+   ruido más importante del juego.
+3. **La calma era lineal y el margen de conmutación absoluto.**
+   `calm = 1 − confianza` sostiene PATROL. Con confianza 0,15, PATROL puntuaba
+   0,37 contra 0,40 de INVESTIGATE: gana ir a mirar, pero por 0,03, y el margen
+   de histéresis es 0,12. El bot oía el disparo, lo registraba, y seguía su
+   ronda. Un bot no está «un 85 % tranquilo» porque haya oído un tiro: oír algo
+   rompe la calma de golpe. Y de paso, INVESTIGATE se puntuaba con la certeza,
+   que es justo al revés — cuanto más seguro estás, menos hay que investigar y
+   más hay que atacar. Ahora tiene su propio término (`lead`).
+4. **Un bot dependía de habérselo contado a alguien.** `BehaviorContext` leía
+   el objetivo SOLO de la pizarra de escuadra, y a la pizarra solo llegan los
+   contactos por encima de `min_broadcast_confidence`. Así que el bot podía
+   puntuar «ve a mirar» y no tener ningún punto al que ir ni al que apuntar. La
+   pizarra es para COMPARTIR, no para recordar: ahora, si la escuadra no sabe
+   nada, se usa lo que sabe el propio bot. No da vista de rayos X — disparar
+   sigue exigiendo un rayo confirmado en el tick.
+5. **La supresión caducaba con el reloj de PARED.** `Blackboard` guardaba la
+   marca en `Time.get_ticks_msec()`, que no respeta `time_scale`, no se detiene
+   con la pausa y en una simulación a paso fijo avanza a su aire. Una regla de
+   escuadra del GDD —«nadie asalta sin supresión activa»— decidida por lo
+   ocupado que estuviera el procesador. `AIScheduler` ya llevaba su reloj
+   simulado por esta razón y lo dejaba escrito en su cabecera.
+
+Resultado en la sonda, tres ejecuciones seguidas: 23, 36 y 31 disparos
+enemigos, todas con veredicto «los enemigos pelean». El jugador quieto en la
+planta 3 zona 5 ahora se muere.
 
 ## Bloque B — Que la partida termine
 
@@ -354,11 +417,32 @@ buses, `AudioDirector` y el conmutador del paquete de broma; falta el contenido:
 música por estado (menú, exploración, combate, jefe) y los eventos 3D que ya
 tienen sus llamadas.
 
-### T-09 · Iluminación interior ⬜ `arte-audio`
+### T-09 · Iluminación interior ✅ `arte-audio`
 
-En la captura de la planta 1 hay paredes en negro absoluto. Puede ser el
-renderizador de Compatibilidad del contenedor —ver el aviso de
-`tools/screenshots/`— pero hay que verlo en Forward+ antes de darlo por bueno.
+Era real, no un artefacto del renderizador: la cara INTERIOR de un muro no ve
+el sol —solo le llega el ambiente— y en la vista cenital salía casi negra
+mientras la exterior se leía en gris claro. Subir el ambiente no era la
+respuesta (a partir de cierto punto el suelo se sobreexpone y se come la
+dirección de arte) y apoyarse más en el aporte del cielo tampoco: eso es
+imagen, cambia con el renderizador.
+
+Una oficina se ilumina desde el techo. `WorldLighting` reparte luminarias
+`OmniLight3D` sin sombras en rejilla de 4,5 m sobre el suelo REAL —los
+triángulos que deja el conversor en el nodo `Floor`, no la caja envolvente, que
+en una planta en L tiene la mitad fuera del edificio—, con tope de 48 luces por
+planta: si la rejilla se pasa, se separan más las luminarias en vez de cortar
+el recorrido y dejar media planta a oscuras. Apagadas en modo Chutaos, que
+conserva la luz plana de 2012.
+
+Medido sobre la captura cenital: la mediana de luminancia del interior sube de
+150 a 171 sin recorte en las altas (máximo 231 de 255). Y el fallo que casi se
+colaba: la primera versión truncaba las columnas con `floor()`, así que un mapa
+de 14 × 9 m con 5 m de separación se quedaba en DOS luminarias cada siete
+metros — indistinguible de no tener ninguna. Hay prueba del recuento.
+
+`tools/screenshots/capture.sh` acepta ahora `SHOT_TOPDOWN=1`, que conmuta la
+cámara a vista cenital antes de capturar: es la única forma de juzgar una
+planta entera sin que la cámara en tercera persona se meta en la geometría.
 
 ### T-10 · La cámara en pasillos estrechos 🟨 `godot-gameplay`
 

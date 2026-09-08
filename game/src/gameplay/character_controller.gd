@@ -111,6 +111,8 @@ func _physics_process(delta: float) -> void:
 	if stats == null or not alive:
 		return
 
+	# Antes de aplicar: si la intención ha vencido, este paso ya no la usa.
+	age_move_intent(delta)
 	_apply_gravity(delta)
 	_apply_horizontal_velocity()
 	if intent_look_at != Vector3.INF:

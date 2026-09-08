@@ -21,6 +21,11 @@ extends SceneTree
 ##   SHOT_SCENES   rutas `res://` separadas por comas; por defecto, los menús
 ##   SHOT_LINEUP   "1" para añadir una fila con los nueve arquetipos
 ##   SHOT_GAMEPLAY "1" para arrancar una partida de verdad y capturar la planta
+##   SHOT_TOPDOWN  "1" para capturar la planta en vista cenital. Sirve para
+##                 juzgar la ILUMINACIÓN sin que la cámara en tercera persona se
+##                 meta entre la geometría: desde dentro de un muro no se puede
+##                 saber si una pared está negra porque falta luz o porque se le
+##                 está viendo la cara de atrás.
 ##   SHOT_CHUTAOS  "1" para capturar con el estilo de 2012 activo
 ##   SHOT_LOCALE   "es" o "en"; por defecto, el del sistema. Existe porque el
 ##                 contenedor es una máquina en inglés y la interfaz canónica
@@ -222,6 +227,13 @@ func _capture_gameplay(out: String, suffix: String) -> void:
 	# y la cámara en tercera persona en asentarse detrás del jugador.
 	for _i: int in range(300):
 		await process_frame
+	if OS.get_environment("SHOT_TOPDOWN") == "1":
+		var camera := _find_tps_camera(main)
+		if camera != null:
+			camera.call("toggle_mode")
+			for _i: int in range(SETTLE_FRAMES):
+				await process_frame
+
 	var state := root.get_node_or_null("GameState")
 	if state != null:
 		print("[capture] modo de juego al capturar: ", state.get("mode"))
@@ -242,3 +254,14 @@ func _scenes() -> Array[String]:
 	for entry: String in raw.split(",", false):
 		out.append(entry.strip_edges())
 	return out
+
+
+func _find_tps_camera(node: Node) -> Node:
+	var script := node.get_script() as Script
+	if script != null and script.resource_path.ends_with("tps_camera.gd"):
+		return node
+	for child: Node in node.get_children():
+		var found := _find_tps_camera(child)
+		if found != null:
+			return found
+	return null

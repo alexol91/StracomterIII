@@ -41,8 +41,10 @@ class Contact:
 	## Quién lo reportó (para depuración y para el retardo de reacción).
 	var reporter_id: int = 0
 
-	func age_s() -> float:
-		return float(Time.get_ticks_msec() - last_seen_msec) / 1000.0
+	## Antigüedad del contacto en segundos, medida contra el sello de tiempo con
+	## el que lo publicó el difusor (`ContactBroadcaster`, reloj inyectable).
+	func age_s(now_msec: int) -> float:
+		return float(now_msec - last_seen_msec) / 1000.0
 
 
 var _contacts: Dictionary[int, Dictionary] = {}   ## squad_id -> {target_id: Contact}
@@ -50,12 +52,46 @@ var _roles: Dictionary[int, Role] = {}            ## bot_id -> Role
 var _suppression: Dictionary[int, float] = {}     ## squad_id -> hasta cuándo (msec) hay supresión activa
 var _claimed_routes: Dictionary[int, Array] = {}  ## squad_id -> Array[int] de ids de ruta reclamados
 
+## Reloj de SIMULACIÓN, en segundos. Acumula el delta del motor.
+##
+## No es `Time.get_ticks_msec()`, y la diferencia no es cosmética: el reloj de
+## pared no respeta `Engine.time_scale`, no se detiene con la pausa y, en una
+## simulación a paso fijo (`--fixed-fps`), avanza a su aire. La marca de
+## supresión se guardaba en milisegundos de pared, así que en la sonda de
+## combate —que corre a paso fijo y por debajo del tiempo real— una supresión
+## de tres segundos duraba tres segundos de PARED, o sea muchos menos de
+## simulación, y variaba con la carga de la máquina. Una regla de escuadra del
+## GDD («nadie asalta sin supresión activa») decidida por lo ocupado que esté
+## el procesador.
+##
+## `AIScheduler` ya llevaba su propio reloj simulado por esta misma razón y lo
+## dejaba escrito en su cabecera; esto es aplicar aquí lo que allí ya estaba
+## aprendido.
+var _clock_s: float = 0.0
+
+
+func _process(delta: float) -> void:
+	_clock_s += delta
+
+
+## Segundos de simulación transcurridos. Es el reloj contra el que caducan las
+## marcas de esta pizarra.
+func now_s() -> float:
+	return _clock_s
+
+
+## Avanza el reloj a mano. Para las pruebas, que corren dentro de un único
+## `_ready()` síncrono y no ven pasar ni un frame.
+func advance_clock(seconds: float) -> void:
+	_clock_s += maxf(seconds, 0.0)
+
 
 func clear() -> void:
 	_contacts.clear()
 	_roles.clear()
 	_suppression.clear()
 	_claimed_routes.clear()
+	_clock_s = 0.0
 
 
 # ---- Contactos ----
@@ -116,11 +152,11 @@ func clear_roles_for(bot_ids: Array[int]) -> void:
 # Regla de escuadra: nadie asalta sin supresión activa de un compañero.
 
 func mark_suppression(squad_id: int, duration_s: float) -> void:
-	_suppression[squad_id] = float(Time.get_ticks_msec()) + duration_s * 1000.0
+	_suppression[squad_id] = _clock_s + duration_s
 
 
 func has_active_suppression(squad_id: int) -> bool:
-	return float(Time.get_ticks_msec()) < float(_suppression.get(squad_id, 0.0))
+	return _clock_s < float(_suppression.get(squad_id, -INF))
 
 
 # ---- Reclamación de rutas ----

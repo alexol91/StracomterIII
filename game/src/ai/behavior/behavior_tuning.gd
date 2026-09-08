@@ -70,6 +70,20 @@ const TERM_OUTNUMBERED: StringName = &"outnumbered"
 const TERM_CALM: StringName = &"calm"
 ## Antigüedad del último contacto visual.
 const TERM_STALE: StringName = &"stale"
+## «Tengo una pista»: 1 en cuanto la confianza llega al umbral de amenaza, y
+## proporcional por debajo. Es el término de INVESTIGATE, y NO es `contact`.
+##
+## Con `contact` (la confianza en crudo, peso 2 sobre 6,5) INVESTIGATE tenía
+## techo bajo justo cuando más falta hace: un disparo oído a veinte metros deja
+## confianza 0,08 y la utilidad de ir a mirar se quedaba en 0,39 contra los
+## 0,35 de seguir patrullando — menos que el margen de conmutación. El bot lo
+## oía y seguía su ronda.
+##
+## El error de fondo era usar la certeza como ganas de investigar. Es al revés:
+## cuanto MÁS seguro estás, menos hay que investigar y más hay que atacar.
+## Investigar se decide por tener una pista y no tener línea de visión, no por
+## estar seguro; de la certeza ya se encargan ATTACK y SUPPRESS.
+const TERM_LEAD: StringName = &"lead"
 ## Nadie me está mirando: buen momento para recargar o reagruparse.
 const TERM_LULL: StringName = &"lull"
 ## Término constante del comportamiento de reposo.
@@ -107,6 +121,23 @@ const SQUAD_BREAK_RATIO: float = 0.40
 ## Horizonte de memoria con el que se normaliza la antigüedad del contacto.
 ## TODO(arquitecto): mover a datos.
 const MEMORY_HORIZON_S: float = 12.0
+## Confianza a la que la calma se agota del todo.
+##
+## `calm` es lo que sostiene PATROL, y era `1 − confianza`: lineal. Con un
+## contacto de confianza 0,15 —lo que deja un disparo oído a diez metros— la
+## calma valía 0,85 y PATROL seguía puntuando 0,37 frente a los 0,40 de
+## INVESTIGATE. Como el margen de conmutación es 0,12, el bot NO cambiaba: oía
+## el disparo, lo registraba, y se iba a seguir su ronda. Veinte segundos y
+## cero disparos, sin un solo error en consola (medido en la sonda de combate).
+##
+## El error era tratar la calma como el complemento de la certeza. No lo es:
+## un bot no está «un 85 % tranquilo» porque haya oído un tiro flojo. Oír algo
+## rompe la calma de golpe, y este umbral es dónde se rompe del todo. Coincide
+## con `PerceptionProfile.threat_confidence` a propósito: la confianza que
+## cuenta como amenaza para la percepción es la que agota la calma para la
+## decisión.
+## TODO(arquitecto): mover a datos.
+const CALM_BREAK_CONFIDENCE: float = 0.25
 ## Amenazas a partir de las cuales el bot se considera superado en número.
 ## TODO(arquitecto): mover a datos.
 const OUTNUMBERED_REFERENCE: float = 3.0
@@ -292,7 +323,7 @@ const BASE_WEIGHTS: Dictionary[BehaviorKind.Kind, Dictionary] = {
 		TERM_AMMO: 1.0,
 	},
 	BehaviorKind.Kind.INVESTIGATE: {
-		TERM_CONTACT: 2.0,
+		TERM_LEAD: 2.0,
 		TERM_BLOCKED: 1.5,
 		TERM_STALE: 1.0,
 		TERM_HEALTH: 1.0,

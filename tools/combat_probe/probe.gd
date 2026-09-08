@@ -12,9 +12,21 @@ extends Node
 ##   * la máscara de oclusión de la vista no incluía las puertas, así que
 ##     "veían" a través de una puerta cerrada y sus balas se la comían:
 ##     41 disparos, 0 impactos;
-##   * apuntaban al ORIGEN del objetivo, que son sus pies.
+##   * apuntaban al ORIGEN del objetivo, que son sus pies;
+##   * `intent_move` se borraba en cada paso de física como si moverse fuera un
+##     evento, así que los bots caminaban a UN TERCIO de su velocidad y no les
+##     daba tiempo a cruzar la planta;
+##   * un ruido se convertía en contacto O en pista, nunca en las dos, y el
+##     contacto que deja un disparo oído no llega ni a amenaza ni a difusión:
+##     el bot te oía disparar a tres metros y se iba a patrullar;
+##   * la calma que sostiene PATROL era lineal en la confianza, y ganaba a
+##     INVESTIGATE por menos que el margen de histéresis: el bot no cambiaba de
+##     idea;
+##   * el árbol leía el objetivo solo de la pizarra de escuadra, así que un bot
+##     que no había difundido su contacto no tenía a dónde ir;
+##   * la marca de supresión caducaba con el reloj de PARED.
 ##
-## Ninguno daba un error. Los tres se ven en un número: cuánto daño recibe un
+## Ninguno daba un error. Todos se ven en un número: cuánto daño recibe un
 ## jugador quieto en medio de una planta poblada.
 ##
 ## Uso: tools/combat_probe/probe.sh <ruta-a-godot>
@@ -25,8 +37,15 @@ extends Node
 ## jugador son exactos. Los números de la IA no: los identificadores de
 ## instancia cambian entre ejecuciones, y hay desempates que dependen de ellos
 ## —`ContactMemory.best()` ordena por `target_id`—, así que dos ejecuciones
-## dan entre 9 y 33 disparos enemigos. Sirve como umbral («¿pelean?»), no como
+## dan entre 20 y 40 disparos enemigos. Sirve como umbral («¿pelean?»), no como
 ## medida exacta.
+##
+## AVISO, porque ya costó una tarde: cuando el veredicto ALTERNA entre verde y
+## rojo con el mismo código, la sospecha correcta no es «la sonda mide mal».
+## Alternaba porque el combate dependía de que alguien pillara línea de visión
+## de rebote: los cinco fallos de la lista de arriba estaban todos activos y lo
+## que quedaba era una moneda al aire. La inestabilidad del instrumento era el
+## dato, no el ruido.
 
 ## Segundos de partida que se dejan correr antes de juzgar.
 const RUN_S: float = 30.0
@@ -62,6 +81,15 @@ var _hits: int = 0
 var _damage: float = 0.0
 var _damage_squad: float = 0.0
 var _player: Character = null
+## Vida del jugador la última vez que se le pudo preguntar, y si murió.
+##
+## Hace falta porque el jugador PUEDE MORIR: con la IA funcionando, treinta
+## segundos quieto en medio de la planta 3 se acaban en el suelo, y su nodo se
+## libera. Guardar la referencia y llamarla al imprimir el informe reventaba el
+## proceso con SIGSEGV — la sonda se caía justo cuando por fin funcionaba lo
+## que mide.
+var _player_health_ratio: float = 1.0
+var _player_died: bool = false
 var _player_shots: int = 0
 var _companion_shots: int = 0
 var _companion_hits: int = 0
@@ -142,7 +170,8 @@ func _run() -> void:
 	print("  disparos del jugador:%d" % _player_shots)
 	print("  disparos enemigos:   %d" % _shots)
 	print("  impactos:            %d" % _hits)
-	print("  daño al jugador:     %.1f  (vida %.0f %%)" % [_damage, _player.health_ratio() * 100.0])
+	print("  daño al jugador:     %.1f  (vida %.0f %%%s)" % [
+		_damage, _player_health_ratio * 100.0, ", MUERTO" if _player_died else ""])
 	print("  daño a la escuadra:  %.1f" % _damage_squad)
 	print("  compañeros:          %d al empezar, %d al terminar" % [
 		companions, _count_team(Character.Team.COMPANION)])
@@ -166,7 +195,7 @@ func _run() -> void:
 		failures.append("nadie del bando del jugador recibió un punto de daño")
 	if companions <= 0:
 		failures.append("no bajó ningún compañero a la planta")
-	elif _mean_companion_distance() > COMPANION_MAX_DISTANCE_M:
+	elif _mean_companion_distance() > COMPANION_MAX_DISTANCE_M and not _player_died:
 		failures.append("los compañeros se quedaron a %.1f m: no siguen a nadie"
 			% _mean_companion_distance())
 	if failures.is_empty():
@@ -188,9 +217,16 @@ func _wait(seconds: float) -> void:
 		# y `CharacterController` la limpia al final del paso de física, así
 		# que ponerla en UN frame desde un `await` puede perderse antes de que
 		# `WeaponSystem` la lea.
-		if _player != null and is_instance_valid(_player) and _player.alive \
-				and (i % every) < BURST_FRAMES:
-			_player.fire()
+		if _player != null and is_instance_valid(_player) and _player.alive:
+			_player_health_ratio = _player.health_ratio()
+			if (i % every) < BURST_FRAMES:
+				_player.fire()
+		elif _player != null:
+			# Ha muerto: se suelta la referencia antes de que el nodo se libere.
+			# Que muera no es un fallo de la sonda, es el escenario funcionando.
+			_player = null
+			_player_died = true
+			_player_health_ratio = 0.0
 		await get_tree().physics_frame
 
 
@@ -223,7 +259,7 @@ func _count_team(team: Character.Team) -> int:
 ## Distancia media de los compañeros vivos al jugador. Es la medida de que la
 ## formación funciona: si crece sin parar, nadie está siguiendo a nadie.
 func _mean_companion_distance() -> float:
-	if _player == null:
+	if _player == null or not is_instance_valid(_player):
 		return -1.0
 	var total := 0.0
 	var count := 0

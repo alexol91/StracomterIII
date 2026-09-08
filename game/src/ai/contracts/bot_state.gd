@@ -29,6 +29,16 @@ var is_reloading: bool = false
 
 ## Distancia al contacto de mayor confianza, en metros. INF si no hay contacto.
 var distance_to_target_m: float = INF
+## Dónde CREE el bot que está ese contacto. `Vector3.INF` si no hay ninguno.
+##
+## No es redundante con la distancia: la distancia sirve para PUNTUAR y esto
+## para ACTUAR. Sin este campo, un bot que ha oído un disparo a cuatro metros
+## puntúa perfectamente «ve a investigar» y luego no tiene a dónde ir, porque
+## el único punto que conocía el árbol venía de la pizarra de escuadra — y a
+## la pizarra solo llegan los contactos que superan `min_broadcast_confidence`.
+## Un bot no puede depender de habérselo contado a alguien para saber lo que
+## sabe.
+var believed_target_position: Vector3 = Vector3.INF
 ## ¿Hay línea de visión despejada al objetivo AHORA?
 var has_line_of_sight: bool = false
 ## Confianza en la posición del objetivo, 0..1.
@@ -67,6 +77,7 @@ func duplicate_state() -> BotState:
 	copy.is_crouched = is_crouched
 	copy.is_reloading = is_reloading
 	copy.distance_to_target_m = distance_to_target_m
+	copy.believed_target_position = believed_target_position
 	copy.has_line_of_sight = has_line_of_sight
 	copy.target_confidence = target_confidence
 	copy.exposure = exposure

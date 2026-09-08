@@ -211,6 +211,37 @@ func test_a_noise_from_a_hidden_enemy_creates_a_contact_without_seeing_it() -> v
 	)
 
 
+## El disparo de un enemigo IDENTIFICADO tiene que dejar las dos cosas:
+## contacto en la memoria y PISTA a la que ir. Antes eran excluyentes y el
+## reparto estaba del revés — `_known_target` busca en la lista de objetivos
+## registrados, que son todos los personajes del nivel, así que un disparo
+## hostil siempre entraba por la rama del contacto y NUNCA dejaba pista.
+##
+## Consecuencia medida en la sonda de combate: el contacto que deja un disparo
+## oído tiene confianza 0,2 —por debajo del 0,25 que cuenta como amenaza— y el
+## bot se quedaba sin ninguna de las dos entradas que le harían moverse.
+## INVESTIGATE existía y estaba muerto para el ruido más importante del juego.
+func test_hostile_gunfire_leaves_both_a_contact_and_a_lead() -> void:
+	var target := _add_target(Vector3(0.0, 0.0, -8.0))
+	world.add_wall(Vector3(-6.0, 0.0, -4.0), Vector3(6.0, 0.0, -4.0))
+	system.hear_noise(target.position, 1.0, 30.0, target.target_id)
+	system.tick_perception(0.1)
+	assert_gt(state.target_confidence, 0.0, "el disparo deja contacto")
+	assert_true(
+		system.last_noise_position.is_finite(),
+		"y deja pista: sin ella no hay a dónde ir a mirar")
+	assert_lt(system.last_noise_age_s, 0.5, "una pista recién puesta es reciente")
+
+
+## Un ruido sin origen atribuible deja pista pero NO contacto: se sabe que ha
+## sonado algo, no quién.
+func test_an_unattributable_noise_is_a_lead_but_not_a_contact() -> void:
+	system.hear_noise(Vector3(0.0, 0.0, -7.0), 1.0, 30.0, 4242)
+	system.tick_perception(0.1)
+	assert_true(system.last_noise_position.is_finite(), "algo ha sonado por ahí")
+	assert_eq(state.target_confidence, 0.0, "pero no se sabe de quién: sin contacto")
+
+
 func test_a_bot_ignores_its_own_noise() -> void:
 	system.hear_noise(Vector3(1.0, 0.0, 0.0), 1.0, 20.0, system.bot_id)
 	assert_eq(system.hearing.pending_count(), 0, "nadie se asusta de sus propios pasos")

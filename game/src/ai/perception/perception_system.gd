@@ -319,14 +319,33 @@ func _refresh_targets() -> void:
 		_targets.append(target)
 
 
+## Un ruido oído se convierte en las DOS cosas que puede ser: contacto (si se
+## le puede poner nombre) y pista (siempre).
+##
+## Antes eran excluyentes, y el reparto estaba justo del revés: como
+## `_known_target` busca en la lista de objetivos registrados —que son TODOS
+## los personajes del nivel—, un disparo hostil siempre entraba por la primera
+## rama y NUNCA dejaba pista. El resultado, medido en la sonda de combate: un
+## matón oye al jugador disparar a tres metros, se le crea un contacto de
+## confianza 0,2 (por debajo del 0,25 que cuenta como amenaza y del 0,45 que se
+## difunde a la escuadra), no tiene pista a la que ir porque el ruido se la ha
+## comido el contacto, y se marcha a patrullar. Treinta segundos, cero
+## disparos, ningún error en consola.
+##
+## LÍMITE CONOCIDO: `_refresh_targets` deja fuera de `_targets` a todo el que
+## no sea hostil, así que el ruido de un ALIADO llega aquí indistinguible del
+## de un origen desconocido y también deja pista. Un bot patrullando puede irse
+## a mirar dónde está disparando uno de los suyos, que en el peor caso es
+## converger hacia el tiroteo. Distinguirlo exigiría que `noise_emitted`
+## llevara el bando del emisor, y eso es cambiar el contrato de `gameplay` para
+## un caso que en combate real queda siempre por debajo de un contacto.
 func _absorb_noise(heard: HearingSensor.Heard) -> void:
 	var confidence := HearingSensor.confidence_from(heard.loudness, effective_profile())
 	var known := _known_target(heard.source_id)
 	if known != null and Character.teams_are_hostile(known.team, team):
 		memory.reinforce_sound(known.target_id, known.team, heard.estimated_position, confidence)
-		return
-	# Ruido de origen no identificado: no es un contacto, es una pista. El
-	# comportamiento INVESTIGATE decide qué hacer con ella.
+	# La pista NO es alternativa al contacto: es lo que hace que el bot vaya a
+	# mirar. El comportamiento INVESTIGATE decide qué hacer con ella.
 	if heard.loudness >= last_noise_loudness or is_inf(last_noise_age_s):
 		last_noise_position = heard.estimated_position
 		last_noise_age_s = 0.0
@@ -344,6 +363,7 @@ func _fill_state(vision_result: VisionSensor.Result) -> void:
 	var best := memory.best()
 	if best == null:
 		state.distance_to_target_m = INF
+		state.believed_target_position = Vector3.INF
 		state.has_line_of_sight = false
 		state.target_confidence = 0.0
 		state.known_threat_count = 0
@@ -351,6 +371,7 @@ func _fill_state(vision_result: VisionSensor.Result) -> void:
 		return
 
 	state.distance_to_target_m = state.position.distance_to(best.believed_position)
+	state.believed_target_position = best.believed_position
 	state.target_confidence = best.confidence
 	state.known_threat_count = memory.threat_count()
 	state.time_since_last_seen_s = best.time_since_seen_s
