@@ -83,6 +83,14 @@ common/physics_ticks_per_second=60
 
 [rendering]
 
+; ETC2/ASTC, además de S3TC/BPTC. No es para móvil: es lo que EXIGE el
+; exportador de macOS para arquitecturas `universal` y `arm64`, y sin ello se
+; niega a exportar (el mensaje lo dice, pero solo después de que el resto de la
+; configuración del preset sea válida — con un `bundle_identifier` vacío se
+; queda en «errores de configuración» sin nombrar ninguno, que es lo que hizo
+; creer que macOS no se podía exportar desde Linux).
+textures/vram_compression/import_etc2_astc=true
+
 renderer/rendering_method="forward_plus"
 anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2

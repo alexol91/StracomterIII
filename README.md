@@ -69,14 +69,22 @@ Las pruebas salen con código distinto de cero si algo falla, y es lo que corre 
 
 ### Descargar el juego ya compilado
 
-No hace falta Godot: cada empujón a una rama publica los ejecutables de **Linux**
-y **Windows** como artefactos del trabajo de CI
+No hace falta Godot: cada empujón a una rama publica los ejecutables de
+**Linux**, **Windows** y **macOS** como artefactos del trabajo de CI
 ([Actions](https://github.com/alexol91/StracomterIII/actions) → el último trabajo
-→ *Artifacts*). Es un solo fichero, sin instalador.
+→ *Artifacts*). Linux y Windows son un solo fichero, sin instalador.
 
-macOS no está: exportarlo desde Linux falla en una comprobación de configuración
-que Godot no nombra, y un binario sin firmar tampoco se abre en un Mac sin
-desactivar Gatekeeper.
+**macOS**: sale un `.app` **universal** (Intel y Apple Silicon) dentro de un
+`.zip`. Va **sin firmar**, así que Gatekeeper lo bloquea al abrirlo; se le quita
+la cuarentena una vez:
+
+```bash
+unzip StracomterIII.zip
+xattr -dr com.apple.quarantine "STRACOMTER III- el mejor juego de la historia.app"
+open "STRACOMTER III- el mejor juego de la historia.app"
+```
+
+(La alternativa sin terminal es clic derecho → *Abrir* y confirmar.)
 
 ## Licencia
 

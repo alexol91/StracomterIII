@@ -298,9 +298,20 @@ $GODOT --headless --path game --export-release "Linux"
 xvfb-run -a ./dist/linux/StracomterIII.x86_64 --rendering-driver opengl3 --quit-after 400
 ```
 
-Los presets viven en `game/export_presets.cfg`. macOS no está: exportarlo desde
-Linux falla en una comprobación de configuración que Godot no nombra, y un
-binario sin firmar tampoco se abre en un Mac sin desactivar Gatekeeper.
+Los presets viven en `game/export_presets.cfg`. Los tres —Linux, Windows y
+macOS— se exportan desde Linux.
+
+Y una lección sobre el de macOS, que estuvo descartado por «Godot no dice qué
+falla»: **sí lo dice, pero solo el último error que le queda**. La validación
+del preset corta en el primero, y con `application/bundle_identifier` vacío el
+mensaje es «errores de configuración» sin nombrar ninguno. En cuanto se pone un
+identificador válido aparece el de verdad, con su nombre y su solución
+(«Cannot export for universal or arm64 if ETC2 ASTC texture format is
+disabled»). Si una herramienta parece no decirte qué falla, comprueba que no le
+falte un dato ANTERIOR al que estás mirando.
+
+El `.app` sale universal (x86_64 + arm64) dentro de un `.zip`, sin firmar: en un
+Mac hay que quitarle la cuarentena (`xattr -dr com.apple.quarantine`).
 
 ## Convenciones
 

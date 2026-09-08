@@ -85,12 +85,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Sin macOS: exportarlo desde un runner de Linux falla en la
-        # comprobación de configuración de Godot sin decir cuál, y un binario
-        # de macOS sin firmar tampoco se puede abrir sin desactivar Gatekeeper
-        # a mano. Se hará desde un Mac o con firma; mientras tanto, un trabajo
-        # permanentemente en rojo no informa de nada.
-        preset: ["Linux", "Windows Desktop"]
+        # macOS SÍ se exporta desde un runner de Linux. Lo que lo impedía no
+        # era la plataforma: eran dos errores de configuración, y el segundo
+        # Godot lo nombra en cuanto el primero está resuelto —con
+        # `application/bundle_identifier` vacío se queda en «errores de
+        # configuración» sin decir cuál—. El otro era ETC2/ASTC, que el
+        # exportador exige para `universal` y `arm64`.
+        #
+        # Sale un `.app` universal (x86_64 + arm64) dentro de un `.zip`. Sin
+        # firmar: en el Mac hay que quitarle la cuarentena a mano (ver README).
+        preset: ["Linux", "Windows Desktop", "macOS"]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +117,7 @@ jobs:
             echo "Se generan desde el editor (Proyecto > Exportar) y se commitean."
             exit 0
           fi
-          mkdir -p dist/linux dist/windows
+          mkdir -p dist/linux dist/windows dist/macos
           ~/godot/godot --headless --path game --import
           # Sin ruta: se usa la del preset (`export_path`), que ya distingue
           # el binario de Linux del ejecutable de Windows. Pasar una ruta fija

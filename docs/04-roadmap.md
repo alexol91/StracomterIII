@@ -632,11 +632,28 @@ regresión se vería.
 
 Y no está medido lo que no se puede medir en `--headless`: el coste de dibujar.
 
-### T-13 · Export de macOS ⬜ `devops-ci`
+### T-13 · Export de macOS ✅ `devops-ci`
 
-Falla desde Linux en una comprobación de configuración que Godot **no nombra**
-—el mensaje llega vacío—. Además, un binario sin firmar no se abre en un Mac sin
-desactivar Gatekeeper. Necesita un Mac o firma real.
+Estaba descartado con el diagnóstico «exportarlo desde Linux falla en una
+comprobación de configuración que Godot no nombra». Era falso, y el método por
+el que se cayó merece quedar escrito: **Godot sí nombra el error, pero solo el
+último que le queda**. La validación del preset corta en el primero, y con
+`application/bundle_identifier` vacío el mensaje es «errores de configuración»
+sin decir cuál — se probaron arquitecturas, versiones mínimas, firma y tipo de
+distribución a ciegas contra el error equivocado. Con un identificador válido
+aparece el de verdad, con nombre y remedio: `Cannot export for universal or
+arm64 if ETC2 ASTC texture format is disabled`.
+
+Dos líneas: `textures/vram_compression/import_etc2_astc=true` en
+`project.godot` y el preset con su `bundle_identifier`. Sale un `.app`
+**universal** (x86_64 + arm64, comprobado con `file`) dentro de un `.zip` de
+100 MB, y macOS entra en la matriz de exportación de CI.
+
+Queda sin firmar, así que Gatekeeper lo bloquea la primera vez:
+`xattr -dr com.apple.quarantine <app>`. Firmarlo y notarizarlo exige una cuenta
+de desarrollador de Apple, que es una decisión del dueño del proyecto, no una
+tarea técnica.
+
 
 ### T-14 · README, capturas y guía de contribución ✅ PO Técnico
 
