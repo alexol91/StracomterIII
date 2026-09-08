@@ -340,11 +340,20 @@ jugador y a esa distancia le tapan media pantalla. La máscara del brazo es solo
 el mundo, así que no lo empujan —pero se ponen delante—. O el brazo los tiene
 en cuenta, o los huecos de formación se abren cuando la cámara está cerca.
 
-### T-11 · Traducción inglesa incompleta ⬜ `ui-ux`
+### T-11 · Traducción inglesa incompleta ✅ NO REPRODUCE `ui-ux`
 
-Con el sistema en inglés, la pantalla de Estrategia mezcla los dos idiomas
-("STRATEGY", "Next floor", "Squad", "Back" en inglés; el resto en español).
-Faltan claves en la columna `en` de `strings.csv`.
+Se cerró mirándolo: la pantalla de Estrategia capturada con `SHOT_LOCALE=en`
+sale **entera en inglés**. Y en `strings.csv` no falta ni una clave: de las 143,
+las 20 cuyo valor coincide en los dos idiomas son nombres propios, formatos
+(`%d/%d`), letras de brújula y términos médicos —Protanopia, Deuteranopia—, que
+es como tienen que estar.
+
+La captura mezclada que motivó esta tarea salía de una ejecución en la que el
+idioma se aplicaba DESPUÉS de construir la pantalla: los textos montados con
+`Localization.t()` en `_ready()` quedaban congelados y solo se refrescaban los
+`text = "CLAVE"` que traduce `AutoLocalize`. `tools/screenshots/capture.gd` fija
+el idioma antes de instanciar nada, así que con la herramienta actual no se
+reproduce.
 
 ## Bloque D — Publicable
 
@@ -359,7 +368,12 @@ Falla desde Linux en una comprobación de configuración que Godot **no nombra**
 —el mensaje llega vacío—. Además, un binario sin firmar no se abre en un Mac sin
 desactivar Gatekeeper. Necesita un Mac o firma real.
 
-### T-14 · README, capturas y guía de contribución ⬜ PO Técnico
+### T-14 · README, capturas y guía de contribución ✅ PO Técnico
+
+Capturas generadas con la herramienta (no a mano), sección de descarga del
+ejecutable, y una guía de contribución que apunta a lo que de verdad ahorra
+tiempo: los cuatro apartados de `CLAUDE.md` y las tres comprobaciones que
+tienen que estar en verde.
 
 ### T-15 · Licencia del remake (BSD, como el original) y atribuciones ⬜ PO Técnico
 
