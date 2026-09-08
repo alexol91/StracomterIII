@@ -304,6 +304,11 @@ Ya no se mete dentro de las paredes (esfera de 28 cm en el `SpringArm3D`), pero
 en una esquina cóncava el brazo se colapsa y se acaba mirando la nuca. Falta la
 solución buena: desplazar la cámara en vez de acortarla.
 
+Y desde que hay compañeros hay un caso nuevo: los tres van a un metro del
+jugador y a esa distancia le tapan media pantalla. La máscara del brazo es solo
+el mundo, así que no lo empujan —pero se ponen delante—. O el brazo los tiene
+en cuenta, o los huecos de formación se abren cuando la cámara está cerca.
+
 ### T-11 · Traducción inglesa incompleta ⬜ `ui-ux`
 
 Con el sistema en inglés, la pantalla de Estrategia mezcla los dos idiomas
