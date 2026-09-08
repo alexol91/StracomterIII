@@ -26,4 +26,9 @@ cat > "${SCENE}" <<'TSCN'
 script = ExtResource("1")
 TSCN
 
-"${GODOT}" --headless --path "${ROOT}/game" res://_probe_tmp.tscn
+# `--fixed-fps 60` es lo que convierte la sonda en un instrumento. Sin él, el
+# delta de `_process` es el tiempo real del frame, así que el planificador de
+# IA decide en instantes distintos en cada ejecución: con el MISMO código se
+# midieron entre 26 y 87 disparos enemigos. Con el paso fijo y la semilla fija
+# del encuentro, dos ejecuciones se parecen.
+"${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_probe_tmp.tscn

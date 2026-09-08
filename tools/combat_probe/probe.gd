@@ -26,6 +26,9 @@ const RUN_S: float = 30.0
 ## primera oleada.
 const WARMUP_S: float = 4.0
 const PHYSICS_HZ: float = 60.0
+## Semilla del encuentro. Cualquier valor sirve; lo que importa es que sea
+## SIEMPRE el mismo.
+const SEED: int = 20120601
 ## Distancia media a la que un compañero deja de estar acompañando. Los huecos
 ## de formación están a menos de tres metros; con este margen cabe que uno se
 ## haya ido a cubrirse sin que la comprobación se vuelva un test de precisión.
@@ -79,6 +82,16 @@ func _run() -> void:
 	var intents := UIIntents.get_singleton()
 	intents.run_start_requested.emit(&"captain")
 	await get_tree().process_frame
+	# SEMILLA FIJA, y no es un detalle: `GameState.reset_run(0)` pone
+	# `run_seed = randi()`, así que dos ejecuciones de la sonda montaban
+	# encuentros distintos. Medido con el mismo código: 0, 15, 23, 41, 78, 87,
+	# 133 y 143 disparos enemigos. Con esa dispersión la sonda no mide nada —
+	# no se puede saber si un cambio en la IA ha ayudado o ha sido suerte— y
+	# encima falla sola en CI de vez en cuando.
+	#
+	# El proyecto ya prometía determinismo desde `run_seed` (regla 6): aquí
+	# solo se usa la promesa.
+	GameState.run_seed = SEED
 	intents.strategy_confirmed.emit(1, 0, {})
 
 	await _wait(WARMUP_S)

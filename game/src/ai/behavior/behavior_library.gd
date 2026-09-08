@@ -66,6 +66,9 @@ static func _investigate() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"investigate")
 	root.add(BehaviorTree.Condition.new(&"hay_pista", BehaviorActions.has_investigation_point))
 	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	# Si por el camino aparece a la vista lo que se iba a buscar, se le dispara
+	# en vez de seguir andando hacia el ruido.
+	root.add(BehaviorTree.Action.new(&"disparar_si_puede", BehaviorActions.fire_if_able))
 	root.add(BehaviorTree.Action.new(&"ir_a_la_pista",
 		BehaviorActions.move_to_investigation, BehaviorActions.stop_moving))
 	root.add(BehaviorTree.Action.new(&"barrer", BehaviorActions.scan_area))
@@ -93,6 +96,21 @@ static func _attack() -> BehaviorTree.BTNode:
 static func _take_cover() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"take_cover")
 	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	# Disparar es lo PRIMERO que se hace, antes de elegir cobertura y antes de
+	# ir hacia ella. El orden es lo único que importa aquí, y costó tres
+	# medidas acertarlo:
+	#
+	#   * al final del árbol no se dispara nunca, porque `move_along_path`
+	#     devuelve RUNNING mientras camina y una secuencia se para en el primer
+	#     RUNNING: el bot que aún no ha llegado a su cobertura no llega al paso
+	#     de fuego, y si vuelve a elegir cobertura cada tick no llega jamás;
+	#   * detrás de `elegir_cobertura` se dispara una o dos veces en treinta
+	#     segundos, porque `pick_cover` FALLA cuando la nube no devuelve nada y
+	#     ese fallo aborta la secuencia entera.
+	#
+	# Devolver el fuego no puede depender de encontrar cobertura. Medido: de 0
+	# disparos a fuego sostenido desde el primer tick.
+	root.add(BehaviorTree.Action.new(&"disparar_si_puede", BehaviorActions.fire_if_able))
 	root.add(BehaviorTree.Action.new(&"elegir_cobertura", BehaviorActions.pick_cover))
 	root.add(BehaviorTree.Action.new(&"ir_a_cobertura",
 		BehaviorActions.move_along_path, BehaviorActions.stop_moving))
@@ -174,6 +192,9 @@ static func _retreat() -> BehaviorTree.BTNode:
 	root.add(BehaviorTree.Action.new(&"replegarse",
 		BehaviorActions.move_along_path, BehaviorActions.stop_moving))
 	root.add(BehaviorTree.Action.new(&"agacharse", BehaviorActions.crouch_if_in_cover))
+	# Disparar ANTES de aguantar: `hold_position` devuelve RUNNING y una
+	# secuencia se para ahí, así que lo que vaya detrás no se ejecuta nunca.
+	root.add(BehaviorTree.Action.new(&"disparar_si_puede", BehaviorActions.fire_if_able))
 	root.add(BehaviorTree.Action.new(&"aguantar", BehaviorActions.hold_position))
 	return root
 
@@ -182,10 +203,22 @@ static func _retreat() -> BehaviorTree.BTNode:
 static func _follow_leader() -> BehaviorTree.BTNode:
 	var root := BehaviorTree.Sequence.new(&"follow_leader")
 	root.add(BehaviorTree.Condition.new(&"tiene_cuerpo", BehaviorActions.is_embodied))
+	# Devolver el fuego mientras se camina en formación. Es donde pasa la mayor
+	# parte del tiempo un compañero, y sin esto solo disparaba en las ventanas
+	# breves en que el selector elegía cubrirse: medido, dos disparos en
+	# treinta segundos encajando setenta puntos de daño.
+	root.add(BehaviorTree.Action.new(&"disparar_si_puede", BehaviorActions.fire_if_able))
 	root.add(BehaviorTree.Action.new(&"seguir", BehaviorActions.follow_leader, BehaviorActions.stop_moving))
 	return root
 
 
 ## Compañeros: orden del jugador de quedarse donde está.
+## Aguantar la posición encarando la amenaza — y disparándole si se la ve.
+## Mismo motivo que en `_take_cover`: cubrir una puerta sin disparar a quien la
+## cruza no es mantener la posición, es mirar.
 static func _hold_position() -> BehaviorTree.BTNode:
-	return BehaviorTree.Action.new(&"hold_position", BehaviorActions.hold_position, BehaviorActions.stop_moving)
+	var root := BehaviorTree.Sequence.new(&"hold_position")
+	root.add(BehaviorTree.Action.new(&"disparar_si_puede", BehaviorActions.fire_if_able))
+	root.add(BehaviorTree.Action.new(&"aguantar",
+		BehaviorActions.hold_position, BehaviorActions.stop_moving))
+	return root

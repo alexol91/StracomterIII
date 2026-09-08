@@ -422,3 +422,80 @@ func test_the_bot_aims_at_the_chest_and_not_at_the_floor() -> void:
 	if BehaviorContext.is_finite_point(look):
 		assert_gt(look.y, 0.8, "apunta a %.2f m: eso es el suelo, no un torso" % look.y)
 		assert_lt(look.y, 1.8, "y tampoco por encima de la cabeza")
+
+
+func test_a_bot_in_cover_shoots_from_cover() -> void:
+	# Un bot que se cubre lo hace PARA disparar. El árbol acababa en
+	# `hold_position`, que encara la amenaza y no hace nada más: medido, tres
+	# compañeros con línea de visión franca y confianza 1.00 pasaron treinta
+	# segundos a cubierto viendo al enemigo y perdiendo vida sin devolver un
+	# solo disparo.
+	cover.add_point(Vector3(1.0, 0.0, 1.0))
+	BehaviorTestUtil.report_contact(board, state.squad_id, Vector3(0.0, 0.0, -8.0))
+	ctx.refresh_from_board()
+	state.has_line_of_sight = true
+	state.ammo_ratio = 1.0
+
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.TAKE_COVER)
+	BehaviorTestUtil.run_tree(tree, ctx, actuator, 20)
+
+	assert_gt(float(actuator.fire_count), 0.0,
+		"se cubrió y no disparó ni una vez desde la cobertura")
+
+
+func test_holding_a_position_also_means_shooting_whoever_crosses_it() -> void:
+	BehaviorTestUtil.report_contact(board, state.squad_id, Vector3(0.0, 0.0, -6.0))
+	ctx.refresh_from_board()
+	state.has_line_of_sight = true
+	state.ammo_ratio = 1.0
+
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.HOLD_POSITION)
+	BehaviorTestUtil.run_tree(tree, ctx, actuator, 10)
+
+	assert_gt(float(actuator.fire_count), 0.0,
+		"cubrir una puerta sin disparar a quien la cruza es mirar, no aguantar")
+
+
+func test_firing_from_cover_never_aborts_the_cover_itself() -> void:
+	# `fire_if_able` es un paso INTERMEDIO: si fallara por no tener ángulo
+	# abortaría la secuencia entera y con ella la cobertura. Sin objetivo
+	# ninguno, el bot tiene que seguir cubriéndose.
+	cover.add_point(Vector3(2.0, 0.0, 2.0))
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.TAKE_COVER)
+	var status := BehaviorTestUtil.run_tree(tree, ctx, actuator, 20)
+	assert_eq(status, int(BehaviorTree.Status.RUNNING),
+		"sin objetivo, cubrirse sigue siendo un comportamiento en curso")
+	assert_eq(int(actuator.fire_count), 0, "y no se dispara al aire")
+
+
+func test_a_bot_holding_cover_without_a_target_keeps_watching() -> void:
+	# Callejón sin salida: un bot sin contacto puede elegir cubrirse —TAKE_COVER
+	# puntúa por exposición y gana a PATROL sin que nadie sepa nada— y en ese
+	# árbol no barría. Se quedaba en su cobertura mirando siempre al mismo
+	# sitio, así que no podía adquirir un contacto jamás. Medido: cinco
+	# enemigos treinta segundos a cubierto con confianza 0.00, cero disparos y
+	# CERO fallos de árbol. Todo «funcionando».
+	state.forward = Vector3.FORWARD
+	var tree := BehaviorLibrary.build(BehaviorKind.Kind.HOLD_POSITION)
+
+	var angles: Array[float] = []
+	for step: int in range(40):
+		tree.tick(ctx, 0.1)
+		var look := actuator.last_look_target
+		if BehaviorContext.is_finite_point(look):
+			var direction := look - actuator.position()
+			direction.y = 0.0
+			if direction.length_squared() > 0.0001:
+				angles.append(atan2(direction.x, direction.z))
+
+	assert_gt(float(angles.size()), 10.0, "sin objetivo debería estar vigilando")
+	if angles.is_empty():
+		return
+	var lowest := angles[0]
+	var highest := angles[0]
+	for angle: float in angles:
+		lowest = minf(lowest, angle)
+		highest = maxf(highest, angle)
+	assert_gt(rad_to_deg(highest - lowest), 60.0,
+		"barrió %.0f grados: eso no es vigilar, es mirar a la pared" %
+			rad_to_deg(highest - lowest))

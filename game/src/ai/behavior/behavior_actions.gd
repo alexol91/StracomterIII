@@ -121,6 +121,31 @@ static func fire_at_target(ctx: BehaviorContext, _delta: float) -> BehaviorTree.
 	return BehaviorTree.Status.RUNNING
 
 
+## Dispara SI puede, y no falla si no puede.
+##
+## Es la diferencia entre un bot que se cubre y un bot que se cubre PARA
+## disparar. Sin esto, el árbol de TAKE_COVER acaba en `hold_position`, que
+## encara la amenaza y no hace nada más: medido, tres compañeros con línea de
+## visión franca y confianza 1.00 pasaron treinta segundos a cubierto viendo al
+## enemigo y perdiendo vida sin devolver un solo disparo. El enemigo tenía el
+## mismo problema, así que arreglarlo hace peligrosa también a la IA enemiga.
+##
+## Devuelve SUCCESS siempre a propósito: es un paso INTERMEDIO de una
+## secuencia, y fallar por no tener ángulo abortaría el árbol entero y con él
+## la cobertura. Quien decide si vale la pena estar aquí es el selector, no
+## esta acción.
+static func fire_if_able(ctx: BehaviorContext, _delta: float) -> BehaviorTree.Status:
+	if ctx == null or ctx.state == null or ctx.actuator == null:
+		return BehaviorTree.Status.SUCCESS
+	if not ctx.has_target() or not ctx.state.has_line_of_sight:
+		return BehaviorTree.Status.SUCCESS
+	if ctx.state.ammo_ratio <= 0.0:
+		return BehaviorTree.Status.SUCCESS
+	ctx.actuator.face(ctx.aim_point())
+	ctx.actuator.fire()
+	return BehaviorTree.Status.SUCCESS
+
+
 ## Fuego sostenido para fijar al objetivo, y marca de supresión en la pizarra
 ## para que los compañeros puedan asaltar. Termina al agotar la ráfaga, para
 ## que el selector pueda reevaluar.
@@ -482,8 +507,15 @@ static func sweep_look(ctx: BehaviorContext, delta: float) -> void:
 	var from := ctx.self_position()
 	if not BehaviorContext.is_finite_point(from):
 		return
-	var heading := ctx.move_goal - from
-	heading.y = 0.0
+	# `move_goal` puede ser INF —quien aguanta una posición no tiene destino— y
+	# restar INF da un vector infinito cuyo `length_squared()` NO es cero, así
+	# que el guardia de abajo no lo atrapaba: `normalized()` devolvía NaN y el
+	# bot «miraba» a un punto imposible. La comprobación tiene que ser de
+	# finitud, no de longitud.
+	var heading := Vector3.ZERO
+	if BehaviorContext.is_finite_point(ctx.move_goal):
+		heading = ctx.move_goal - from
+		heading.y = 0.0
 	if heading.length_squared() < 0.0001:
 		# Ya está donde iba —un compañero en su hueco de formación, un bot que
 		# ha llegado a su punto de patrulla—. Se barre alrededor de hacia donde
@@ -502,12 +534,21 @@ static func sweep_look(ctx: BehaviorContext, delta: float) -> void:
 
 
 ## Mantener la posición: quieto, encarado a la amenaza si se conoce.
-static func hold_position(ctx: BehaviorContext, _delta: float) -> BehaviorTree.Status:
+## El «vigilando si no» es un callejón sin salida arreglado. Un bot sin ningún
+## contacto puede elegir cubrirse —con la nube de coberturas llena, TAKE_COVER
+## puntúa por exposición y gana a PATROL sin que nadie sepa nada— y en ese
+## árbol no barría: se quedaba en su cobertura mirando siempre al mismo sitio,
+## así que no podía adquirir un contacto NUNCA. Medido: cinco enemigos treinta
+## segundos a cubierto con confianza 0.00, cero disparos y CERO fallos de
+## árbol. Todo «funcionando».
+static func hold_position(ctx: BehaviorContext, delta: float) -> BehaviorTree.Status:
 	if ctx == null or ctx.actuator == null:
 		return BehaviorTree.Status.FAILURE
 	ctx.actuator.stop()
 	if ctx.has_target():
 		ctx.actuator.face(ctx.aim_point())
+	else:
+		sweep_look(ctx, delta)
 	return BehaviorTree.Status.RUNNING
 
 

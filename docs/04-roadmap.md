@@ -247,24 +247,55 @@ Tres fallos ya corregidos por el camino:
    suyo se come el mueble. Definido así, un compañero encajaba cuarenta puntos
    de daño sin que su propia lógica lo considerara en peligro.
 
-### T-18 · Los compañeros no devuelven el fuego ⬜ `ai-comportamiento`
+### T-18 · Los compañeros no devuelven el fuego 🟨 `ai-comportamiento`
 
-**Medido**: 33 puntos de daño encajados en 30 s, cero disparos. La causa NO es
-la lista de permitidos —`ATTACK` está en todas— ni el filtro ni la moral:
-`memory.best()` les vuelve vacío, así que `has_line_of_sight`,
-`target_confidence` y `known_threat_count` salen todos a cero.
+**Cuatro fallos encontrados y corregidos**, y el problema sigue a medias.
 
-Al medirlo se ve que el enemigo que les dispara está tras un obstáculo a la
-altura de la cintura o tras un muro: su rayo de oclusión al pecho del enemigo
-lo para `Obstacle_23` o el `Floor` (que es donde vive la colisión de los muros
-de estos mapas). O sea que la oclusión funciona y el ángulo es de verdad malo.
+1. **Ningún árbol de espera disparaba.** `TAKE_COVER` acababa en
+   `hold_position`, que encara la amenaza y no hace nada más. Un bot que se
+   cubre lo hace PARA disparar. Ahora hay una acción `fire_if_able` —dispara
+   si puede, y devuelve SUCCESS siempre porque es un paso INTERMEDIO: fallar
+   por no tener ángulo abortaría la secuencia y con ella la cobertura.
+2. **El ORDEN dentro del árbol lo decidía todo**, y costó tres medidas:
+   al final no se disparaba nunca (`move_along_path` devuelve RUNNING mientras
+   camina y una secuencia se para en el primer RUNNING); detrás de
+   `elegir_cobertura` se disparaba una o dos veces en treinta segundos
+   (`pick_cover` FALLA con la nube vacía y aborta la secuencia). Devolver el
+   fuego no puede depender de encontrar cobertura: va primero.
+3. **Un callejón sin salida.** Un bot sin ningún contacto puede elegir
+   cubrirse —TAKE_COVER puntúa por exposición y gana a PATROL sin que nadie
+   sepa nada— y en ese árbol no barría con la mirada. Se quedaba en su
+   cobertura mirando al mismo sitio, así que no podía adquirir un contacto
+   JAMÁS. Medido: cinco enemigos treinta segundos a cubierto, confianza 0.00,
+   cero disparos y **cero fallos de árbol**: todo «funcionando».
+4. **Un NaN en el barrido.** `move_goal` es INF cuando se aguanta una posición,
+   y restar INF da un vector infinito cuyo `length_squared()` no es cero: el
+   guardia no lo atrapaba, `normalized()` devolvía NaN y el bot «miraba» a un
+   punto imposible. La comprobación tenía que ser de finitud, no de longitud.
 
-Lo que falta es el verbo que no existe: **reposicionarse para tener ángulo**.
-Un compañero que sabe de dónde le disparan y no puede verlo debería moverse,
-y hoy solo puede seguir al líder, cubrirse o replegarse. Hay que decidir si eso
-es un `BehaviorKind` nuevo o `INVESTIGATE` con la cobertura como destino, y de
-paso comprobar por qué la memoria de contactos no retiene el contacto que deja
-`report_damage_from` con `damage_confidence = 0.6`.
+`FOLLOW_LEADER` e `INVESTIGATE` también devuelven fuego ahora: es donde pasa la
+mayor parte del tiempo un compañero.
+
+**Lo que queda**: siguen disparando muy poco (1 de 76 disparos en la sonda).
+Ven al enemigo y se cubren, pero el enemigo que les dispara suele estar tras un
+obstáculo a la altura de la cintura o tras un muro: la oclusión es asimétrica y
+el ángulo es de verdad malo. Falta el verbo que no existe —**reposicionarse
+para tener ángulo**— y decidir si es un `BehaviorKind` nuevo o `INVESTIGATE`
+con la cobertura como destino.
+
+### T-19 · La sonda de combate ya es un instrumento ✅ `qa-tests`
+
+Medía con el mismo código entre 0 y 143 disparos enemigos. Con esa dispersión
+no se puede saber si un cambio en la IA ha ayudado o ha sido suerte, y encima
+fallaba sola en CI de vez en cuando. Dos causas:
+
+* `GameState.reset_run(0)` pone `run_seed = randi()`, así que cada ejecución
+  montaba un encuentro distinto. La sonda fija la semilla — el proyecto ya
+  prometía determinismo desde ahí (regla 6), solo había que usarlo.
+* el delta de `_process` es el tiempo real del frame, así que el planificador
+  de IA decidía en instantes distintos. `--fixed-fps 60`.
+
+Ahora dos ejecuciones seguidas dan el mismo número.
 
 ## Bloque B — Que la partida termine
 
