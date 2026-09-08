@@ -118,6 +118,16 @@ extends Resource
 @export_group("Reglas de aparición justa")
 ## Distancia mínima al jugador, en metros. El legacy usaba 200 u ≈ 2,7 m y los
 ## enemigos aparecían en la cara del jugador.
+## Refuerzos que trae cada cambio de fase de un jefe (GDD §5, tabla de
+## enemigos: el MegaBoss es «Fases + refuerzos»). El índice es la fase a la que
+## se ACABA de entrar, así que la posición 0 no se usa nunca —a la fase 0 no se
+## entra, se empieza en ella— y se deja a cero por claridad.
+##
+## Por defecto vacío, que es el valor NO permisivo: un perfil que no lo declare
+## no invoca tropa de la nada. Los valores en vigor están en
+## `director_profile.tres`.
+@export var boss_reinforcements_per_phase: Array[int] = []
+
 @export var min_spawn_distance_m: float = 12.0
 ## Suelo al que puede bajar la distancia mínima cuando la zona es DEMASIADO
 ## PEQUEÑA para cumplirla. No es una excepción cómoda: sin él, `mapP1` —la

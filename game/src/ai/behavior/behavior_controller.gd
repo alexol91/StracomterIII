@@ -47,6 +47,10 @@ const BlackboardScript := preload("res://src/core/blackboard.gd")
 ## Cambio de comportamiento. `ui/` lo usa para depuración; `ai-escuadra` para
 ## saber cuándo reasignar roles.
 signal behavior_changed(previous: BehaviorKind.Kind, next: BehaviorKind.Kind)
+## La fase de jefe ha cambiado. Señal LOCAL y pura a propósito: quien la
+## convierte en noticia global es `BotBrain`, que sí tiene cuerpo. Así esta
+## clase se sigue probando sin autoloads.
+signal phase_changed(previous: int, current: int)
 
 ## Instantánea del bot. La rellenan la percepción y el cerebro del bot; este
 ## controlador la LEE y sólo escribe en ella los dos campos que son suyos:
@@ -368,7 +372,9 @@ func _refresh_phase() -> void:
 		return
 	var phase := BehaviorTuning.boss_phase(archetype, state.health_ratio)
 	if phase != weights.phase:
+		var previous := weights.phase
 		weights = UtilityWeights.for_archetype(archetype, state.health_ratio)
+		phase_changed.emit(previous, weights.phase)
 
 
 ## Mantiene al día lo que el planificador usa para priorizar. Sin esto, un bot

@@ -10,13 +10,16 @@ Nomenclatura: `[P##]` = requisito de paridad con el original (GDD §2).
 Tres cuentas distintas, porque mezclarlas es lo que produce un «90 %» que no
 significa nada.
 
-### 1. Paridad con el original: **16 de 17 requisitos, ~95 %**
+### 1. Paridad con el original: **17 de 17 requisitos**
 
 | Estado | Requisitos |
 |---|---|
-| ✅ completos (15) | P01 clases · P03 plantas y zonas · P04 recompensas · P05 compañeros · P06 combate · P07 percepción · P08 puertas que alteran la navegación · P09 mobiliario como cobertura · P10 pathfinding · P11 Simplex · P12 guardado y puntuación · P13 consola · P14 menús y Estrategia · P16 los 26 mapas · P17 cámara 2D/3D |
-| 🟨 al 90 % (1) | **P02** — los tres arquetipos, MiniBoss y MegaBoss existen, aparecen y pelean con sus fases; faltan los **refuerzos del MegaBoss** al cambiar de fase (T-05) |
+| ✅ completos (16) | P01 clases · P02 arquetipos, MiniBoss y MegaBoss con fases y refuerzos · P03 plantas y zonas · P04 recompensas · P05 compañeros · P06 combate · P07 percepción · P08 puertas que alteran la navegación · P09 mobiliario como cobertura · P10 pathfinding · P11 Simplex · P12 guardado y puntuación · P13 consola · P16 los 26 mapas · P17 cámara 2D/3D |
 | ✅ por rediseño (1) | **P15** editor de mapas: no se reimplementa, los mapas son `.tscn` en texto y se editan en el propio editor de Godot |
+
+Con dos matices que no son deuda técnica sino decisiones, y están abajo: falta
+el «modo libre» del menú de 2012 (último hueco de P14) y dos de las cuatro
+pistas de música, que no se pueden distribuir.
 
 Fuera de la lista de paridad, dos cosas del original que **no** están y no van a
 estar tal cual:
@@ -146,7 +149,7 @@ sonda de rendimiento→ 40 bots: 5,1 ms de simulación por frame (2,1 de IA)
 | 5.3 | **Auditoría de licencias de los assets del legacy** | — | `arte-audio` | ✅ |
 | 5.4 | Buses de audio, música por estado, eventos 3D | — | `arte-audio` | 🟨 falta música propia: la del original son dos temas de The Prodigy |
 | 5.5 | Paquete de sonido opcional "Chutaos" | — | `arte-audio` | 🟨 |
-| 5.6 | MiniBoss y MegaBoss con fases | P02 | `ai-comportamiento` | 🟨 aparecen y pelean; faltan los refuerzos del MegaBoss (T-05) |
+| 5.6 | MiniBoss y MegaBoss con fases | P02 | `ai-comportamiento` | ✅ |
 | 5.7 | Planta 9 (azotea) y combate final | — | `level-procedural` | ✅ |
 | 5.8 | Generador procedural de plantas | E-02 | `level-procedural` | ⬜ |
 | 5.9 | Habilidades de clase | E-01 | `godot-gameplay` | ✅ |
@@ -422,7 +425,7 @@ planta 3 zona 5 ahora se muere.
 
 ## Bloque B — Que la partida termine
 
-### T-05 · MiniBoss y MegaBoss con fases 🟨 `ai-comportamiento`
+### T-05 · MiniBoss y MegaBoss con fases ✅ `ai-comportamiento`
 
 Las fases **ya estaban** y funcionan: `BOSS_PHASE_THRESHOLDS` (media vida para
 el MiniBoss; dos tercios y un tercio para el MegaBoss) y `BOSS_PHASE_GAIN`
@@ -447,9 +450,25 @@ planta con `has_miniboss = true` se jugaba exactamente igual que una sin él.
 Sin marcador se recurre a `EncounterDirector.pick_spawn_positions()`, que aplica
 las mismas reglas de justicia que una oleada. Ante la duda, el jefe aparece.
 
-**Lo que queda**: los refuerzos que el GDD le pide al MegaBoss («Fases +
-refuerzos»). Hay dónde engancharlo —`BehaviorController` ya detecta el cambio de
-fase— pero no está escrito.
+**Los refuerzos ya están** («Fases + refuerzos», GDD §5). Lo que faltaba no era
+el enganche sino el AVISO: `BehaviorController` detectaba el cambio de fase y se
+lo guardaba —cambiaba la tabla de pesos en silencio—, así que el director no
+podía reaccionar aunque quisiera. Ahora el controlador emite una señal LOCAL y
+pura (se sigue probando sin autoloads), `BotBrain` la convierte en
+`EventBus.boss_phase_changed` porque es quien tiene cuerpo e identidad, y
+`EncounterRuntime` decide cuánta tropa trae: la IA cuenta lo que le pasa, no
+cuántos refuerzos merece.
+
+Cuántos vienen es dato (`DirectorProfile.boss_reinforcements_per_phase`, en
+vigor `[0, 2, 3]`), y por defecto está VACÍO: un perfil que no lo declare no
+invoca tropa de la nada. La posición 0 nunca se usa —a la fase 0 no se entra, se
+empieza en ella—. Salen por las mismas reglas de justicia que una oleada, en su
+propia escuadra, y no cuentan contra el presupuesto del Simplex, por lo mismo
+que no cuenta el jefe.
+
+Medido en partida, planta 9 con el MegaBoss (500 de vida, umbrales en 2/3 y
+1/3): al cruzar el primero la planta pasa de 4 enemigos a 6, y al cruzar el
+segundo de 6 a 9.
 
 La sonda de combate juega ahora la **planta 3 zona 5**, que es la primera con
 MiniBoss, y falla si no aparece. Y su jugador **dispara cada dos segundos**: un

@@ -39,6 +39,14 @@ signal level_topology_changed(region_aabb: AABB)
 ## habilidad del director.
 signal shot_resolved(shooter_id: int, hit: bool, is_headshot: bool)
 ## Una zona se ha limpiado de hostiles.
+## Un jefe ha bajado de umbral de vida y ha cambiado de fase (GDD §5: «Fases +
+## refuerzos»). Lo anuncia el cerebro del jefe y lo escucha el director, que es
+## quien decide si eso trae refuerzos y cuántos: la IA dice lo que le pasa, no
+## cuánta tropa merece.
+signal boss_phase_changed(
+	character_id: int, archetype: StringName, previous: int, current: int
+)
+
 signal zone_cleared(floor_number: int, zone: int, elapsed_s: float)
 ## El jugador ha recogido un objeto.
 signal pickup_collected(pickup_id: StringName, character_id: int)

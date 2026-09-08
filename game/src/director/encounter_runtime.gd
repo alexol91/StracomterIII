@@ -48,6 +48,7 @@ func _ready() -> void:
 	_loader.level_ready.connect(_on_level_ready)
 	_loader.level_unloaded.connect(_on_level_unloaded)
 	_director.enemy_requested.connect(_on_enemy_requested)
+	EventBus.boss_phase_changed.connect(_on_boss_phase_changed)
 
 
 func _process(_delta: float) -> void:
@@ -87,6 +88,14 @@ func _on_level_ready(root: Node) -> void:
 	level.navigable_area_m2 = _ai.navigable_area_m2()
 	_spawn_bosses(level)
 	_director.begin_zone(_build_context(level))
+
+
+## Quien se conecta a un autoload se desconecta. Godot limpia las conexiones al
+## liberar el nodo, pero dejarlo explícito es lo que dice la regla del registro
+## en `CLAUDE.md` y cuesta tres líneas.
+func _exit_tree() -> void:
+	if EventBus.boss_phase_changed.is_connected(_on_boss_phase_changed):
+		EventBus.boss_phase_changed.disconnect(_on_boss_phase_changed)
 
 
 func _on_level_unloaded() -> void:
@@ -195,6 +204,71 @@ func _build_context(level: LevelLoader.LoadedLevel) -> EncounterContext:
 ## veinte deja a dieciséis de reserva mirando. Y no de dos, porque con dos no
 ## hay nadie que fije mientras el otro rodea.
 const ENEMIES_PER_SQUAD: int = 4
+
+## Refuerzos al cambiar de fase un jefe (GDD §5: «Fases + refuerzos»).
+##
+## Es lo último que le faltaba a P02. Las fases ya desplazaban las ganancias
+## —un MiniBoss herido deja de guardar la puerta y carga— pero el jefe se
+## quedaba solo, así que la escalada de un combate final era el jefe pegando
+## más fuerte y nada más.
+##
+## Tres decisiones, y las tres por lo mismo que el jefe:
+##
+##   * los refuerzos NO cuentan contra el presupuesto del Simplex, igual que no
+##     cuenta el jefe: ese presupuesto es para la tropa de la zona;
+##   * salen por las MISMAS reglas de justicia que una oleada
+##     (`pick_spawn_positions`), así que nadie se materializa en la cara del
+##     jugador ni dentro de su campo de visión;
+##   * van en su propia escuadra, para que actúen como grupo de refuerzo y no
+##     se repartan roles con una escuadra que ya venía a medias.
+##
+## Cuántos vienen es un número de balanceo y vive en `DirectorProfile`
+## (`boss_reinforcements_per_phase`), no aquí. Ante la duda —perfil que no lo
+## declara— no viene nadie.
+func _on_boss_phase_changed(
+	_character_id: int, _archetype: StringName, _previous: int, current: int
+) -> void:
+	if _loader == null or _director == null or current <= 0:
+		return
+	var profile := Balance.director_profile()
+	if profile == null:
+		return
+	var table := profile.boss_reinforcements_per_phase
+	if current >= table.size():
+		return
+	var count: int = table[current]
+	if count <= 0:
+		return
+	var pool := _enemy_pool()
+	if pool.is_empty():
+		return
+	var positions := _director.pick_spawn_positions(count)
+	if positions.is_empty():
+		push_warning("EncounterRuntime: sin sitio justo para los refuerzos del jefe")
+		return
+	# Escuadra nueva y completa para el grupo de refuerzo.
+	_squad_id += 1
+	_in_squad = ENEMIES_PER_SQUAD
+	var squad := _squad_id
+	for index: int in positions.size():
+		# El arquetipo sale del recorrido del abanico de la planta, sin azar:
+		# la promesa de determinismo del proyecto (regla 6) también vale aquí.
+		var archetype: StringName = pool[index % pool.size()]
+		var enemy := _loader.spawn_enemy(archetype, positions[index], squad)
+		if enemy == null:
+			continue
+		if _runner != null:
+			_runner.register_hostile(enemy)
+
+
+## Arquetipos que la planta permite. Los refuerzos de un jefe no inventan
+## enemigos que esa planta no tiene.
+func _enemy_pool() -> Array[StringName]:
+	var cfg := Balance.floor_config(GameState.current_floor)
+	if cfg == null:
+		return []
+	return cfg.enemy_pool
+
 
 func _on_enemy_requested(archetype: StringName, position: Vector3) -> void:
 	if _loader == null:

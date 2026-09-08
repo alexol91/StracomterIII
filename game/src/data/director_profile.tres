@@ -23,6 +23,12 @@ weight_cover_usage = 0.1
 phase_budget_fractions = PackedFloat32Array(0.45, 0.45, 0.1)
 relief_duration_s = 15.0
 rest_duration_s = 30.0
+; Fase 1 trae dos y fase 2 trae tres: el MegaBoss tiene tres fases (umbrales
+; en dos tercios y un tercio de vida) y el MiniBoss solo una, así que este
+; reparto le da al final de la torre una escalada y al MiniBoss un único
+; refuerzo de dos. Suma cinco a lo largo de todo un combate de jefe: bastante
+; para que se note, poco para que no anule la cuenta del Simplex.
+boss_reinforcements_per_phase = Array[int]([0, 2, 3])
 min_spawn_distance_m = 12.0
 forbid_spawn_in_player_fov = true
 forbid_spawn_with_line_of_sight = true

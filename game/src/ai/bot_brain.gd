@@ -66,6 +66,18 @@ func setup(p_character: Character, world: WorldQuery, cover: CoverProvider,
 
 	controller = BehaviorController.new(state, context, null, board)
 	controller.configure_archetype(character.archetype)
+	# El cambio de fase de un jefe se publica AQUÍ y no en el controlador: el
+	# controlador es una función de decisión que se prueba sin autoloads, y
+	# quien tiene cuerpo e identidad es este cerebro. El director escucha la
+	# noticia y decide si trae refuerzos.
+	controller.phase_changed.connect(_on_phase_changed)
+
+
+func _on_phase_changed(previous: int, current: int) -> void:
+	if character == null or not is_instance_valid(character):
+		return
+	EventBus.boss_phase_changed.emit(
+		character.get_instance_id(), character.archetype, previous, current)
 
 
 ## Copia al `BotState` lo que el cuerpo sabe de sí mismo. Es lo único que la
