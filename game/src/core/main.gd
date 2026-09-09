@@ -16,6 +16,12 @@ var _intents: UIIntents = null
 
 
 func _ready() -> void:
+	# Los controles, ANTES que nada. `toggle_console` y `pause` no tenían tecla
+	# nunca: los de juego los rellena `PlayerInput` al aparecer el jugador y
+	# los dos de interfaz solo se asignaban dentro de «Restaurar controles de
+	# fábrica». Medido: ni la tecla de consola ni Escape hacían nada, ni en el
+	# menú ni jugando, y la lista de Ajustes salía entera con guiones.
+	InputRemapService.ensure_defaults()
 	_intents = UIIntents.get_singleton()
 	_intents.run_start_requested.connect(_on_run_start_requested)
 	_intents.run_continue_requested.connect(_on_run_continue_requested)

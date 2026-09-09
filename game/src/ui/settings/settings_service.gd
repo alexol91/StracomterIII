@@ -34,6 +34,12 @@ var hud_scale: float = 1.0
 var colorblind_mode: ColorblindMode = ColorblindMode.NONE
 var subtitles_enabled: bool = true
 var camera_shake_enabled: bool = true
+## Modo Chutaos: el juego de 2012 completo —modelos, voces de broma y
+## texturas— en vez del remake. Es una preferencia y no un truco, así que se
+## guarda con los demás ajustes y sobrevive a cerrar el juego. El truco de
+## consola `:chutaos on|off` sigue existiendo para cambiarlo a mitad de
+## partida sin pasar por menús.
+var chutaos_mode: bool = false
 var fov_deg: float = 75.0
 var mouse_sensitivity: float = 0.0025
 var gamepad_sensitivity_rad_s: float = 3.0
@@ -98,12 +104,21 @@ func save(path: String = SETTINGS_PATH) -> bool:
 ## no hay garantía de que existan en el momento de cargar settings.
 func apply_global() -> void:
 	Localization.set_locale(locale)
+	# Primero los de fábrica en lo que esté vacío, y DESPUÉS el remapeo
+	# guardado, que manda. Sin la primera línea la consola y la pausa se
+	# quedaban sin tecla: ver `InputRemapService.ensure_defaults`.
+	InputRemapService.ensure_defaults()
 	if not input_bindings.is_empty():
 		InputRemapService.apply_serialized(input_bindings)
 	AudioDirector.set_bus_volume_db(AudioDirector.BUS_MASTER, linear_to_db(maxf(master_volume, 0.0001)))
 	AudioDirector.set_bus_volume_db(AudioDirector.BUS_MUSIC, linear_to_db(maxf(music_volume, 0.0001)))
 	AudioDirector.set_bus_volume_db(AudioDirector.BUS_SFX, linear_to_db(maxf(sfx_volume, 0.0001)))
 	AudioDirector.set_bus_volume_db(AudioDirector.BUS_VOICE, linear_to_db(maxf(voice_volume, 0.0001)))
+	# `PresentationStyle` es quien reparte el estilo a modelos, materiales y
+	# voces; aquí solo se le dice cuál toca. Cambiarlo en caliente ya
+	# funcionaba (lo hace el truco de consola), así que aplicarlo al cargar
+	# ajustes no necesita nada nuevo.
+	PresentationStyle.chutaos_mode = chutaos_mode
 	UIIntents.get_singleton().settings_applied.emit()
 
 
@@ -126,6 +141,7 @@ func to_dict() -> Dictionary:
 		"colorblind_mode": int(colorblind_mode),
 		"subtitles_enabled": subtitles_enabled,
 		"camera_shake_enabled": camera_shake_enabled,
+		"chutaos_mode": chutaos_mode,
 		"fov_deg": fov_deg,
 		"mouse_sensitivity": mouse_sensitivity,
 		"gamepad_sensitivity_rad_s": gamepad_sensitivity_rad_s,
@@ -144,6 +160,7 @@ func _from_dict(d: Dictionary) -> void:
 	colorblind_mode = raw_mode as ColorblindMode
 	subtitles_enabled = bool(d.get("subtitles_enabled", true))
 	camera_shake_enabled = bool(d.get("camera_shake_enabled", true))
+	chutaos_mode = bool(d.get("chutaos_mode", false))
 	fov_deg = clampf(float(d.get("fov_deg", 75.0)), FOV_MIN_DEG, FOV_MAX_DEG)
 	mouse_sensitivity = float(d.get("mouse_sensitivity", 0.0025))
 	gamepad_sensitivity_rad_s = float(d.get("gamepad_sensitivity_rad_s", 3.0))

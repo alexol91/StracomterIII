@@ -27,6 +27,10 @@ STRATEGY_FLOOR_FMT,Planta %d,Floor %d
 STRATEGY_XP_FMT,Experiencia disponible: %d,Experience available: %d
 STRATEGY_COST_FMT,Coste de la selección: %d XP,Cost of selection: %d XP
 STRATEGY_PICK_ZONE_HINT,Elige una zona para entrar en la planta,Pick a zone to enter the floor
+OPTIONS_STYLE_SECTION,PRESENTACIÓN,PRESENTATION
+OPTIONS_CHUTAOS,Modo Chutaos (2012),Chutaos mode (2012)
+OPTIONS_CHUTAOS_HINT,"El juego de 2012 completo: modelos, texturas y voces de broma. Se puede cambiar en mitad de una partida con la consola (tecla ` o el botón de la pausa) escribiendo :chutaos on","The full 2012 game: models, textures and joke voices. You can switch mid-run from the console (` key or the pause button) with :chutaos on"
+PAUSE_CONSOLE,Consola,Console
 STRATEGY_ZONE_FMT,ZONA %d,ZONE %d
 STRATEGY_BOSS_WARNING,⚠ Posible jefe,⚠ Boss possible
 STRATEGY_MAP_SMALL,Mapa pequeño,Small map

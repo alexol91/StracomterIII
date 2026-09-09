@@ -232,6 +232,31 @@ layout_mode = 2
 focus_mode = 2
 text = "OPTIONS_CAMERA_SHAKE"
 
+[node name="StyleSection" type="Label" parent="Margin/Root/Scroll/Content"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "OPTIONS_STYLE_SECTION"
+
+[node name="ChutaosRow" type="HBoxContainer" parent="Margin/Root/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Label" type="Label" parent="Margin/Root/Scroll/Content/ChutaosRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "OPTIONS_CHUTAOS"
+
+[node name="ChutaosCheck" type="CheckBox" parent="Margin/Root/Scroll/Content/ChutaosRow"]
+unique_name_in_owner = true
+layout_mode = 2
+focus_mode = 2
+
+[node name="ChutaosHint" type="Label" parent="Margin/Root/Scroll/Content"]
+layout_mode = 2
+theme_type_variation = &"SubtitleLabel"
+autowrap_mode = 3
+text = "OPTIONS_CHUTAOS_HINT"
+
 [node name="RemapSection" type="Label" parent="Margin/Root/Scroll/Content"]
 layout_mode = 2
 theme_type_variation = &"SectionLabel"

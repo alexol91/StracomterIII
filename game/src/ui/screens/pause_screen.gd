@@ -5,6 +5,7 @@ extends Control
 
 @onready var _resume_button: Button = %ResumeButton
 @onready var _options_button: Button = %OptionsButton
+@onready var _console_button: Button = %ConsoleButton
 @onready var _restart_button: Button = %RestartButton
 @onready var _menu_button: Button = %MenuButton
 @onready var _quit_button: Button = %QuitButton
@@ -17,11 +18,16 @@ func _ready() -> void:
 	var intents := UIIntents.get_singleton()
 	_resume_button.pressed.connect(func() -> void: intents.pause_toggle_requested.emit())
 	_options_button.pressed.connect(func() -> void: intents.navigate_to_options_requested.emit())
+	# La consola tiene su tecla (`), pero en un teclado que no sea el
+	# estadounidense esa tecla está donde está y nadie la encuentra. Desde la
+	# pausa es un botón, y la pausa se abre con Escape.
+	_console_button.pressed.connect(func() -> void: intents.console_open_requested.emit())
 	_restart_button.pressed.connect(func() -> void: intents.restart_requested.emit())
 	_menu_button.pressed.connect(func() -> void: intents.return_to_menu_requested.emit())
 	_quit_button.pressed.connect(func() -> void: intents.quit_requested.emit())
 	UiStyle.style_primary_button(_resume_button)
-	for button: Button in [_resume_button, _options_button, _restart_button, _menu_button, _quit_button]:
+	for button: Button in [_resume_button, _options_button, _console_button,
+			_restart_button, _menu_button, _quit_button]:
 		UiMotion.wire_button_feedback(button)
 
 

@@ -210,3 +210,23 @@ func test_the_console_does_not_resurrect_a_dead_player() -> void:
 	assert_eq(GameState.action_status, GameState.ActionStatus.GAME_OVER,
 		"cerrar la consola no revive a nadie")
 	GameState.action_status = GameState.ActionStatus.NORMAL
+
+
+func test_the_interface_keys_are_bound_from_the_start() -> void:
+	# `toggle_console` y `pause` no tenían tecla NUNCA. Los controles de juego
+	# los rellena `PlayerInput` al aparecer el jugador, así que aparecen al
+	# bajar a una planta; estos dos solo se asignaban dentro de
+	# `reset_all_to_defaults()`, y a eso solo se llega pulsando «Restaurar
+	# controles de fábrica» en Ajustes. Resultado: la consola y la PAUSA no
+	# respondían a nada, y la lista de controles salía con guiones si no habías
+	# jugado antes.
+	for action: StringName in [&"toggle_console", &"pause"]:
+		InputMap.action_erase_events(action)
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	for action: StringName in [&"toggle_console", &"pause", &"move_forward", &"fire"]:
+		assert_true(InputMap.has_action(action), "falta la acción '%s'" % action)
+		assert_false(InputMap.action_get_events(action).is_empty(),
+			"'%s' se queda sin tecla: pulsarla no hace nada y nadie sabe por qué" % action)

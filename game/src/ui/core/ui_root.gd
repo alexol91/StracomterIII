@@ -88,6 +88,7 @@ func _wire_intents() -> void:
 		_overlay = Overlay.NONE
 		_refresh())
 	intents.pause_toggle_requested.connect(_on_pause_toggle_requested)
+	intents.console_open_requested.connect(_on_console_open_requested)
 	intents.floor_end_acknowledged.connect(func() -> void:
 		_floor_end_pending = false
 		_refresh())
@@ -98,6 +99,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") and GameState.mode == GameState.Mode.ACTION:
 		UIIntents.get_singleton().pause_toggle_requested.emit()
 		get_viewport().set_input_as_handled()
+
+
+## Abrir la consola desde el botón de la pausa. Se quita la pausa a la vez: la
+## consola ya congela el juego por su cuenta (`ActionStatus.CONSOLE`), y con
+## las dos cosas encima el jugador tendría que cerrar dos ventanas para volver
+## a jugar.
+func _on_console_open_requested() -> void:
+	if get_tree().paused:
+		get_tree().paused = false
+	_console.set_open(true)
+	_refresh()
 
 
 func _on_pause_toggle_requested() -> void:

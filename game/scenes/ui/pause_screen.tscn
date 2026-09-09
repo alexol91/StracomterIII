@@ -61,6 +61,13 @@ layout_mode = 2
 focus_mode = 2
 text = "PAUSE_OPTIONS"
 
+[node name="ConsoleButton" type="Button" parent="Center/Card/Root"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(240, 44)
+layout_mode = 2
+focus_mode = 2
+text = "PAUSE_CONSOLE"
+
 [node name="RestartButton" type="Button" parent="Center/Card/Root"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(240, 44)

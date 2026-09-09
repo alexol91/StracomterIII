@@ -65,6 +65,28 @@ static func find_conflict(action: StringName, event: InputEvent) -> StringName:
 	return &""
 
 
+## Rellena las acciones que estén VACÍAS con sus valores de fábrica, sin pisar
+## un remapeo del jugador. Hay que llamarla al arrancar.
+##
+## Existe porque `toggle_console` y `pause` no tenían tecla NUNCA. Los
+## controles de juego los rellena `DefaultBindings` desde `PlayerInput._ready`,
+## así que aparecen al bajar a una planta; los dos de interfaz solo se
+## asignaban dentro de `reset_all_to_defaults()`, y a eso solo se llega
+## pulsando «Restaurar controles de fábrica» en Ajustes. Resultado medido: la
+## consola y la PAUSA no respondían a nada, ni en el menú ni jugando, y la
+## lista de controles de Ajustes salía entera con guiones si no habías entrado
+## en una planta antes.
+static func ensure_defaults() -> void:
+	DefaultBindings.ensure_defaults()
+	for action: StringName in [&"toggle_console", &"pause"]:
+		if not InputMap.has_action(action):
+			continue
+		if not InputMap.action_get_events(action).is_empty():
+			continue
+		for event: InputEvent in _ui_default_events(action):
+			InputMap.action_add_event(action, event)
+
+
 ## Restaura los valores de fábrica de TODAS las acciones gestionadas.
 static func reset_all_to_defaults() -> void:
 	for action: StringName in MANAGED_ACTIONS:
