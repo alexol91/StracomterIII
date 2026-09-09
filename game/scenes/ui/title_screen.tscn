@@ -68,6 +68,14 @@ size_flags_horizontal = 0
 focus_mode = 2
 text = "TITLE_NEW_GAME"
 
+[node name="QuickRunButton" type="Button" parent="Content/Row/Align/Menu"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+focus_mode = 2
+text = "TITLE_QUICK_RUN"
+
 [node name="ContinueButton" type="Button" parent="Content/Row/Align/Menu"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(260, 0)

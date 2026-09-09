@@ -130,7 +130,7 @@ func play_music(state: MusicState, _fade_s: float = 1.5) -> void:
 		return
 	var path: String = MUSIC_TRACKS.get(state, "")
 	if path.is_empty() or not ResourceLoader.exists(path):
-		_music_player.stop()
+		_release_music()
 		return
 	_music_player.stream = load(path) as AudioStream
 	_music_player.play()
@@ -138,8 +138,25 @@ func play_music(state: MusicState, _fade_s: float = 1.5) -> void:
 
 func stop_music(_fade_s: float = 1.0) -> void:
 	current_music = MusicState.NONE
-	if _music_player != null:
-		_music_player.stop()
+	_release_music()
+
+
+## Para la música y SUELTA la pista. Lo segundo no es limpieza de estilo: un
+## `AudioStreamPlayer` parado sigue agarrando su `AudioStream`, y con él el
+## `OggPacketSequence` y los dos objetos de reproducción que crea el
+## descodificador. Al cerrar el proceso eso sale como «4 ObjectDB instances
+## were leaked at exit» con `credits.ogg` nombrado como recurso en uso.
+##
+## Lo delató la propia suite en cuanto la música empezó a sonar de verdad: la
+## primera vez que este proyecto reproduce una pista, aparece el aviso. Es la
+## familia de fallo que ya ha costado dos veces aquí —referencias que
+## sobreviven al árbol de escena— y el síntoma es el de siempre: todo verde y
+## un aviso al salir que en CI puede acabar en código 134.
+func _release_music() -> void:
+	if _music_player == null:
+		return
+	_music_player.stop()
+	_music_player.stream = null
 
 
 ## Reproduce un efecto posicional en el mundo. Además de sonar, debe publicar
@@ -176,7 +193,27 @@ func play_sfx_3d(
 	last_sfx_id = id
 
 
+## Al cerrar hay que SOLTAR el audio, no solo dejar de sonar.
+##
+## Lo delató la propia suite: en cuanto la música empezó a sonar de verdad, el
+## proceso terminaba con «4 ObjectDB instances were leaked at exit» y
+## `credits.ogg` nombrado como recurso todavía en uso. El reproductor sigue
+## agarrando el `AudioStream` cuando el árbol se desmonta, y con él el
+## `OggPacketSequence` y sus dos objetos de reproducción.
+##
+## No es cosmético: es la misma familia de fallo que ya costó dos veces en este
+## proyecto —referencias que sobreviven al árbol de escena— y el síntoma es el
+## de siempre, verde por dentro y un aviso al salir que en CI puede acabar en
+## código 134.
 func _exit_tree() -> void:
+	if _music_player != null:
+		_music_player.stop()
+		_music_player.stream = null
+	for player: AudioStreamPlayer3D in _players:
+		if is_instance_valid(player):
+			player.stop()
+			player.stream = null
+	_buffers.clear()
 	if EventBus.character_died.is_connected(_on_character_died):
 		EventBus.character_died.disconnect(_on_character_died)
 	if EventBus.character_damaged.is_connected(_on_character_damaged):

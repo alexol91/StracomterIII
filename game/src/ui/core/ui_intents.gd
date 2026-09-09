@@ -19,6 +19,12 @@ extends RefCounted
 ## Se ha pedido empezar una partida nueva con el arquetipo elegido.
 signal run_start_requested(archetype: StringName)
 ## Se ha pedido continuar la partida guardada.
+## Partida rápida: el «modo libre» del menú de 2012
+## (`Aplication.cc:183-192`). Ahí ponía `nivelPlanta = -1`, zona 3, Capitán y
+## puntuación a cero, y saltaba directo a Estrategia. Es una escaramuza, no una
+## torre: no se sube de planta.
+signal quick_run_requested()
+
 signal run_continue_requested()
 ## Confirmación de la pantalla de Estrategia: zona elegida, XP que se quiere
 ## gastar (p. ej. en reparar bajas) y qué compañeros se llevan a la planta.

@@ -169,3 +169,35 @@ func test_the_credits_of_the_menu_do_not_end_a_run() -> void:
 	UIIntents.get_singleton().navigate_to_credits_requested.emit()
 	assert_eq(GameState.mode, GameState.Mode.MENU,
 		"los créditos del menú son una superposición, no el final de una partida")
+
+
+func test_the_quick_run_skips_the_class_screen_and_lands_in_strategy() -> void:
+	# El «modo libre» del menú de 2012 (`Aplication.cc:183-192`): Capitán,
+	# zona 3, puntuación a cero y directo a Estrategia. `GameState.Mode.FREE`
+	# estaba declarado y no lo usaba nadie: era el último hueco de P14.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.score = 500
+	UIIntents.get_singleton().quick_run_requested.emit()
+	assert_eq(GameState.mode, GameState.Mode.STRATEGY,
+		"la partida rápida salta la elección de clase y va a Estrategia")
+	assert_eq(GameState.player_archetype, &"captain", "el original ponía Capitán")
+	assert_eq(GameState.current_zone, GameState.DEFAULT_ZONE,
+		"y la zona 3, que es la de arranque del legacy")
+	assert_eq(GameState.score, 0, "una partida nueva empieza a cero")
+	assert_true(GameState.free_mode, "y queda marcada como escaramuza")
+
+
+func test_a_normal_run_is_not_free_mode() -> void:
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	UIIntents.get_singleton().quick_run_requested.emit()
+	assert_true(GameState.free_mode, "primero, partida rápida")
+	# Empezar una campaña detrás tiene que limpiar la bandera: si no, la torre
+	# no subiría de planta y el jugador se quedaría dando vueltas a la 1.
+	UIIntents.get_singleton().run_start_requested.emit(&"technician")
+	assert_false(GameState.free_mode, "una partida nueva no es una escaramuza")

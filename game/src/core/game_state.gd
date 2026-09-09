@@ -65,6 +65,17 @@ var experience: int = 0
 ## Semilla del director. Fijarla hace la partida reproducible, lo cual es
 ## requisito de los tests y base del evolutivo E-12 (repeticiones).
 var run_seed: int = 0
+## Partida rápida: escaramuza suelta, sin subir la torre. Es el «modo libre»
+## del menú de 2012 (`Aplication.cc:183-192`), que ponía `nivelPlanta = -1`,
+## zona 3, Capitán y puntuación a cero.
+##
+## En el remake no se usa una planta -1: eso en el original solo servía para la
+## fórmula de dificultad (`dificultad²` en vez de la curva por planta), y aquí
+## la dificultad la lleva el modelo vivo de habilidad del jugador (E-03), que
+## se adapta sin necesidad de un deslizador. Lo que queda del modo libre es lo
+## que de verdad lo distinguía: **no hay progresión**. Se limpia una zona, se
+## cobra, y se vuelve a elegir zona en la misma planta.
+var free_mode: bool = false
 
 ## Estado de la escuadra, indexado por arquetipo.
 var squad: Dictionary[StringName, CharacterSnapshot] = {}
@@ -92,6 +103,7 @@ func reset_run(seed_value: int = 0) -> void:
 	score = 0
 	experience = 0
 	run_seed = seed_value if seed_value != 0 else randi()
+	free_mode = false
 	squad.clear()
 	squad_taken.clear()
 	for id: StringName in [&"captain", &"technician", &"specialist", &"demolition"]:
@@ -171,6 +183,7 @@ func to_dict() -> Dictionary:
 		"score": score,
 		"experience": experience,
 		"run_seed": run_seed,
+		"free_mode": free_mode,
 		"squad": squad_out,
 	}
 
@@ -182,6 +195,7 @@ func from_dict(d: Dictionary) -> void:
 	score = int(d.get("score", 0))
 	experience = int(d.get("experience", 0))
 	run_seed = int(d.get("run_seed", 0))
+	free_mode = bool(d.get("free_mode", false))
 	squad.clear()
 	var raw_squad: Dictionary = d.get("squad", {})
 	for key: Variant in raw_squad:

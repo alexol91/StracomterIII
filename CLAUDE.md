@@ -182,6 +182,16 @@ no avisa.
   como dos esferas blancas. Se asignan a mano desde el código; ver `UbcModel`.
 * **`OptimizedTranslation.get_message_list()` devuelve la lista vacía** y suelta
   un aviso. Traducir funciona, enumerar claves no.
+* **Reproducir un `.ogg` deja cuatro objetos vivos al salir.** La primera vez
+  que el proyecto sonó de verdad, la suite empezó a terminar con «4 ObjectDB
+  instances were leaked at exit» y `credits.ogg` nombrado como recurso en uso:
+  `AudioStreamOggVorbis`, su `OggPacketSequence` y los dos objetos de
+  reproducción del descodificador. **`stop()` más `stream = null` no los
+  suelta**, ni desde `_exit_tree`. Es el descodificador y la caché de recursos
+  sobreviviendo a un `quit()` en el mismo frame, y por eso solo se ve en el
+  runner de pruebas —que sale sin procesar otro frame— y no en el arranque del
+  juego, que sigue limpio. Antes de perseguirlo: comprueba si la pista ha
+  llegado a sonar en ese proceso.
 
 Y dos de recursos en texto: dentro de `[resource]` los comentarios van con `;`
 —un `#` se pega al nombre de la propiedad siguiente— y los nombres de Godot 3

@@ -5,6 +5,7 @@ extends Control
 ## "Continuar"): ninguna decisión de juego se toma aquí.
 
 @onready var _new_game_button: Button = %NewGameButton
+@onready var _quick_run_button: Button = %QuickRunButton
 @onready var _continue_button: Button = %ContinueButton
 @onready var _options_button: Button = %OptionsButton
 @onready var _credits_button: Button = %CreditsButton
@@ -18,12 +19,14 @@ func _ready() -> void:
 	_continue_button.disabled = not SaveSystem.has_save()
 	var intents := UIIntents.get_singleton()
 	_new_game_button.pressed.connect(func() -> void: intents.navigate_to_class_select_requested.emit())
+	_quick_run_button.pressed.connect(func() -> void: intents.quick_run_requested.emit())
 	_continue_button.pressed.connect(func() -> void: intents.run_continue_requested.emit())
 	_options_button.pressed.connect(func() -> void: intents.navigate_to_options_requested.emit())
 	_credits_button.pressed.connect(func() -> void: intents.navigate_to_credits_requested.emit())
 	_quit_button.pressed.connect(func() -> void: intents.quit_requested.emit())
 	for button: Button in [
-		_new_game_button, _continue_button, _options_button, _credits_button, _quit_button,
+		_new_game_button, _quick_run_button, _continue_button, _options_button,
+		_credits_button, _quit_button,
 	]:
 		UiMotion.wire_button_feedback(button)
 	_new_game_button.grab_focus()

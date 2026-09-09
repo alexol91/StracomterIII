@@ -18,6 +18,7 @@ var _intents: UIIntents = null
 func _ready() -> void:
 	_intents = UIIntents.get_singleton()
 	_intents.run_start_requested.connect(_on_run_start_requested)
+	_intents.quick_run_requested.connect(_on_quick_run_requested)
 	_intents.run_continue_requested.connect(_on_run_continue_requested)
 	_intents.strategy_confirmed.connect(_on_strategy_confirmed)
 	_intents.floor_end_acknowledged.connect(_on_floor_end_acknowledged)
@@ -37,6 +38,21 @@ func _ready() -> void:
 func _on_run_start_requested(archetype: StringName) -> void:
 	GameState.reset_run()
 	GameState.player_archetype = archetype
+	GameState.set_mode(GameState.Mode.STRATEGY)
+
+
+## Partida rápida. El original la resolvía en cinco líneas
+## (`Aplication.cc:183-192`): reinicializar, Capitán, zona 3, puntuación a
+## cero y a Estrategia. Aquí igual, más la bandera que quita la progresión.
+##
+## Zona 3 y no 1 porque es la que ponía el original —y la que `GameState`
+## documenta como la de arranque del legacy—. No se guarda: una escaramuza no
+## pisa la partida de campaña de nadie.
+func _on_quick_run_requested() -> void:
+	GameState.reset_run()
+	GameState.player_archetype = &"captain"
+	GameState.free_mode = true
+	GameState.current_zone = GameState.DEFAULT_ZONE
 	GameState.set_mode(GameState.Mode.STRATEGY)
 
 

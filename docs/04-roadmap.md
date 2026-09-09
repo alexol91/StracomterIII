@@ -21,15 +21,21 @@ Con dos matices que no son deuda técnica sino decisiones, y están abajo: falta
 el «modo libre» del menú de 2012 (último hueco de P14) y dos de las cuatro
 pistas de música, que no se pueden distribuir.
 
-Fuera de la lista de paridad, dos cosas del original que **no** están y no van a
-estar tal cual:
+Fuera de la lista de paridad, lo que del original **no** está tal cual:
 
 * **La música.** El original usaba dos temas de The Prodigy en menú y acción:
   no se puede distribuir. Solo se reutiliza `credits.ogg`, que compuso el
   equipo (`ARTIST=Chutaos Team`). Los otros dos estados están en silencio hasta
   tener pista propia (T-08).
-* **El «modo libre»** del menú de 2012: `GameState.Mode.FREE` está declarado y
-  no lo usa nadie. Es el último hueco de P14.
+* ~~El «modo libre» del menú de 2012~~ — **hecho**: «Partida rápida» en el menú
+  principal. El original lo resolvía en cinco líneas
+  (`Aplication.cc:183-192`): reinicializar, Capitán, zona 3, puntuación a cero
+  y directo a Estrategia, con `nivelPlanta = -1`. Esa planta -1 solo servía
+  para la fórmula de dificultad (`dificultad²` en vez de la curva por planta),
+  y el remake no tiene deslizador de dificultad porque la lleva el modelo vivo
+  de habilidad (E-03). Lo que queda del modo libre es lo que de verdad lo
+  distinguía: **no hay progresión** — se limpia una zona, se cobra y se vuelve
+  a elegir zona en la misma planta.
 
 ### 2. Lo que hace que esto no sea un port: **~90 %**
 

@@ -159,7 +159,10 @@ func _clear() -> void:
 		run_completed.emit()
 		return
 	GameState.action_status = GameState.ActionStatus.NORMAL
-	GameState.advance_floor()
+	# En partida rápida no se sube: es una escaramuza, no una torre. El
+	# jugador vuelve a Estrategia y elige otra zona de la misma planta.
+	if not GameState.free_mode:
+		GameState.advance_floor()
 
 
 func _fail() -> void:
