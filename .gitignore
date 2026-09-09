@@ -31,6 +31,11 @@ game/_run_probe_tmp.*
 game/_perf_probe_tmp.*
 game/_capture_tmp.*
 game/_countlights.*
+# Y los de diagnóstico a mano: un registrador dentro del juego para depurar
+# una sesión JUGADA por una persona, que es la única forma de ver un fallo de
+# input. Se lanzan, se leen y se borran.
+game/_diag_tmp.*
+game/_sesion_tmp.*
 game/tests/_bisect/
 
 # Python
