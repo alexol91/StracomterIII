@@ -38,6 +38,19 @@ const GAMEPAD_LOOK_DEADZONE: float = 0.2
 ## vez de descartarse: un giro rápido de verdad sigue girando lo que cabe, y
 ## nadie pierde su movimiento.
 const MAX_MOUSE_STEP_PX: float = 200.0
+## Giro máximo por FRAME, en radianes. Es el tope que de verdad hace el juego
+## jugable con ratón.
+##
+## Recortar por evento no basta y el registro de una partida lo dice: 29
+## eventos y 4843 px en medio segundo, o sea 5,5 rad de giro —más de una vuelta
+## completa— porque el tope de 200 px se aplicaba a cada uno de los 29. Con el
+## cursor capturado, macOS entrega los deltas con su propia aceleración
+## aplicada, y en un trackpad un gesto normal son miles de píxeles.
+##
+## 0,12 rad por frame son ~7° por frame: 410°/s a 60 fps, un giro rápido de
+## verdad pero humano. Los movimientos pequeños no se tocan, así que la
+## puntería fina no se pierde: es un tope, no una división.
+const MAX_LOOK_RAD_PER_FRAME: float = 0.12
 ## Elevación extra del pivote cuando el brazo está colapsado del todo, en
 ## metros. En un rincón la cámara pasa de «sobre el hombro» a «sobre la
 ## cabeza», que es la vista que sí queda libre.
@@ -69,6 +82,8 @@ var mode: Mode = Mode.THIRD_PERSON
 var target: Node3D = null
 var _yaw: float = 0.0
 var _pitch: float = 0.0
+## Movimiento de ratón pendiente de aplicar en este frame, en píxeles.
+var _pending_look: Vector2 = Vector2.ZERO
 ## Cuerpos a los que se les ha tocado la transparencia, para poder devolverla.
 var _faded: Array[Node3D] = []
 
@@ -132,10 +147,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mode == Mode.THIRD_PERSON \
 			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
-		var step := clamp_mouse_step(motion.relative)
-		_yaw -= step.x * mouse_sensitivity
-		_pitch = clampf(_pitch - step.y * mouse_sensitivity,
-			deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
+		# Se ACUMULA y se aplica en el paso de física con tope por frame: en
+		# medio segundo pueden llegar treinta eventos, y aplicarlos uno a uno
+		# es lo que dejaba dar dos vueltas con un gesto de trackpad.
+		_pending_look += clamp_mouse_step(motion.relative)
 	if event.is_action_pressed(&"toggle_camera"):
 		toggle_mode()
 
@@ -143,6 +158,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if target == null:
 		return
+	_apply_mouse_look()
 	_apply_gamepad_look(delta)
 	global_position = target.global_position + Vector3.UP * shoulder_offset.y
 
@@ -321,6 +337,26 @@ static func is_between(from: Vector3, to: Vector3, point: Vector3, radius: float
 
 func toggle_mode() -> void:
 	mode = Mode.TOP_DOWN if mode == Mode.THIRD_PERSON else Mode.THIRD_PERSON
+
+
+## Aplica el ratón acumulado en este frame, con tope. Ver
+## `MAX_LOOK_RAD_PER_FRAME`.
+func _apply_mouse_look() -> void:
+	if _pending_look == Vector2.ZERO:
+		return
+	var step := look_delta_for(_pending_look, mouse_sensitivity)
+	_pending_look = Vector2.ZERO
+	_yaw -= step.x
+	_pitch = clampf(_pitch - step.y,
+		deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
+
+
+## Ángulo que gira un movimiento de ratón acumulado, recortado al tope por
+## frame en cada eje.
+static func look_delta_for(pixels: Vector2, sensitivity: float) -> Vector2:
+	return Vector2(
+		clampf(pixels.x * sensitivity, -MAX_LOOK_RAD_PER_FRAME, MAX_LOOK_RAD_PER_FRAME),
+		clampf(pixels.y * sensitivity, -MAX_LOOK_RAD_PER_FRAME, MAX_LOOK_RAD_PER_FRAME))
 
 
 func _apply_gamepad_look(delta: float) -> void:

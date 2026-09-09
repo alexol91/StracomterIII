@@ -119,3 +119,25 @@ func test_one_mouse_event_can_never_teleport_the_view() -> void:
 		"un salto absurdo se recorta")
 	assert_gt(clamped.x, 0.0, "pero se recorta, no se invierte ni se descarta")
 	assert_eq(TPSCamera.clamp_mouse_step(Vector2.ZERO), Vector2.ZERO, "y el cero es cero")
+
+
+func test_a_trackpad_swipe_cannot_spin_the_view_twice_around() -> void:
+	# Medido en el registro de una partida real: 29 eventos y 4843 px de ratón
+	# en medio segundo, que a la sensibilidad por defecto son 5,5 rad — más de
+	# una vuelta completa. El recorte por EVENTO no lo evitaba: se aplicaba a
+	# cada uno de los 29. Con el cursor capturado, macOS entrega los deltas con
+	# su propia aceleración, y en un trackpad un gesto normal son miles de px.
+	var burst := TPSCamera.look_delta_for(Vector2(4843.0, 0.0), 0.0025)
+	assert_almost_eq(burst.x, TPSCamera.MAX_LOOK_RAD_PER_FRAME, 0.0001,
+		"un gesto enorme gira lo máximo de un frame, no dos vueltas")
+	var rate := TPSCamera.MAX_LOOK_RAD_PER_FRAME * 60.0
+	assert_lt(rate, TAU * 1.5, "el tope por frame son %.0f°/s: rápido pero humano" % rad_to_deg(rate))
+
+
+func test_small_mouse_moves_are_untouched_so_aiming_stays_precise() -> void:
+	# El tope no puede convertirse en una división: apuntar fino tiene que
+	# seguir funcionando igual.
+	var small := Vector2(6.0, -4.0)
+	var delta := TPSCamera.look_delta_for(small, 0.0025)
+	assert_almost_eq(delta.x, small.x * 0.0025, 0.000001, "un gesto pequeño no se toca")
+	assert_almost_eq(delta.y, small.y * 0.0025, 0.000001)
