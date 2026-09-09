@@ -26,6 +26,7 @@ STRATEGY_SQUAD_SECTION,Escuadra,Squad
 STRATEGY_FLOOR_FMT,Planta %d,Floor %d
 STRATEGY_XP_FMT,Experiencia disponible: %d,Experience available: %d
 STRATEGY_COST_FMT,Coste de la selección: %d XP,Cost of selection: %d XP
+STRATEGY_PICK_ZONE_HINT,Elige una zona para entrar en la planta,Pick a zone to enter the floor
 STRATEGY_ZONE_FMT,ZONA %d,ZONE %d
 STRATEGY_BOSS_WARNING,⚠ Posible jefe,⚠ Boss possible
 STRATEGY_MAP_SMALL,Mapa pequeño,Small map

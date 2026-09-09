@@ -209,14 +209,27 @@ func _make_squad_row(entry: Dictionary) -> Control:
 	return row
 
 
+## Pie de pantalla: coste, experiencia y el botón de entrar.
+##
+## Cuando el botón está DESHABILITADO, el pie dice por qué. Un botón primario
+## en gris y sin explicación es una pantalla que no te dice lo que quiere: el
+## primero que jugó a esto eligió personaje, llegó aquí y se quedó atascado
+## —«no me deja empezar partida»— porque nada le decía que antes hay que
+## elegir zona. El coste en XP, que hasta que eliges es siempre cero, ocupaba
+## justo el sitio donde tenía que estar esa frase.
 func _update_footer() -> void:
 	var cost := SquadReassignment.total_xp_cost(_squad_snapshot, _squad_included)
 	var affordable := cost <= GameState.experience
 	_xp_label.text = Localization.t(&"STRATEGY_XP_FMT") % GameState.experience
-	_cost_label.text = Localization.t(&"STRATEGY_COST_FMT") % cost
+	if _selected_zone <= 0:
+		_cost_label.text = Localization.t(&"STRATEGY_PICK_ZONE_HINT")
+	else:
+		_cost_label.text = Localization.t(&"STRATEGY_COST_FMT") % cost
 	_cost_label.add_theme_color_override(
 		"font_color", Palette.TEXT_PRIMARY if affordable else Palette.THREAT_ORANGE)
 	_confirm_button.disabled = _selected_zone <= 0 or not affordable
+	_confirm_button.tooltip_text = (
+		Localization.t(&"STRATEGY_PICK_ZONE_HINT") if _selected_zone <= 0 else "")
 
 
 func _on_confirm_pressed() -> void:
