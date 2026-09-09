@@ -35,6 +35,11 @@ var _was_visible: Dictionary[Control, bool] = {}
 
 var _overlay: Overlay = Overlay.NONE
 var _floor_end_pending: bool = false
+## Qué pantallas estaban a la vista en el frame anterior. Es lo que distingue
+## «entrar en una pantalla» de «seguir en ella», y `_refresh()` corre desde
+## `_process`: sin esa distinción, todo lo que se llame al mostrar se llama
+## sesenta veces por segundo.
+var _entered: Dictionary[StringName, bool] = {}
 
 
 func _ready() -> void:
@@ -118,6 +123,16 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 
+## Muestra u oculta una pantalla y ejecuta `on_enter` SOLO en el frame en que
+## aparece.
+func _on_enter(screen: Control, visible: bool, on_enter: Callable) -> void:
+	var was: bool = _entered.get(screen.name, false)
+	_set_visible(screen, visible)
+	if visible and not was and on_enter.is_valid():
+		on_enter.call()
+	_entered[screen.name] = visible
+
+
 func _refresh() -> void:
 	var mode := GameState.mode
 	var paused := get_tree().paused
@@ -128,26 +143,37 @@ func _refresh() -> void:
 		or (mode == GameState.Mode.MENU and _overlay == Overlay.CREDITS))
 	_set_visible(_options, _overlay == Overlay.OPTIONS)
 
-	_set_visible(_strategy, mode == GameState.Mode.STRATEGY)
-	if _strategy.visible:
-		_strategy.refresh()
+	# `refresh()` SOLO al entrar, nunca en cada frame.
+	#
+	# `_refresh()` corre desde `_process`, así que esto llamaba a
+	# `StrategyScreen.refresh()` sesenta veces por segundo, y ese método
+	# reconstruye las seis tarjetas de zona —`queue_free()` y `Button.new()`—
+	# y además pone `_selected_zone = 0`. La pantalla se veía perfecta y era
+	# INERTE: no hay clic humano que sobreviva a que el botón se libere entre
+	# el botón abajo y el botón arriba, y aunque sobreviviera, la selección se
+	# borraba al frame siguiente.
+	#
+	# El síntoma desde el sofá era «elijo personaje y el juego no me deja
+	# empezar». Ninguna prueba lo cogía: todas emiten `toggled` a mano sobre
+	# el botón, que es un doble más amable que la realidad —no pasa por el
+	# reparto de input— y ninguna simula dos frames seguidos.
+	_on_enter(_strategy, mode == GameState.Mode.STRATEGY, _strategy.refresh)
 
 	_set_visible(_hud, mode == GameState.Mode.ACTION)
-	_set_visible(_pause, mode == GameState.Mode.ACTION and paused and _overlay != Overlay.OPTIONS)
-	if _pause.visible:
-		_pause.focus_default()
-	_set_visible(_game_over, mode == GameState.Mode.ACTION
-		and GameState.action_status == GameState.ActionStatus.GAME_OVER)
-	if _game_over.visible:
-		_game_over.focus_default()
-	_set_visible(_victory, mode == GameState.Mode.ACTION
-		and GameState.action_status == GameState.ActionStatus.WIN)
-	if _victory.visible:
-		_victory.focus_default()
-	_set_visible(_floor_end, mode == GameState.Mode.ACTION and _floor_end_pending
-		and _overlay != Overlay.OPTIONS)
-	if _floor_end.visible:
-		_floor_end.focus_default()
+	# El foco también SOLO al entrar. Agarrarlo cada frame deja la pantalla
+	# imposible de recorrer: pulsas Tab o mueves la cruceta y el foco vuelve
+	# al primer botón antes de que sueltes la tecla, así que en Game Over no
+	# se puede llegar a «Menú principal» ni con teclado ni con mando.
+	_on_enter(_pause, mode == GameState.Mode.ACTION and paused
+		and _overlay != Overlay.OPTIONS, _pause.focus_default)
+	_on_enter(_game_over, mode == GameState.Mode.ACTION
+		and GameState.action_status == GameState.ActionStatus.GAME_OVER,
+		_game_over.focus_default)
+	_on_enter(_victory, mode == GameState.Mode.ACTION
+		and GameState.action_status == GameState.ActionStatus.WIN,
+		_victory.focus_default)
+	_on_enter(_floor_end, mode == GameState.Mode.ACTION and _floor_end_pending
+		and _overlay != Overlay.OPTIONS, _floor_end.focus_default)
 
 
 ## Aplica la visibilidad y, solo en el flanco oculto→visible, un
