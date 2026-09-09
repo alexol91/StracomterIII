@@ -133,6 +133,40 @@ func _on_enter(screen: Control, visible: bool, on_enter: Callable) -> void:
 	_entered[screen.name] = visible
 
 
+## El cursor: CAPTURADO mientras se juega, visible en cualquier otro sitio.
+##
+## No se capturaba nunca, y eso es lo que hacía el juego injugable con ratón:
+## sin captura, la cámara recibe eventos de movimiento con magnitud absoluta
+## —al abrir la ventana, 2060 px en el primero, que son 295° de golpe— y luego
+## cada paso del cursor por encima de la ventana gira la vista de un salto.
+## Desde el sofá se ve como «el personaje da vueltas como loco y no se puede
+## mover», y lo segundo es consecuencia de lo primero: la dirección de WASD
+## sale de la base de la cámara.
+##
+## Se suelta en cuanto aparece cualquier pantalla —pausa, menú, resumen, Game
+## Over— porque ahí hace falta el puntero. Esc pausa, así que el jugador
+## siempre tiene forma de recuperar el cursor.
+## La DECISIÓN, aparte de la acción: en `--headless` no hay ventana y Godot
+## ignora la captura del ratón, así que `Input.mouse_mode` no se puede
+## comprobar en una prueba. Lo que sí se comprueba es esto.
+static func cursor_should_be_captured(
+	mode: GameState.Mode,
+	paused: bool,
+	has_overlay: bool,
+	status: GameState.ActionStatus,
+	floor_end_pending: bool
+) -> bool:
+	if mode != GameState.Mode.ACTION or paused or has_overlay or floor_end_pending:
+		return false
+	return status == GameState.ActionStatus.NORMAL
+
+
+func _apply_cursor(playing: bool) -> void:
+	var wanted := Input.MOUSE_MODE_CAPTURED if playing else Input.MOUSE_MODE_VISIBLE
+	if Input.mouse_mode != wanted:
+		Input.mouse_mode = wanted
+
+
 func _refresh() -> void:
 	var mode := GameState.mode
 	var paused := get_tree().paused
@@ -160,6 +194,8 @@ func _refresh() -> void:
 	_on_enter(_strategy, mode == GameState.Mode.STRATEGY, _strategy.refresh)
 
 	_set_visible(_hud, mode == GameState.Mode.ACTION)
+	_apply_cursor(cursor_should_be_captured(mode, paused,
+		_overlay != Overlay.NONE, GameState.action_status, _floor_end_pending))
 	# El foco también SOLO al entrar. Agarrarlo cada frame deja la pantalla
 	# imposible de recorrer: pulsas Tab o mueves la cruceta y el foco vuelve
 	# al primer botón antes de que sueltes la tecla, así que en Game Over no

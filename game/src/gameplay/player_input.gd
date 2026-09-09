@@ -89,8 +89,25 @@ func _read_movement() -> void:
 	character.move_to(move_dir)
 
 
+## El cuerpo se orienta con la CÁMARA y el arma con el retículo.
+##
+## Las dos cosas salían del mismo rayo, y eso hacía que el cuerpo girase hacia
+## cualquier cosa que se pusiera bajo el punto de mira: un compañero pasando
+## por delante te giraba 45° en un segundo sin que tocaras nada. El cuerpo
+## tiene que seguir a la cámara y nada más.
+const BODY_FACING_DISTANCE_M: float = 20.0
+
+
 func _read_aim() -> void:
-	character.look_at_point(_aim_point())
+	character.aim_at_point(_aim_point())
+	if camera == null:
+		return
+	var forward := -camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() <= 0.0001:
+		return
+	character.look_at_point(
+		character.global_position + forward.normalized() * BODY_FACING_DISTANCE_M)
 
 
 func _aim_point() -> Vector3:

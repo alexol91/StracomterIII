@@ -56,8 +56,19 @@ const MOVE_INTENT_TTL_S: float = 0.15
 ##
 ## Sobrevive entre pasos de física hasta `MOVE_INTENT_TTL_S`; ver esa constante.
 var intent_move: Vector3 = Vector3.ZERO
-## Punto al que se quiere mirar/apuntar. `Vector3.INF` = sin objetivo.
+## Punto al que se quiere ORIENTAR EL CUERPO. `Vector3.INF` = sin objetivo.
 var intent_look_at: Vector3 = Vector3.INF
+## Punto al que se quiere APUNTAR con el arma. `Vector3.INF` = se apunta a
+## donde mire el cuerpo.
+##
+## Son dos cosas distintas y confundirlas se notaba jugando: el input humano
+## sacaba las dos del rayo de la cámara, así que el cuerpo giraba hacia lo que
+## hubiera bajo el punto de mira. Un compañero cruzándose por delante te hacía
+## girar sobre ti mismo sin tocar nada —medido: 45° en un segundo—. El cuerpo
+## sigue a la CÁMARA; el arma, al punto de mira.
+##
+## La IA no usa esta intención: apunta con el cuerpo, que es lo que hacía ya.
+var intent_aim_at: Vector3 = Vector3.INF
 ## Se quiere disparar este frame.
 var intent_fire: bool = false
 ## Se quiere atacar en cuerpo a cuerpo.
@@ -129,6 +140,10 @@ func move_to(direction: Vector3) -> void:
 
 func look_at_point(point: Vector3) -> void:
 	intent_look_at = point
+
+
+func aim_at_point(point: Vector3) -> void:
+	intent_aim_at = point
 
 
 func fire() -> void:

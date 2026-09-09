@@ -237,9 +237,14 @@ func _find_nearest_hostile(origin: Vector3, max_range_m: float) -> Character:
 	return best
 
 
+## A dónde va el disparo, por orden de preferencia: el punto de mira explícito
+## (el retículo del jugador), el punto al que mira el cuerpo (que es lo que
+## rellena la IA) y, si no hay ninguno, el frente del cuerpo.
 func _aim_direction_from(origin: Vector3) -> Vector3:
-	if character.intent_look_at != Vector3.INF:
-		var to_target := character.intent_look_at - origin
+	for point: Vector3 in [character.intent_aim_at, character.intent_look_at]:
+		if point == Vector3.INF:
+			continue
+		var to_target := point - origin
 		if to_target.length_squared() > 0.0001:
 			return to_target.normalized()
 	return -character.global_transform.basis.z

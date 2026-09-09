@@ -123,3 +123,27 @@ func test_the_focus_is_not_stolen_back_on_every_frame() -> void:
 	assert_eq(buttons[1].has_focus(), chosen,
 		"el foco que mueve el jugador no se le puede quitar en el frame siguiente")
 	GameState.action_status = GameState.ActionStatus.NORMAL
+
+
+func test_the_cursor_is_captured_only_while_playing() -> void:
+	# Sin capturar el ratón, la cámara recibe eventos con magnitud absoluta y
+	# el juego es injugable: medido al arrancar, 2060 px en el primer evento,
+	# 295° de golpe. Y capturado en un menú, el jugador no puede pulsar nada.
+	# Son las dos mitades de la misma regla.
+	#
+	# Se prueba la DECISIÓN y no `Input.mouse_mode`: en `--headless` no hay
+	# ventana y el motor ignora la captura, así que la propiedad no diría nada.
+	assert_true(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, false, false,
+		GameState.ActionStatus.NORMAL, false), "jugando se captura")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, true, false,
+		GameState.ActionStatus.NORMAL, false), "en pausa, no")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, false, true,
+		GameState.ActionStatus.NORMAL, false), "con opciones abiertas, no")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, false, false,
+		GameState.ActionStatus.GAME_OVER, false), "en Game Over hay botones que pulsar")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, false, false,
+		GameState.ActionStatus.WIN, false), "en Victoria también")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.ACTION, false, false,
+		GameState.ActionStatus.NORMAL, true), "con el resumen de planta delante, tampoco")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.Mode.STRATEGY, false, false,
+		GameState.ActionStatus.NORMAL, false), "y en Estrategia menos")
