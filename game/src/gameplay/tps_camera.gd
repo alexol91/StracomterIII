@@ -50,6 +50,9 @@ const SELF_HIDE_M: float = 1.05
 ## Radio alrededor del eje cámara→cabeza dentro del cual un cuerpo se
 ## considera que tapa el plano.
 const OCCLUDER_RADIUS_M: float = 0.75
+## Distancia a la cámara por debajo de la cual un aliado tapa, esté donde
+## esté: a medio metro de la lente da igual que no cruce el eje.
+const OCCLUDER_NEAR_M: float = 1.6
 ## Transparencia que se aplica a un aliado que tapa. No 1,0: que se adivine
 ## dónde está sigue siendo información útil.
 const OCCLUDER_TRANSPARENCY: float = 0.75
@@ -116,7 +119,18 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and mode == Mode.THIRD_PERSON:
+	# El ratón solo gira la vista con el CURSOR CAPTURADO. Con el cursor libre,
+	# los eventos de movimiento traen magnitud absoluta —la distancia entera
+	# que ha recorrido el puntero desde que la ventana perdió el foco— y la
+	# cámara acababa mirando a cualquier sitio sin que nadie tocara nada:
+	# medido al entrar en la planta, cabeceo −35° y giro −76°. Desde el sofá,
+	# eso es «no veo a los enemigos, no veo la espalda del personaje», porque
+	# la cámara está mirando al suelo.
+	#
+	# El recorte de `clamp_mouse_step` sigue puesto como segunda red: acota un
+	# evento suelto, pero no arregla que lleguen cuatro seguidos.
+	if event is InputEventMouseMotion and mode == Mode.THIRD_PERSON \
+			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		var step := clamp_mouse_step(motion.relative)
 		_yaw -= step.x * mouse_sensitivity
@@ -233,8 +247,13 @@ func _fade_occluders() -> void:
 			continue
 		if body.team == Character.Team.ENEMY:
 			continue
-		if not is_between(eye, head, body.global_position + Vector3.UP * 0.9,
-				OCCLUDER_RADIUS_M):
+		var chest := body.global_position + Vector3.UP * 0.9
+		# Dos formas de tapar: cruzarse entre la cámara y el jugador, o estar
+		# pegado a la lente. La segunda es la que pasa de verdad — los huecos
+		# de formación están a uno o dos metros, así que un compañero acaba
+		# dentro del plano en cuanto el jugador se para.
+		if not is_between(eye, head, chest, OCCLUDER_RADIUS_M) \
+				and eye.distance_to(chest) > OCCLUDER_NEAR_M:
 			continue
 		var model := _model_of(body)
 		if model == null:
