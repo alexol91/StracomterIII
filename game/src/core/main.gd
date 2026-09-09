@@ -16,12 +16,19 @@ var _intents: UIIntents = null
 
 
 func _ready() -> void:
+	# Los controles, ANTES que nada. `toggle_console` y `pause` no tenían tecla
+	# nunca: los de juego los rellena `PlayerInput` al aparecer el jugador y
+	# los dos de interfaz solo se asignaban dentro de «Restaurar controles de
+	# fábrica». Medido: ni la tecla de consola ni Escape hacían nada, ni en el
+	# menú ni jugando, y la lista de Ajustes salía entera con guiones.
+	InputRemapService.ensure_defaults()
 	_intents = UIIntents.get_singleton()
 	_intents.run_start_requested.connect(_on_run_start_requested)
 	_intents.quick_run_requested.connect(_on_quick_run_requested)
 	_intents.run_continue_requested.connect(_on_run_continue_requested)
 	_intents.strategy_confirmed.connect(_on_strategy_confirmed)
 	_intents.floor_end_acknowledged.connect(_on_floor_end_acknowledged)
+	_intents.console_toggled.connect(_on_console_toggled)
 	_intents.navigate_to_credits_requested.connect(_on_navigate_to_credits)
 	_intents.restart_requested.connect(_on_restart_requested)
 	_intents.return_to_menu_requested.connect(_on_return_to_menu)
@@ -104,6 +111,18 @@ func _on_navigate_to_credits() -> void:
 		return
 	_loader.unload()
 	GameState.set_mode(GameState.Mode.CREDITS)
+
+
+## La consola abierta es un estado del juego, no solo una ventana: mientras lo
+## esté, el jugador no mueve al personaje ni gira la cámara. `ActionStatus`
+## tenía el valor `CONSOLE` reservado desde el principio para esto.
+func _on_console_toggled(is_open: bool) -> void:
+	if GameState.mode != GameState.Mode.ACTION:
+		return
+	if is_open:
+		GameState.action_status = GameState.ActionStatus.CONSOLE
+	elif GameState.action_status == GameState.ActionStatus.CONSOLE:
+		GameState.action_status = GameState.ActionStatus.NORMAL
 
 
 func _on_restart_requested() -> void:

@@ -48,6 +48,11 @@ signal floor_end_acknowledged()
 ## `GameState.action_status` puede querer reflejar `ActionStatus.CONSOLE`.
 signal console_toggled(is_open: bool)
 
+## «Ábreme la consola». La emite el botón de la pausa: la tecla de la consola
+## es la de la tilde grave, que en un teclado español está donde nadie la
+## busca. Es una PETICIÓN, no el estado: quien la abre sigue siendo el panel.
+signal console_open_requested()
+
 ## --- Navegación entre pantallas propias de este agente -------------------
 ## Estas NO son intenciones de juego: son cambios de pantalla dentro de la UI
 ## (Título → Selección de clase → Título, Título → Opciones...) que no

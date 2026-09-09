@@ -30,6 +30,27 @@ enum Mode { THIRD_PERSON, TOP_DOWN }
 @export var transition_speed: float = 6.0
 
 const GAMEPAD_LOOK_DEADZONE: float = 0.2
+## Píxeles de un solo evento de ratón que se aceptan como movimiento real.
+##
+## Un evento puede llegar con la distancia ENTERA que ha recorrido el cursor
+## desde que la ventana perdió el foco —medido al arrancar el juego: 2060 px en
+## el primer evento, que a esta sensibilidad son 295° de golpe—. Se recorta en
+## vez de descartarse: un giro rápido de verdad sigue girando lo que cabe, y
+## nadie pierde su movimiento.
+const MAX_MOUSE_STEP_PX: float = 200.0
+## Giro máximo por FRAME, en radianes. Es el tope que de verdad hace el juego
+## jugable con ratón.
+##
+## Recortar por evento no basta y el registro de una partida lo dice: 29
+## eventos y 4843 px en medio segundo, o sea 5,5 rad de giro —más de una vuelta
+## completa— porque el tope de 200 px se aplicaba a cada uno de los 29. Con el
+## cursor capturado, macOS entrega los deltas con su propia aceleración
+## aplicada, y en un trackpad un gesto normal son miles de píxeles.
+##
+## 0,12 rad por frame son ~7° por frame: 410°/s a 60 fps, un giro rápido de
+## verdad pero humano. Los movimientos pequeños no se tocan, así que la
+## puntería fina no se pierde: es un tope, no una división.
+const MAX_LOOK_RAD_PER_FRAME: float = 0.12
 ## Elevación extra del pivote cuando el brazo está colapsado del todo, en
 ## metros. En un rincón la cámara pasa de «sobre el hombro» a «sobre la
 ## cabeza», que es la vista que sí queda libre.
@@ -42,6 +63,9 @@ const SELF_HIDE_M: float = 1.05
 ## Radio alrededor del eje cámara→cabeza dentro del cual un cuerpo se
 ## considera que tapa el plano.
 const OCCLUDER_RADIUS_M: float = 0.75
+## Distancia a la cámara por debajo de la cual un aliado tapa, esté donde
+## esté: a medio metro de la lente da igual que no cruce el eje.
+const OCCLUDER_NEAR_M: float = 1.6
 ## Transparencia que se aplica a un aliado que tapa. No 1,0: que se adivine
 ## dónde está sigue siendo información útil.
 const OCCLUDER_TRANSPARENCY: float = 0.75
@@ -49,11 +73,17 @@ const OCCLUDER_TRANSPARENCY: float = 0.75
 ## (ver `project.godot` → `[layer_names]`). Duplicada a propósito: este nodo
 ## no depende de `weapon_system.gd`, solo comparte el mismo mapa de capas.
 const AIM_RAY_MASK: int = 79
+## Metros que el punto de mira va SIEMPRE por delante del jugador. Ver
+## `resolve_aim_point`: sin este suelo, un impacto cercano deja el punto de
+## mira encima del propio cuerpo.
+const AIM_AHEAD_OF_PLAYER_M: float = 1.5
 
 var mode: Mode = Mode.THIRD_PERSON
 var target: Node3D = null
 var _yaw: float = 0.0
 var _pitch: float = 0.0
+## Movimiento de ratón pendiente de aplicar en este frame, en píxeles.
+var _pending_look: Vector2 = Vector2.ZERO
 ## Cuerpos a los que se les ha tocado la transparencia, para poder devolverla.
 var _faded: Array[Node3D] = []
 
@@ -63,6 +93,18 @@ var _faded: Array[Node3D] = []
 
 func _ready() -> void:
 	target = get_node_or_null(target_path) as Node3D
+	# El rig cuelga del jugador en la escena, pero NO puede heredar su giro.
+	#
+	# Si lo hereda se cierra un bucle: `PlayerInput` apunta a donde mira la
+	# cámara, `CharacterController` gira el cuerpo hacia ese punto, y como la
+	# cámara es hija del cuerpo, gira con él — así que el punto de mira se ha
+	# movido y hay que volver a girar. El jugador daba vueltas sobre sí mismo
+	# en cuanto tocabas el ratón, y moverse dejaba de funcionar porque la
+	# dirección de WASD sale de la base de la cámara, que estaba girando.
+	#
+	# `top_level` corta la herencia y deja que este script mande del todo, que
+	# es lo que ya hacía: escribe `global_position` en cada paso de física.
+	top_level = true
 	_spring_arm.collision_mask = 1 # solo "world": el entorno empuja la cámara
 	_spring_arm.spring_length = tps_spring_length_m
 	# El brazo coloca la cámara EN el punto de impacto, es decir, pegada a la
@@ -92,11 +134,23 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and mode == Mode.THIRD_PERSON:
+	# El ratón solo gira la vista con el CURSOR CAPTURADO. Con el cursor libre,
+	# los eventos de movimiento traen magnitud absoluta —la distancia entera
+	# que ha recorrido el puntero desde que la ventana perdió el foco— y la
+	# cámara acababa mirando a cualquier sitio sin que nadie tocara nada:
+	# medido al entrar en la planta, cabeceo −35° y giro −76°. Desde el sofá,
+	# eso es «no veo a los enemigos, no veo la espalda del personaje», porque
+	# la cámara está mirando al suelo.
+	#
+	# El recorte de `clamp_mouse_step` sigue puesto como segunda red: acota un
+	# evento suelto, pero no arregla que lleguen cuatro seguidos.
+	if event is InputEventMouseMotion and mode == Mode.THIRD_PERSON \
+			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
-		_yaw -= motion.relative.x * mouse_sensitivity
-		_pitch = clampf(_pitch - motion.relative.y * mouse_sensitivity,
-			deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
+		# Se ACUMULA y se aplica en el paso de física con tope por frame: en
+		# medio segundo pueden llegar treinta eventos, y aplicarlos uno a uno
+		# es lo que dejaba dar dos vueltas con un gesto de trackpad.
+		_pending_look += clamp_mouse_step(motion.relative)
 	if event.is_action_pressed(&"toggle_camera"):
 		toggle_mode()
 
@@ -104,6 +158,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if target == null:
 		return
+	_apply_mouse_look()
 	_apply_gamepad_look(delta)
 	global_position = target.global_position + Vector3.UP * shoulder_offset.y
 
@@ -208,8 +263,13 @@ func _fade_occluders() -> void:
 			continue
 		if body.team == Character.Team.ENEMY:
 			continue
-		if not is_between(eye, head, body.global_position + Vector3.UP * 0.9,
-				OCCLUDER_RADIUS_M):
+		var chest := body.global_position + Vector3.UP * 0.9
+		# Dos formas de tapar: cruzarse entre la cámara y el jugador, o estar
+		# pegado a la lente. La segunda es la que pasa de verdad — los huecos
+		# de formación están a uno o dos metros, así que un compañero acaba
+		# dentro del plano en cuanto el jugador se para.
+		if not is_between(eye, head, chest, OCCLUDER_RADIUS_M) \
+				and eye.distance_to(chest) > OCCLUDER_NEAR_M:
 			continue
 		var model := _model_of(body)
 		if model == null:
@@ -252,6 +312,15 @@ static func collapse_ratio(hit_length: float, desired_length: float) -> float:
 	return clampf(1.0 - hit_length / desired_length, 0.0, 1.0)
 
 
+## Movimiento de ratón recortado a lo que puede ser un gesto humano en un
+## frame. Ver `MAX_MOUSE_STEP_PX`.
+static func clamp_mouse_step(relative: Vector2) -> Vector2:
+	var length := relative.length()
+	if length <= MAX_MOUSE_STEP_PX or length <= 0.0:
+		return relative
+	return relative * (MAX_MOUSE_STEP_PX / length)
+
+
 ## ¿Está `point` metido en el cilindro que va de `from` a `to` con ese radio?
 ## Es la pregunta «¿me estás tapando?» sin trigonometría ni rayos.
 static func is_between(from: Vector3, to: Vector3, point: Vector3, radius: float) -> bool:
@@ -268,6 +337,26 @@ static func is_between(from: Vector3, to: Vector3, point: Vector3, radius: float
 
 func toggle_mode() -> void:
 	mode = Mode.TOP_DOWN if mode == Mode.THIRD_PERSON else Mode.THIRD_PERSON
+
+
+## Aplica el ratón acumulado en este frame, con tope. Ver
+## `MAX_LOOK_RAD_PER_FRAME`.
+func _apply_mouse_look() -> void:
+	if _pending_look == Vector2.ZERO:
+		return
+	var step := look_delta_for(_pending_look, mouse_sensitivity)
+	_pending_look = Vector2.ZERO
+	_yaw -= step.x
+	_pitch = clampf(_pitch - step.y,
+		deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
+
+
+## Ángulo que gira un movimiento de ratón acumulado, recortado al tope por
+## frame en cada eje.
+static func look_delta_for(pixels: Vector2, sensitivity: float) -> Vector2:
+	return Vector2(
+		clampf(pixels.x * sensitivity, -MAX_LOOK_RAD_PER_FRAME, MAX_LOOK_RAD_PER_FRAME),
+		clampf(pixels.y * sensitivity, -MAX_LOOK_RAD_PER_FRAME, MAX_LOOK_RAD_PER_FRAME))
 
 
 func _apply_gamepad_look(delta: float) -> void:
@@ -292,12 +381,44 @@ func get_aim_point(max_distance_m: float = 100.0) -> Vector3:
 	if _camera == null or not _camera.is_inside_tree():
 		return global_position - global_transform.basis.z * max_distance_m
 	var from := _camera.global_position
-	var to := from - _camera.global_transform.basis.z * max_distance_m
+	var forward := -_camera.global_transform.basis.z
+	var to := from + forward * max_distance_m
 	var space_state := _camera.get_world_3d().direct_space_state
 	var query := PhysicsRayQueryParameters3D.create(from, to, AIM_RAY_MASK)
 	if target is CollisionObject3D:
 		query.exclude = [(target as CollisionObject3D).get_rid()]
 	var result := space_state.intersect_ray(query)
-	if result.is_empty():
-		return to
-	return result.get("position", to)
+	var player := target.global_position if target != null else from
+	return resolve_aim_point(
+		from, forward, result.get("position", to), not result.is_empty(),
+		player, max_distance_m)
+
+
+## Dónde está de verdad el punto de mira, dado lo que ha tocado el rayo.
+##
+## La cámara va CUATRO METROS por detrás del jugador, así que un impacto a
+## cuatro metros de la cámara está a cero del cuerpo. Devolver ese punto tal
+## cual es lo que hacía girar al personaje sobre sí mismo: `PlayerInput` lo
+## usa como `intent_look_at`, `CharacterController` gira el cuerpo hacia él, y
+## girar hacia un punto que tienes dentro es girar hacia ruido — medido, 92°
+## de deriva en un segundo sin tocar nada. Y el arma dispara a ese mismo punto:
+## con el impacto pegado a la cámara, el tiro sale hacia los propios pies.
+##
+## Así que el punto de mira nunca está a menos de `AIM_AHEAD_OF_PLAYER_M` por
+## delante del jugador. Si la pared está más cerca que eso, se apunta igual en
+## esa dirección: el disparo lo resuelve `WeaponSystem` con su propio rayo, que
+## sí parte del arma.
+static func resolve_aim_point(
+	from: Vector3,
+	forward: Vector3,
+	hit_point: Vector3,
+	has_hit: bool,
+	player_position: Vector3,
+	max_distance_m: float
+) -> Vector3:
+	var minimum := from.distance_to(player_position) + AIM_AHEAD_OF_PLAYER_M
+	if not has_hit:
+		return from + forward * maxf(max_distance_m, minimum)
+	if from.distance_to(hit_point) >= minimum:
+		return hit_point
+	return from + forward * minimum

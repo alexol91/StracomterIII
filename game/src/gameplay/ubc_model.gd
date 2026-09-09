@@ -121,6 +121,16 @@ static func build(archetype: StringName, library: AnimationLibrary) -> Node3D:
 	wrapper.set_script(load("res://src/gameplay/modern_animator.gd"))
 	wrapper.set("atlas_filter", false)  # texturas PBR de 1024: filtrado lineal
 	wrapper.add_child(model)
+	# MEDIA VUELTA. Los modelos de Quaternius miran hacia +Z y el frente de un
+	# `Node3D` de Godot es -Z, así que TODOS los personajes del juego se
+	# dibujaban de espaldas a donde iban: veías la cara de tu propio personaje
+	# y a los enemigos acercándose de espaldas. Medido: los ojos caían 6 cm por
+	# DETRÁS del frente del cuerpo, en los cuatro arquetipos.
+	#
+	# No da error, no rompe nada y las 744 pruebas seguían en verde: es solo
+	# que el juego se veía al revés. Va aquí, en el ensamblador del paquete UBC,
+	# porque es una convención del PAQUETE de assets y no del personaje.
+	model.rotation.y += PI
 	return wrapper
 
 

@@ -59,3 +59,26 @@ func test_confirm_emits_intent_instead_of_mutating_state() -> void:
 	assert_size(received, 1)
 	assert_eq(int(received[0][0]), 1)
 	assert_eq(GameState.to_dict(), before, "confirmar no debe mutar GameState directamente")
+
+
+func test_the_screen_says_why_you_cannot_enter_yet() -> void:
+	# El primero que jugó a esto eligió personaje, llegó a Estrategia y se
+	# quedó atascado: «no me deja empezar partida». El botón estaba en gris
+	# porque falta elegir zona, y nada lo decía. Un botón primario
+	# deshabilitado sin explicación es una pantalla que no te dice lo que
+	# quiere, y eso no lo detecta ninguna prueba de que "el botón está
+	# deshabilitado": hay que comprobar que además lo CUENTA.
+	_node = UiTestSceneBuilders.instantiate_in_tree(UiTestSceneBuilders.STRATEGY_SCENE)
+	var screen := _node as StrategyScreen
+	var confirm := screen.get_node("%ConfirmButton") as Button
+	var cost := screen.get_node("%CostLabel") as Label
+	assert_true(confirm.disabled, "sin zona elegida no se puede entrar")
+	var hint := Localization.t(&"STRATEGY_PICK_ZONE_HINT")
+	assert_eq(cost.text, hint, "el pie tiene que decir qué falta")
+	assert_eq(confirm.tooltip_text, hint, "y el propio botón, al pasar por encima")
+
+	var grid := screen.get_node("%ZoneGrid") as GridContainer
+	(grid.get_child(0) as Button).toggled.emit(true)
+	assert_false(confirm.disabled, "con zona elegida, se entra")
+	assert_ne(cost.text, hint, "y el pie vuelve a ser el coste")
+	assert_eq(confirm.tooltip_text, "", "sin nada que explicar, sin tooltip")

@@ -39,6 +39,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func set_open(open: bool) -> void:
 	visible = open
+	# La consola AVISA de que está abierta. La señal existía y no la escuchaba
+	# nadie, así que el juego seguía leyendo el teclado con la consola delante:
+	# escribir «chutaos» hacía caminar al personaje (la `a` es izquierda, la
+	# `s` es atrás) y la cámara seguía girando con el ratón capturado.
+	UIIntents.get_singleton().console_toggled.emit(open)
 	if open:
 		_input.grab_focus()
 		_input.clear()

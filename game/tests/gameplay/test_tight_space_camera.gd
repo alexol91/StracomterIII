@@ -44,3 +44,16 @@ func test_what_is_behind_or_beyond_never_counts_as_an_occluder() -> void:
 		"más allá del jugador tampoco")
 	assert_false(TPSCamera.is_between(eye, eye, Vector3(0.0, 1.5, 2.0), 0.75),
 		"con la cámara sobre la cabeza no hay eje: no se tapa nada")
+
+
+func test_an_ally_glued_to_the_lens_also_counts_as_an_occluder() -> void:
+	# Los huecos de formación están a uno o dos metros del jugador, así que un
+	# compañero acaba metido en la lente sin llegar a cruzar el eje
+	# cámara→jugador. Tapar la pantalla es tapar la pantalla.
+	var eye := Vector3(0.0, 1.6, 4.0)
+	var head := Vector3(0.0, 1.6, 0.0)
+	var beside_the_lens := Vector3(0.9, 1.6, 4.2)
+	assert_false(TPSCamera.is_between(eye, head, beside_the_lens, 0.75),
+		"no cruza el eje...")
+	assert_lt(eye.distance_to(beside_the_lens), TPSCamera.OCCLUDER_NEAR_M,
+		"...pero está pegado a la lente, y eso también tapa")

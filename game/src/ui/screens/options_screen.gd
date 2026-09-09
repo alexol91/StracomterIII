@@ -30,6 +30,7 @@ const COLORBLIND_MODES: Array[SettingsService.ColorblindMode] = [
 @onready var _rebind_hint_label: Label = %RebindHintLabel
 @onready var _reset_bindings_button: Button = %ResetBindingsButton
 @onready var _back_button: Button = %BackButton
+@onready var _chutaos_check: CheckBox = %ChutaosCheck
 
 var _settings: SettingsService = null
 ## Cuando no está vacío, el próximo evento de teclado/ratón/mando capturado
@@ -65,6 +66,13 @@ func _wire_controls() -> void:
 	_mouse_sens_slider.value_changed.connect(func(v: float) -> void: _settings.mouse_sensitivity = v)
 	_gamepad_sens_slider.value_changed.connect(func(v: float) -> void: _settings.gamepad_sensitivity_rad_s = v)
 	_shake_check.toggled.connect(func(v: bool) -> void: _settings.camera_shake_enabled = v)
+	# El estilo se aplica EN EL ACTO, no al cerrar los ajustes: es lo único de
+	# esta pantalla que se ve mientras la tocas, y verlo es la mitad de la
+	# gracia. `PresentationStyle` reparte el cambio a modelos, materiales y
+	# voces por su cuenta.
+	_chutaos_check.toggled.connect(func(v: bool) -> void:
+		_settings.chutaos_mode = v
+		PresentationStyle.chutaos_mode = v)
 	_reset_bindings_button.pressed.connect(_on_reset_bindings_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 
@@ -110,6 +118,10 @@ func _load_values_into_controls() -> void:
 	_mouse_sens_slider.value = _settings.mouse_sensitivity
 	_gamepad_sens_slider.value = _settings.gamepad_sensitivity_rad_s
 	_shake_check.button_pressed = _settings.camera_shake_enabled
+	# Se lee de `PresentationStyle` y no solo de los ajustes: el truco de
+	# consola puede haberlo cambiado a mitad de partida, y la casilla tiene que
+	# decir lo que se está viendo, no lo que se guardó.
+	_chutaos_check.button_pressed = PresentationStyle.chutaos_mode
 
 
 func _on_locale_selected(index: int) -> void:

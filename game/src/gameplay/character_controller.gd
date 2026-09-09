@@ -24,6 +24,8 @@ extends Character
 ## también hace de zona de impacto TORSO — ver `hit_zones.gd`). Es la que se
 ## comprime al agacharse; `HeadShape`/`LimbShape` no cambian de tamaño.
 const BODY_SHAPE_NODE_NAME: String = "TorsoShape"
+## Cel-shading de 2012, para pintar los modelos del modo Chutaos.
+const CEL_SHADER_PATH: String = "res://assets/shaders/cel_shading.gdshader"
 ## Debe procesarse DESPUÉS que quien escribe las intenciones
 ## (`player_input.gd`, `Ability`). Misma convención que
 ## `WeaponSystem.CONSUMER_PHYSICS_PRIORITY`.
@@ -50,8 +52,8 @@ func _ready() -> void:
 		var capsule := _collision_shape.shape as CapsuleShape3D
 		if capsule != null:
 			_standing_capsule_height = capsule.height
-	_apply_tint()
 	_build_model()
+	_apply_tint()
 	if not PresentationStyle.style_changed.is_connected(_on_style_changed):
 		PresentationStyle.style_changed.connect(_on_style_changed)
 	if not died.is_connected(_on_died):
@@ -92,6 +94,7 @@ func _build_model() -> void:
 
 func _on_style_changed(_chutaos: bool) -> void:
 	_build_model()
+	_apply_tint()
 
 
 ## Colorea el bloqueo de primitivas con el color de arquetipo de
@@ -102,11 +105,44 @@ func _apply_tint() -> void:
 	if stats == null:
 		return
 	var mesh := get_node_or_null("BodyMesh") as MeshInstance3D
-	if mesh == null:
+	if mesh != null:
+		var material := StandardMaterial3D.new()
+		material.albedo_color = stats.tint
+		mesh.material_override = material
+	if PresentationStyle.chutaos_mode:
+		_paint_model_with_cel_shading()
+
+
+## Pinta el modelo de 2012 con el cel-shading y el color del arquetipo.
+##
+## Las mallas de 2012 son `.3ds` convertidos y vienen SIN textura: en modo
+## Chutaos los personajes salían como siluetas BLANCAS. El material de
+## cel-shading que se preparó para ellos estaba declarado en cada escena de
+## modelo (`[sub_resource type="ShaderMaterial" id="Tint"]`) y no se le
+## asignaba a ninguna malla — y encima con el shader mal puesto: apuntaba al
+## propio material en vez de al `.gdshader`. Un recurso huérfano no da error.
+##
+## En modo remake no se toca nada: los modelos UBC llevan su piel horneada y
+## pisarla sería perder todo el trabajo de texturas.
+func _paint_model_with_cel_shading() -> void:
+	var model := get_node_or_null("Model")
+	if model == null:
 		return
-	var material := StandardMaterial3D.new()
-	material.albedo_color = stats.tint
-	mesh.material_override = material
+	var shader := load(CEL_SHADER_PATH) as Shader
+	if shader == null:
+		return
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter(&"albedo", stats.tint)
+	_override_meshes(model, material)
+
+
+static func _override_meshes(node: Node, material: Material) -> void:
+	var mesh := node as MeshInstance3D
+	if mesh != null:
+		mesh.material_override = material
+	for child: Node in node.get_children():
+		_override_meshes(child, material)
 
 
 ## Metadato del truco `noclip`. Igual que `god`, lo escribía la consola y nadie

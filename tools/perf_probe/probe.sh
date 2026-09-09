@@ -39,8 +39,19 @@ TSCN
 # `GameState` o `AIScheduler` se denuncia como error inexistente.
 LOG="$(mktemp)"
 trap 'rm -f "${SCRIPT}" "${SCRIPT}.uid" "${SCENE}" "${LOG}"' EXIT
+# `timeout` es de coreutils y macOS no lo trae: sin esto la sonda moría con
+# «timeout: command not found» y código 127 en cualquier Mac. Se usa si está
+# —también `gtimeout`, que es como lo instala Homebrew— y, si no, la sonda
+# corre igual: lo que se pierde es el tope que acota un cuelgue, no la medida.
+LIMIT=""
+if command -v timeout >/dev/null 2>&1; then
+    LIMIT="timeout 600"
+elif command -v gtimeout >/dev/null 2>&1; then
+    LIMIT="gtimeout 600"
+fi
+
 set +e
-timeout 600 "${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_perf_probe_tmp.tscn 2>&1 | tee "${LOG}"
+${LIMIT} "${GODOT}" --headless --fixed-fps 60 --path "${ROOT}/game" res://_perf_probe_tmp.tscn 2>&1 | tee "${LOG}"
 status=${PIPESTATUS[0]}
 set -e
 if grep -qE "Parse Error|Compile Error|Compilation failed|Failed to load script" "${LOG}"; then
