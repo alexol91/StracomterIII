@@ -169,3 +169,44 @@ func test_the_credits_of_the_menu_do_not_end_a_run() -> void:
 	UIIntents.get_singleton().navigate_to_credits_requested.emit()
 	assert_eq(GameState.mode, GameState.Mode.MENU,
 		"los créditos del menú son una superposición, no el final de una partida")
+
+
+func test_opening_the_console_stops_the_game_from_reading_the_keyboard() -> void:
+	# La señal `console_toggled` existía y no la escuchaba NADIE, así que con la
+	# consola delante el juego seguía leyendo el teclado: escribir «chutaos»
+	# hacía caminar al personaje —la `a` es izquierda, la `s` es atrás— y el
+	# ratón seguía girando la cámara. `ActionStatus.CONSOLE` estaba reservado
+	# para esto desde el principio.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.set_mode(GameState.Mode.ACTION)
+	GameState.action_status = GameState.ActionStatus.NORMAL
+
+	UIIntents.get_singleton().console_toggled.emit(true)
+	assert_eq(GameState.action_status, GameState.ActionStatus.CONSOLE,
+		"con la consola abierta, el juego no está en modo normal")
+	assert_false(UiRoot.cursor_should_be_captured(GameState.mode, false, false,
+		GameState.action_status, false),
+		"y el cursor vuelve, que es lo que hace falta para escribir")
+
+	UIIntents.get_singleton().console_toggled.emit(false)
+	assert_eq(GameState.action_status, GameState.ActionStatus.NORMAL,
+		"al cerrarla se vuelve a jugar")
+	GameState.action_status = GameState.ActionStatus.NORMAL
+
+
+func test_the_console_does_not_resurrect_a_dead_player() -> void:
+	# Cerrar la consola devuelve el estado a NORMAL, pero no puede pisar un
+	# Game Over: se murió mientras la tenía abierta.
+	_main = _instantiate_main()
+	if _main == null:
+		assert_true(false, "la escena principal no instancia")
+		return
+	GameState.set_mode(GameState.Mode.ACTION)
+	GameState.action_status = GameState.ActionStatus.GAME_OVER
+	UIIntents.get_singleton().console_toggled.emit(false)
+	assert_eq(GameState.action_status, GameState.ActionStatus.GAME_OVER,
+		"cerrar la consola no revive a nadie")
+	GameState.action_status = GameState.ActionStatus.NORMAL

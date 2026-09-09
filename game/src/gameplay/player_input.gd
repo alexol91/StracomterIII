@@ -51,6 +51,14 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	if character == null:
 		return
+	# Solo se juega cuando se está jugando. Con la consola abierta, en pausa,
+	# muerto o en la pantalla de victoria, el teclado es de la interfaz: este
+	# nodo lee con `Input.is_action_pressed`, que no pasa por el reparto de
+	# eventos y por tanto NO se detiene porque un `LineEdit` tenga el foco.
+	# Escribir «chutaos» en la consola movía al personaje.
+	if GameState.action_status != GameState.ActionStatus.NORMAL:
+		character.move_to(Vector3.ZERO)
+		return
 
 	_read_movement()
 	_read_aim()
