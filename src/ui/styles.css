@@ -224,7 +224,7 @@ body.cb .chip.it-hp { background: #a9d1ff; }
 
 .summary { width: min(34rem, 100%); }
 .summary h1 { font-size: clamp(1.6rem, 8vh, 2.6rem); color: var(--blue-d); }
-.summary .sub { margin: 0.1rem 0 0.5rem; font-weight: 700; color: var(--steel); }
+.summary .sub { margin: 0.1rem 0 0.5rem; font-weight: 700; color: var(--steel); background: none; padding: 0; white-space: normal; }
 .sum-grid { display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 1rem; font-size: 0.95rem; text-align: left; }
 .sum-grid > :nth-child(odd) { color: var(--steel); }
 .sum-grid > :nth-child(even) { font-weight: 800; text-align: right; }

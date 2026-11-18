@@ -66,7 +66,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
       n++;
       if (e.kind === 'miniboss' || e.kind === 'megaboss') b.bossVisible = true;
       let s = d;
-      if (w.order.kind === 'focus' && e.id === w.order.targetId) s -= 100; // orden: enfocar eso
+      if ((w.order.kind === 'focus' && e.id === w.order.targetId) || e.marked) s -= 100; // orden: enfocar eso / marcado por el Capitán
       if (e.id === b.hurtBy && w.time - b.hurtAt < 3) s -= 8;                // se gira hacia quien le dispara
       if (e.shielded) s += 50;
       if (s < bs) { bs = s; best = e; }

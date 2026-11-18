@@ -215,6 +215,9 @@ export class EnemyAI {
         } else {
           b.inv = [px, py];
           b.aware = Math.max(b.aware, 0.6);
+          // Si ya te andaba buscando por otro sitio, el disparo le corrige la idea de dónde estás
+          // (antes iba y volvía entre el sitio viejo y el ruido).
+          if (b.belief) { b.belief = { x: px, y: py, t: w.time - 2.6, id: b.belief.id, vx: 0, vy: 0 }; if (b.state === 'search') b.commitUntil = Math.min(b.commitUntil, w.time + 0.5); continue; }
           if (b.state === 'patrol' || b.state === 'search' || (b.state === 'investigate' && w.time >= b.commitUntil)) {
             this.setState(u, b, 'investigate', 1.5);
           }
@@ -441,8 +444,9 @@ export class EnemyAI {
     // sin cobertura posible: romper la línea de visión o pelear donde está
     const d = Math.hypot(bl.x - u.x, bl.y - u.y);
     if (d > rmax + 2) { b.dest = this.freeNear(bl.x, bl.y) ?? [bl.x, bl.y]; this.setState(u, b, 'advance', 1.5); return; }
-    b.cover = null; b.hide = [u.x, u.y]; b.peek = null; b.peeking = true; b.phaseUntil = w.time + 2;
+    this.releaseCover(u, b);
     this.setState(u, b, 'cover', 1.5);
+    b.hide = [u.x, u.y]; b.peek = null; b.peeking = true; b.phaseUntil = w.time + 2;
   }
 
   private freeNear(x: number, y: number): Vec2 | null {
@@ -476,6 +480,7 @@ export class EnemyAI {
       let peek: Vec2 | null = null;
       if (!c.high && L.clear(c.x, c.y, 1.5, tx, ty, 1.2, 'bullet') && L.clear(c.x, c.y, 1.6, tx, ty, 1.5, 'sight')) peek = [c.x, c.y];
       else peek = this.findPeek(c.x, c.y, tx, ty);
+      if (!peek && b.role === 'suppress') continue; // quien fija necesita poder asomarse
       if (!peek) sc -= 6; // sirve para esconderse pero no para pelear
       if (sc <= bs) continue;
       bs = sc; best = c; bestPeek = peek;
@@ -582,7 +587,7 @@ export class EnemyAI {
     }
 
     const engaged = !!b.belief;
-    if (engaged && (b.state === 'patrol' || b.state === 'investigate' || (b.state === 'search' && sees)) && w.time >= b.commitUntil) this.decide(u, b);
+    if (engaged && (b.state === 'patrol' || b.state === 'investigate' || (b.state === 'search' && (sees || w.time - b.belief!.t < 4))) && w.time >= b.commitUntil) this.decide(u, b);
 
     switch (b.state) {
       case 'patrol': this.doPatrol(u, b, sp); break;
@@ -626,7 +631,7 @@ export class EnemyAI {
         const tx = sees ? tgt!.x : b.belief ? b.belief.x : u.x, ty = sees ? tgt!.y : b.belief ? b.belief.y : u.y;
         const d = Math.hypot(tx - u.x, ty - u.y);
         if (sees && d < u.radius + 1.0 + tgt!.radius * 0.5) { this.face(u, b, tgt!); if (u.knifeCd <= 0 && Math.abs(angDiff(b.faceYaw, u.yaw)) < 0.6) { w.knife(u); u.knifeCd = 0.8; } }
-        else { w.navigate(u, tx, ty, sp * 1.5, null, 0.6); this.faceMove(u, b); if (!sees && d < 1 && b.belief && w.time - b.belief.t > 4) this.startSearch(u, b); }
+        else { w.navigate(u, tx, ty, sp * 1.5, null, 0.6); this.faceMove(u, b); if (!sees && d < 2 && b.belief && w.time - b.belief.t > 4) this.startSearch(u, b); }
         break;
       }
     }
@@ -643,7 +648,7 @@ export class EnemyAI {
     if (w.time > b.burstUntil) {
       // El MegaBoss dispara en ráfagas largas con pausas claras: la pausa es la ventana para asomarse.
       const mega = u.kind === 'megaboss';
-      if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + (mega ? 2.2 + w.rng() * 1.0 : 0.35 + w.rng() * 0.6); b.burstUntil = 0; return false; }
+      if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + (mega ? 2.6 + w.rng() * 1.2 : 0.35 + w.rng() * 0.6); b.burstUntil = 0; return false; }
       // Turnos de fuego: contra un mismo blanco solo dispara a la vez un número limitado de enemigos
       // (más cuanto más alta la planta). El resto espera su turno cubierto o maniobrando. Sin esto, 40
       // enemigos en una planta diáfana son un pelotón de fusilamiento y no hay táctica que valga.
@@ -658,14 +663,14 @@ export class EnemyAI {
         if (n >= limit) { b.restUntil = w.time + 0.3 + w.rng() * 0.4; return false; }
       }
       b.fireTarget = t.id;
-      b.burstUntil = w.time + (mega ? 1.0 : 0.7 + w.rng() * 0.9);
+      b.burstUntil = w.time + (mega ? 0.8 : 0.7 + w.rng() * 0.9);
     }
     if (Math.abs(angDiff(Math.atan2(t.y - u.y, t.x - u.x), u.yaw)) > 0.22) return false;
     const az = w.shotLine(u, t);
     if (az < 0) return false;
     const tv = Math.hypot(t.vx, t.vy);
     const moving = Math.hypot(u.vx, u.vy) > 0.4 ? 0.02 : 0;
-    w.fire(u, t.x, t.y, az * 0.85, (SPREAD[u.ekind!] + tv * (u.kind === 'megaboss' ? 0.03 : 0.013) + (t.crouch ? 0.015 : 0) + moving) * spreadMul);
+    w.fire(u, t.x, t.y, az * 0.85, (SPREAD[u.ekind!] + tv * (u.kind === 'megaboss' ? 0.065 : 0.013) + (t.crouch ? 0.015 : 0) + moving) * spreadMul);
     u.fireCd = 1 / u.stats.rof;
     return true;
   }
@@ -753,6 +758,13 @@ export class EnemyAI {
       if ((exposed || d < 3) && w.time >= b.commitUntil) { this.releaseCover(u, b); this.decide(u, b); return; }
     }
 
+    // Lleva un rato en su puesto sin ver a nadie con sus propios ojos: el puesto no sirve. Avanza hacia donde cree que estás.
+    if (w.time - b.lastSawAt > 5 && w.time - b.stateAt > 5 && w.time >= b.commitUntil) {
+      this.releaseCover(u, b);
+      b.dest = this.freeNear(bl.x, bl.y) ?? [bl.x, bl.y];
+      this.setState(u, b, 'advance', 1.5);
+      return;
+    }
     if (w.time > b.phaseUntil) {
       b.peeking = !b.peeking;
       const supp = b.role === 'suppress';

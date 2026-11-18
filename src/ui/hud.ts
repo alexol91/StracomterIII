@@ -22,7 +22,8 @@ const HIT_LIFE = 0.16;      // s
 const VIGNETTE_LIFE = 0.7;  // s
 
 /** Estados de IA que indican que el jefe ya ha detectado al jugador (la IA los etiqueta como texto libre). */
-const BOSS_ENGAGED = /attack|ataca|chase|persig|combat|engage|suppress|fire|disp|alert/i;
+// etiquetas de la IA de jefes (src/sim/ai_enemy.ts): 'guardia' = aún no sabe de ti; el resto, en combate
+const BOSS_ENGAGED = /cohetes|fase|acecha|escudo/i;
 
 function normAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -292,7 +293,7 @@ export class Hud {
         if (!e.isPlayer && isClass(e.kind)) allyByKind[e.kind] = e;
       } else if (e.alive && (e.kind === 'miniboss' || e.kind === 'megaboss')) {
         const d = Math.hypot(e.x - p.x, e.y - p.y);
-        const engaged = d < 20 || BOSS_ENGAGED.test(e.aiState || '');
+        const engaged = d < 14 || BOSS_ENGAGED.test(e.aiState || '');
         if (engaged && d < bossD) { boss = e; bossD = d; }
       }
     }

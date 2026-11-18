@@ -70,6 +70,8 @@ export interface WorldConfig {
   members: Record<ClassId, { hp: number; ammo: number; inv: (ItemType | null)[] }>;
   director: DirectorConfig;
   seed?: number;
+  /** puntuación acumulada de la campaña (para que el HUD la enseñe sumada) */
+  baseScore?: number;
 }
 
 const _v: Vec2 = [0, 0];
@@ -96,6 +98,7 @@ export class World implements IWorld {
   assist: { yaw: number; pitch: number } | null = null;
   private assistId = -1;
   order: { kind: OrderKind; x: number; y: number; targetId: number } = { kind: 'follow', x: 0, y: 0, targetId: -1 };
+  private prevOrder: { kind: OrderKind; x: number; y: number; targetId: number } | null = null;
   pacing: 'ascenso' | 'pico' | 'alivio' | 'descanso' = 'ascenso';
   cheats = { god: false, noclip: false, aiDebug: false };
 
@@ -104,6 +107,7 @@ export class World implements IWorld {
   enemyAI: EnemyAI;
   /** distancia andando hasta el jugador (puertas cerradas con coste) */
   pField: Float32Array;
+  private pFieldDirty = false;
   private pFieldAt = -1; private pFieldX = 0; private pFieldY = 0; private pFieldVer = -1;
   /** contador de cambios de puertas (para invalidar cachés) */
   doorVer = 0;
@@ -120,6 +124,7 @@ export class World implements IWorld {
   constructor(cfg: WorldConfig) {
     this.rng = mulberry32(cfg.seed ?? (cfg.floor * 1000 + cfg.zone * 37 + 7));
     this.floor = cfg.floor; this.zone = cfg.zone;
+    this.score = cfg.baseScore ?? 0;
     this.level = new Level(cfg.map, cfg.floor);
     this.nav = new Nav(this.level);
     this.pField = new Float32Array(this.level.gw * this.level.gh);
@@ -234,7 +239,7 @@ export class World implements IWorld {
     this.noises.length = 0;
     this.time += dt;
     this.pathBudget = 4;
-    this.soundBudget = 2;
+    this.soundBudget = 1;
     this.lastInput = input;
     if (this.status === 'playing') this.stats.time += dt;
 
@@ -265,7 +270,8 @@ export class World implements IWorld {
     this.computeAim(input);
     this.interactDoor = p.alive ? this.level.nearestDoor(p.x, p.y, 1.5) : -1;
     const ft = this.order.targetId >= 0 ? this.entityById(this.order.targetId) : undefined;
-    if (this.order.kind === 'focus' && (!ft || !ft.alive)) { this.order.kind = 'follow'; this.order.targetId = -1; }
+    // al caer el blanco enfocado, vuelve la orden que había antes
+    if (this.order.kind === 'focus' && (!ft || !ft.alive)) { this.order = this.prevOrder ? { ...this.prevOrder } : { kind: 'follow', x: p.x, y: p.y, targetId: -1 }; this.prevOrder = null; }
   }
 
   private tickTimers(u: Unit, dt: number): void {
@@ -312,7 +318,10 @@ export class World implements IWorld {
     const suppressing = p.cls === 'especialist' && p.abilityActive > 0;
     if ((input.fire || suppressing) && p.reloading <= 0) {
       if (p.mag > 0 || suppressing) {
-        if (p.fireCd <= 0) {
+        if (p.fireCd <= 0 && p.stats.explosive && Math.hypot(this.aim.x - p.x, this.aim.y - p.y) < 2.6) {
+          // Seguro del lanzador: no dispara contra algo que tiene a menos de 2,6 m (estallaría en la cara).
+          if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
+        } else if (p.fireCd <= 0) {
           let tx = this.aim.x, ty = this.aim.y, tz = this.aim.z;
           if (input.aimAssist && this.assistId >= 0) {
             const t = this.entityById(this.assistId);
@@ -358,6 +367,7 @@ export class World implements IWorld {
       const t = this.entityById(id)!;
       for (const e of this.entities) e.marked = false;
       t.marked = true;
+      if (this.order.kind !== 'focus') this.prevOrder = { ...this.order };
       this.order = { kind, x: t.x, y: t.y, targetId: id };
     }
     this.events.push({ type: 'order', order: this.order.kind, x: this.order.x, y: this.order.y });
@@ -614,6 +624,7 @@ export class World implements IWorld {
   damage(t: Unit, amount: number, attacker: Unit | null, zone: HitZone | 'blast' | 'knife', fromX: number, fromY: number): void {
     if (!t.alive || amount <= 0) return;
     if (t.isPlayer && this.cheats.god) return;
+    if (t.team === 'ally' && this.status === 'cleared') return; // zona limpia: un cohete rezagado ya no te quita la victoria
     if (t.shielded) return;
     if (t.kind === 'megaboss') amount = this.director.bossDamageGate(t, amount);
     if (amount <= 0) return;
@@ -667,8 +678,9 @@ export class World implements IWorld {
       const t = id >= 0 ? this.entityById(id) : undefined;
       if (t && t.alive) {
         for (const e of this.entities) e.marked = false;
-        t.marked = true;
-        this.order = { kind: 'focus', x: t.x, y: t.y, targetId: t.id };
+        t.marked = true; // los compañeros priorizan al marcado
+        // Solo el jugador cambia la orden de escuadra; el Capitán IA marca el blanco sin pisar «mantener» o «ir ahí».
+        if (u.isPlayer) { if (this.order.kind !== 'focus') this.prevOrder = { ...this.order }; this.order = { kind: 'focus', x: t.x, y: t.y, targetId: t.id }; }
         ax = t.x; ay = t.y; ok = true;
         this.morale = Math.min(100, this.morale + 5);
       }
@@ -745,7 +757,7 @@ export class World implements IWorld {
     this.doorVer++;
     this.events.push({ type: 'door', doorId: id, open, x: d.cx, y: d.cy });
     this.noises.push({ x: d.cx, y: d.cy, loud: 11, team: by ? by.team : 'ally', id: by ? by.id : -1, kind: 'door' });
-    this.pFieldAt = -1;
+    this.pFieldDirty = true;
     return true;
   }
 
@@ -921,7 +933,7 @@ export class World implements IWorld {
         if (st > 1.8) {
           if (this.onUnstuck) this.onUnstuck(u);
           // sácalo a la celda libre más cercana y oblígale a replantearse el destino
-          const c = this.level.nearestFree(u.x + (this.rng() - 0.5) * 1.5, u.y + (this.rng() - 0.5) * 1.5, true);
+          const c = this.level.nearestFree(u.x, u.y, true); // desde donde está: nunca al otro lado de un tabique
           if (c >= 0) { u.x = this.level.cellX(c); u.y = this.level.cellY(c); }
           u.path = null; u.repathAt = 0; u.refT = this.time; u.refX = u.x; u.refY = u.y;
           if (u.brain) u.brain.unstuck = (u.brain.unstuck || 0) + 1;
@@ -945,7 +957,8 @@ export class World implements IWorld {
   private updatePlayerField(force: boolean): void {
     const p = this.player;
     if (!force && this.pFieldVer === this.level.version && this.pFieldAt >= 0 &&
-      (this.time - this.pFieldAt < 0.4 || Math.hypot(p.x - this.pFieldX, p.y - this.pFieldY) < 0.4)) return;
+      (this.time - this.pFieldAt < 0.4 || (!this.pFieldDirty && Math.hypot(p.x - this.pFieldX, p.y - this.pFieldY) < 0.4))) return;
+    this.pFieldDirty = false;
     if (this.pField.length !== this.level.gw * this.level.gh) this.pField = new Float32Array(this.level.gw * this.level.gh);
     this.nav.field(p.x, p.y, true, 3, Infinity, this.pField);
     this.pFieldAt = this.time; this.pFieldX = p.x; this.pFieldY = p.y; this.pFieldVer = this.level.version;

@@ -104,7 +104,8 @@ export const FURNITURE: Record<FurnitureType, FurnitureSpec> = {
   butaca:          { w: 0.59, d: 0.53, height: 0.85, bulletH: 0.70, sightH: 0.85, cover: 'low' },
   silla:           { w: 0.53, d: 0.53, height: 0.90, bulletH: 0,    sightH: 0,    cover: 'none' },
   // La maceta no para balas pero sí rompe la línea de visión (§11.1).
-  maceta:          { w: 0.27, d: 0.27, height: 1.60, bulletH: 0,    sightH: 1.60, cover: 'none' },
+  // sightH por encima de los ojos (1,6 m): si no, el rayo ojo→cabeza pasaba rozando por arriba y no tapaba nunca.
+  maceta:          { w: 0.27, d: 0.27, height: 1.60, bulletH: 0,    sightH: 2.20, cover: 'none' },
 };
 
 export const ITEM_EFFECT: Record<ItemType, { hp: number; ammo: number }> = {

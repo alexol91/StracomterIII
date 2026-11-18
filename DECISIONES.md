@@ -47,7 +47,8 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
   llama a 12 refuerzos; el escudo cae cuando quedan 3 o menos (o a los 45 s, para que nunca bloquee la
   partida). Con 500 de vida y una escuadra que hace más de 200 de daño por segundo, sin esto el final
   del juego duraba tres segundos. Total de refuerzos: 24, más una escolta inicial de 6. Dispara en
-  ráfagas de 1 s con pausas de 2-3 s y es muy impreciso contra un blanco que corre.
+  ráfagas de 0,8 s con pausas de 2,6-3,8 s y es muy impreciso contra un blanco que corre (quedarse
+  quieto delante de él sí se paga). En fase 2 añade granadas y en fase 3 cohetes y más velocidad.
 * **Los jefes no se quedan sin munición.**
 * **Botín de los enemigos.** Al morir sueltan a veces una caja de munición pequeña (12 %) o un botiquín
   pequeño (10 %); los jefes, un botiquín mediano. La vida no se regenera y se arrastra de planta en
@@ -56,6 +57,14 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
 * **Turnos de fuego.** Contra un mismo blanco solo dispara a la vez un número limitado de enemigos
   (jugador: 2 + planta/3; compañero: 2). El resto se cubre o maniobra. No está en el documento; sin
   ello una planta diáfana con 40 enemigos es un fusilamiento.
+* **Seguro del lanzador del Explosivo.** El jugador Explosivo no puede disparar contra algo que tiene a
+  menos de 2,6 m (suena el clic de vacío). El autodaño sigue existiendo a media distancia, pero rozar una
+  esquina con la mira ya no te mata de un tiro.
+* **Zona limpia = a salvo.** Desde que la zona se da por limpia la escuadra no recibe daño (un cohete
+  que aún iba volando te mataba después de ganar).
+* **Repliegue solo en grupos de 4 o más** (un grupo de 2-3 que pierde a uno no «se repliega»: sigue).
+* **A menos de 1,6 m te notan aunque les vengas por la espalda** (siempre que no haya pared): tocarles
+  sin que reaccionaran parecía un fallo.
 * **Al morir, el ajuste dinámico baja un escalón.** El documento solo habla de ajustar «por zona»;
   morir es la señal más clara de ir ahogado.
 
@@ -83,7 +92,8 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
 * Moral: empieza en 60; +1 cada 2 s con el Capitán vivo, +6 por grupo enemigo eliminado, +10 por zona
   limpia, −30 por compañero caído. Por debajo de 20 el aura no cura; por debajo de 30 los compañeros no
   obedecen «ir ahí» ni «enfocar» y se repliegan antes.
-* Los compañeros IA usan Órdenes (Capitán) y Supresión (Especialista) por su cuenta. **Hackeo y
+* Los compañeros IA usan Órdenes (Capitán) y Supresión (Especialista) por su cuenta. El Capitán IA solo
+  marca el blanco (los demás lo priorizan); no cambia la orden que haya dado el jugador. **Hackeo y
   Demolición solo las usa el jugador**: un compañero abriendo boquetes o puertas por su cuenta molesta
   más que ayuda.
 * Los compañeros disparan en ráfagas cortas con pausas y con peor puntería que el jugador: apoyan, no

@@ -93,6 +93,7 @@ export function createCampaign(storage: KVStorage): ICampaign {
       return new World({
         map: zi.map, floor: state.floor, zone: zi.zone, controlled,
         members: state.members, director: directorConfig(state, state.floor, zi.size),
+        baseScore: state.score,
         seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131,
       });
     },

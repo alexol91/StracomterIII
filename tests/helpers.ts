@@ -87,3 +87,25 @@ export function place(world: World, u: Unit, x: number, y: number, yaw?: number)
 }
 
 export function dist(a: { x: number; y: number }, b: { x: number; y: number }): number { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+/** Engancha una función que se ejecuta tras cada world.step (también el que hace el bot de tools/partida.ts). */
+export function watchSteps(world: World, after: (w: World, before: { status: string }) => void): void {
+  const orig = world.step.bind(world);
+  world.step = (dt: number, input: PlayerInput) => {
+    const before = { status: world.status };
+    orig(dt, input);
+    after(world, before);
+  };
+}
+
+/** Busca un punto transitable a distancia `d` (±0,3) de (cx,cy), probando ángulos; null si no hay. */
+export function pointAtDistance(world: World, cx: number, cy: number, d: number, avoid: { x: number; y: number }[] = []): [number, number] | null {
+  for (let k = 0; k < 72; k++) {
+    const a = (k * Math.PI * 2) / 72;
+    const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+    if (!world.level.inside(x, y) || !world.level.walkableAt(x, y, false)) continue;
+    if (avoid.some(o => Math.hypot(o.x - x, o.y - y) < 1.2)) continue;
+    return [x, y];
+  }
+  return null;
+}

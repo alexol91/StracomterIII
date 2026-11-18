@@ -198,14 +198,14 @@ export class Director {
   private spawnGroup(kinds: EnemyKind[], at: Vec2, hunt: boolean, routeRadius: number): Squad {
     const w = this.w, L = w.level;
     const s = w.enemyAI.newSquad(at, hunt);
-    if (!hunt) s.route = this.routeAround(at, 3, routeRadius);
+    s.route = this.routeAround(at, 3, routeRadius); // también los de caza: si te pierden, patrullan
     let k = 0;
     for (const kind of kinds) {
       let cell = -1;
       for (let t = 0; t < 12 && cell < 0; t++) {
         const a = (k * 2.4) + t, r = 0.6 + 0.45 * Math.sqrt(k + t);
         const c = L.cellOf(at[0] + Math.cos(a) * r, at[1] + Math.sin(a) * r);
-        if (c >= 0 && L.passable(c, true) && !L.doorCell[c]) cell = c;
+        if (c >= 0 && L.passable(c, true) && !L.doorCell[c] && w.pField[c] < Infinity && L.walkLine(at[0], at[1], L.cellX(c), L.cellY(c), true)) cell = c;
       }
       if (cell < 0) cell = L.nearestFree(at[0], at[1], true);
       const u = w.spawnUnit(kind, L.cellX(cell), L.cellY(cell), w.time > 0);
@@ -267,6 +267,10 @@ export class Director {
     if (this.boss && this.boss.kind === 'megaboss' && this.boss.alive && this.boss.shielded) {
       const others = alive - 1;
       if ((this.qBoss.length === 0 && others <= 3) || w.time - this.shieldAt > 45) this.boss.shielded = false;
+    }
+    // Un MegaBoss creado con la consola no tiene refuerzos que esperar: su escudo dura 6 s.
+    for (const e of w.entities) {
+      if (e !== this.boss && e.kind === 'megaboss' && e.alive && e.shielded && w.time - this.shieldAt > 6) e.shielded = false;
     }
 
     if (w.time >= this.tryAt) {
