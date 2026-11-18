@@ -1,0 +1,59 @@
+Modelos de terceros usados por Stracomter III. Todos CC0 (dominio público): sin pago, sin royalties,
+sin atribución obligatoria. Comprobado el 2026-11-18.
+
+chars/, guns/, env/
+  «Toon Shooter Game Kit» (dic. 2022), de Quaternius.
+  Página oficial: https://quaternius.com/packs/toonshootergamekit.html  (indica «CC0» y «free to use in
+  personal and commercial projects»). Descargado de la carpeta oficial enlazada desde esa página.
+  La carpeta no incluye fichero de licencia: el CC0 consta en la página, no dentro de los ficheros.
+
+furniture/
+  «Furniture Pack 1.0», de Kenney (www.kenney.nl). Licencia en LICENSE-Kenney.txt (CC0).
+  Descargado de la subida del propio Kenney en https://opengameart.org/content/furniture-kit
+
+
+=== Estilo realista (v2) ===
+
+office/  (3DAssets.dev)
+  Packs «Downtown Office Interiors» y «Office Lobby and Building Facilities», más «rooftop-ac-unit».
+  Licencia CC0 según https://3dassets.dev/license. Los modelos están generados por IA y el sitio no
+  garantiza su originalidad. Ficheros usados (los prefijados con L- son del pack de vestíbulo):
+  desk-executive, desk-1600-panel-end, desk-1800-a-frame, executive-chair, task-chair-mesh,
+  task-chair-upholstered, monitor-24-inch, monitor-34-curved, keyboard-full-size,
+  meeting-table-round-4, meeting-chair-castors, boardroom-table-8, bookcase-open, locker-bank-6,
+  tambour-cupboard, sofa-two-seat, lounge-armchair, guest-chair-four-leg, stacking-chair,
+  flip-top-table, floor-planter-large, wall-clock, waste-bin, wall-art-panel, rooftop-ac-unit,
+  L-server-rack-42u-doors, L-lobby-armchair, L-visitor-sofa-two-seat, L-fire-extinguisher-point,
+  L-wall-wayfinding-panel (wall-clock es del pack Downtown).
+
+hdri/, tex/, props/  (Poly Haven, CC0, https://polyhaven.com/license)
+  HDRI: unfinished_office_1k (reducido a 512×256 con tools/reducir-hdri.ts).
+  Texturas (color, normal GL y rugosidad, reducidas con sips): dirty_carpet,
+  concrete_floor_painted, laminate_floor_02, terrazzo_tiles, rough_concrete,
+  white_plaster_02.
+  Modelos con textura (reducidas a 512): medical_box, ammo_box.
+
+tex/Carpet012/  (ambientCG, CC0, https://docs.ambientcg.com/license/)
+  Carpet012 (color, normal GL y rugosidad, reducidas con sips).
+
+
+=== Personajes realistas (v3) ===
+
+rb/  (Microsoft Rocketbox Avatar Library, licencia MIT)
+  https://github.com/microsoft/Microsoft-Rocketbox
+  La licencia exige conservar el aviso de copyright: está en rb/LICENSE-Microsoft-Rocketbox.md.
+  Avatares usados: Military_Male_01, Military_Male_02, Military_Male_03, Military_Male_04,
+  Military_Male_05, Police_Male_01, Police_Male_02, Security_Male_01 (.fbx originales).
+  Texturas de color reducidas a 1024 (JPG) y normal solo del material «body» a 512 (JPG).
+
+anim/ual-min.glb  (Quaternius, «Universal Animation Library [Standard]», CC0)
+  Recortado con tools/recortar-ual.ts: solo el esqueleto y los clips que usa el juego (sin mallas ni texturas).
+  Animaciones retargeteadas en tiempo de carga al esqueleto Bip01 de Rocketbox (src/render/retarget.ts).
+  Armas en la mano: modelos de guns/ (Quaternius, CC0).
+
+
+=== Limpieza v1.2 ===
+Se eliminaron de public/models los ficheros que el código ya no referencia: env/ (CardboardBoxes_1, Container_Small, Crate,
+Sofa_Small, Structure_1), guns/FireGrenade, furniture/ (bookcaseOpen, kitchenCoffeeMachine, laptop, plantSmall1, tableCross,
+trashcan), hdri/newman_lobby_1k, office/ (L-floor-planter-round, L-office-waste-bin, L-wall-clock), tex/marble_tiles,
+tex/large_grey_tiles, tex/white_plaster_02/color.jpg y anim/ual.glb (sustituido por ual-min.glb).

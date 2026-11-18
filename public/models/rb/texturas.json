@@ -1,0 +1,119 @@
+{
+ "Military_Male_01": {
+  "sm002_body": {
+   "color": "sm002_body_color_acu.jpg",
+   "normal": "sm002_body_normal.jpg"
+  },
+  "sm002_helmet": {
+   "color": "sm002_helmet_color_acu.jpg"
+  },
+  "sm002_head": {
+   "color": "sm002_head_color.jpg"
+  },
+  "sm002_equipment": {
+   "color": "sm002_equipment_color_acu.jpg"
+  },
+  "sm002_combat_knife": {
+   "color": "sm002_combat_knife_color.jpg"
+  }
+ },
+ "Military_Male_02": {
+  "sm024_head": {
+   "color": "sm024_head_color_acu.jpg"
+  },
+  "sm024_body": {
+   "color": "sm024_body_color_acu.jpg",
+   "normal": "sm024_body_normal.jpg"
+  }
+ },
+ "Military_Male_03": {
+  "sm004_equipment": {
+   "color": "sm004_equipment_color_acu.jpg"
+  },
+  "sm004_head": {
+   "color": "sm004_head_color.jpg"
+  },
+  "sm004_body": {
+   "color": "sm004_body_color_acu.jpg",
+   "normal": "sm004_body_normal.jpg"
+  },
+  "sm004_pistol": {
+   "color": "sm004_pistol_color.jpg"
+  },
+  "sm004_helmet": {
+   "color": "sm004_helmet_color_acu.jpg"
+  }
+ },
+ "Military_Male_04": {
+  "sm005_equipment": {
+   "color": "sm005_equipment_color_acu.jpg"
+  },
+  "sm005_head": {
+   "color": "sm005_head_color.jpg"
+  },
+  "sm005_helmet": {
+   "color": "sm005_helmet_color_acu.jpg"
+  },
+  "sm005_body": {
+   "color": "sm005_body_color_acu.jpg",
+   "normal": "sm005_body_normal.jpg"
+  }
+ },
+ "Military_Male_05": {
+  "sm022_body": {
+   "color": "sm022_body_color_acu.jpg",
+   "normal": "sm022_body_normal.jpg"
+  },
+  "sm022_head": {
+   "color": "sm022_head_color_acu.jpg"
+  }
+ },
+ "Police_Male_01": {
+  "m220_body": {
+   "color": "m220_body_color.jpg",
+   "normal": "m220_body_normal.jpg"
+  },
+  "m220_pistol": {
+   "color": "m220_pistol_color.jpg"
+  },
+  "m220_equipment": {
+   "color": "m220_equipment_color.jpg"
+  },
+  "m220_head": {
+   "color": "m220_head_color.jpg"
+  }
+ },
+ "Police_Male_02": {
+  "m158_pistol": {
+   "color": "m158_pistol_color.jpg"
+  },
+  "m158_head": {
+   "color": "m158_head_color.jpg"
+  },
+  "m158_opacity": {
+   "color": "m158_opacity_color.jpg"
+  },
+  "m158_equipment": {
+   "color": "m158_equipment_color.jpg"
+  },
+  "m158_helmet": {
+   "color": "m158_helmet_color.jpg"
+  },
+  "m158_body": {
+   "color": "m158_body_color.jpg",
+   "normal": "m158_body_normal.jpg"
+  }
+ },
+ "Security_Male_01": {
+  "m171_body": {
+   "color": "m171_body_color.jpg",
+   "normal": "m171_body_normal.jpg"
+  },
+  "m171_head": {
+   "color": "m171_head_color.jpg"
+  },
+  "m171_equipment": {
+   "color": "m171_equipment_color.jpg"
+  }
+ }
+}
