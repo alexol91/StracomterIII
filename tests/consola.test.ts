@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { AMMO_CAP, GRENADE_COUNT } from '../src/sim/data';
 import { emptyInput, type Kind } from '../src/sim/types';
-import { DT, clearZone, exec, killAllies, place, quickWorld, run } from './helpers';
+import { DT, calmar, exec, killAllies, place, quickWorld, run } from './helpers';
 
 const TIPOS: Kind[] = ['captain', 'technic', 'especialist', 'explosives', 'enemy1', 'enemy2', 'enemy3', 'miniboss', 'megaboss'];
 const EQUIPO: Record<Kind, 'ally' | 'enemy'> = {
@@ -26,7 +26,7 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
   it('21.15 · god: con un enemigo disparando al jugador su vida no baja; sin god, sí', () => {
     const escenario = (god: boolean) => {
       const { world } = quickWorld(1, 1);
-      clearZone(world);
+      calmar(world);
       killAllies(world);
       const p = world.player;
       place(world, p, 5.6, 2.2, Math.PI);
@@ -51,7 +51,7 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
 
   it('21.15 · god: también contra explosiones; al desactivarlo (segundo `god`) vuelve a recibir daño', () => {
     const { world } = quickWorld(1, 1);
-    clearZone(world);
+    calmar(world);
     const p = world.player;
     place(world, p, 3, 2.2);
     exec(world, 'god');
@@ -74,7 +74,7 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
   it('21.15 · noclip: andando contra un muro lo atraviesa; sin noclip se queda parado', () => {
     const intentar = (noclip: boolean) => {
       const { world } = quickWorld(1, 1);
-      clearZone(world);
+      calmar(world);
       killAllies(world);
       const p = world.player;
       place(world, p, 3.0, 3.4, 0);               // el tabique x∈[4.24,4.57] queda justo delante

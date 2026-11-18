@@ -169,8 +169,8 @@ export class World implements IWorld {
     this.updatePlayerField(true);
     this.enemyAI = new EnemyAI(this);
     this.director = new Director(this, cfg.director);
+    this.computeCam(yaw0, -0.12, 4.2); // antes de colocar a nadie: el director mira qué ve la cámara
     this.director.begin();
-    this.computeCam(yaw0, 0, 4.2);
   }
 
   // ───────────────────────── entidades ─────────────────────────

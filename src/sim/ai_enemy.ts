@@ -820,7 +820,12 @@ export class EnemyAI {
     const bl = b.belief;
     const age = w.time - bl.t;
     if (age > 14 && !b.hunt && !mega) { b.belief = null; b.aware = 0; return; }
-    if (u.shielded) u.aiState = 'escudo';
+    if (u.shielded) {
+      // Con el escudo puesto no dispara: la fase de refuerzos es contra los refuerzos (y un respiro del jefe).
+      u.aiState = 'escudo';
+      if (tgt) this.face(u, b, tgt); else b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
+      return;
+    }
     if (tgt) {
       const d = Math.hypot(tgt.x - u.x, tgt.y - u.y);
       this.face(u, b, tgt);

@@ -20,7 +20,7 @@ import { playZone } from '../tools/partida';
 import { FURNITURE } from '../src/sim/data';
 import { Level } from '../src/sim/level';
 import { emptyInput, type FurnitureType, type MapDef } from '../src/sim/types';
-import { DT, clearZone, killAllies, place, quickWorld } from './helpers';
+import { DT, calmar, killAllies, place, quickWorld } from './helpers';
 
 // ───────────────────────── 1. Paredes y puertas (21.5) ─────────────────────────
 
@@ -30,8 +30,7 @@ const TABIQUE_X = 4.4;
 function escenario() {
   const fx = quickWorld(1, 1);
   const { world } = fx;
-  clearZone(world);                       // sin enemigos del director, y director parado (zona 'cleared')
-  expect(world.status).toBe('cleared');
+  calmar(world);                          // sin enemigos del director y con el director parado
   killAllies(world);                      // sólo cuentan el enemigo y el jugador
   world.cheats.god = true;                // el jugador no puede morir a media prueba
   const enemy = world.spawnUnit("enemy1", 3.2, 3.2, false);

@@ -48,7 +48,8 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
   partida). Con 500 de vida y una escuadra que hace más de 200 de daño por segundo, sin esto el final
   del juego duraba tres segundos. Total de refuerzos: 24, más una escolta inicial de 6. Dispara en
   ráfagas de 0,8 s con pausas de 2,6-3,8 s y es muy impreciso contra un blanco que corre (quedarse
-  quieto delante de él sí se paga). En fase 2 añade granadas y en fase 3 cohetes y más velocidad.
+  quieto delante de él sí se paga). En fase 2 añade granadas y en fase 3 cohetes y más velocidad. Mientras lleva el escudo
+  no dispara: esa fase se pelea contra los refuerzos.
 * **Los jefes no se quedan sin munición.**
 * **Botín de los enemigos.** Al morir sueltan a veces una caja de munición pequeña (12 %) o un botiquín
   pequeño (10 %); los jefes, un botiquín mediano. La vida no se regenera y se arrastra de planta en
@@ -110,6 +111,11 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
 * Subtítulos desactivados por defecto (se activan en Opciones).
 
 ## Lo que se ha recortado
+
+* **El MiniBoss se ve desde la entrada en dos mapas** (pequeños de las plantas 2 y 6). Está donde el mapa
+  marca el punto del jefe y ese punto tiene línea de visión con el inicio. No aparece delante de ti —está
+  de guardia desde el principio— pero incumple el espíritu de «no verlos aparecer». El resto de enemigos
+  sí lo cumple (comprobado en `tests/director.test.ts`).
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo
   es simple**: el flanqueador busca un punto al otro lado del objetivo y va por un camino que evita lo

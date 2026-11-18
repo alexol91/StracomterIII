@@ -15,12 +15,12 @@
 import { describe, expect, it } from 'vitest';
 import { AMMO_CAP, CLASS_STATS, GRENADE_COUNT } from '../src/sim/data';
 import { CLASS_IDS, emptyInput, type ClassId } from '../src/sim/types';
-import { DT, clearZone, killAllies, place, pointAtDistance, quickWorld, run, step } from './helpers';
+import { DT, calmar, killAllies, place, pointAtDistance, quickWorld, run, step } from './helpers';
 
 /** Mundo de planta 1 zona 1 ya limpio (director parado) y sin compañeros: sólo el jugador y lo que se añada. */
 function limpio(cls: ClassId = 'captain', conAliados = false) {
   const fx = quickWorld(1, 1, { cls });
-  clearZone(fx.world);
+  calmar(fx.world);
   if (!conAliados) killAllies(fx.world);
   return fx;
 }

@@ -29,8 +29,9 @@ describe('21.14 / 19 · guardado y carga', () => {
     expect(campaign.hasSave()).toBe(false);
     const r = playZone(world, 600, true);
     expect(r.result).toBe('cleared');
+    const snap = world.memberSnapshot();               // lo que quedó en la partida, ANTES de cobrar la recompensa
     const sum = campaign.completeZone(state, world);
-    expect(sum.reward).toBe(ZONE_REWARD[2]);
+    expect(sum.reward).toBe(ZONE_REWARD[2]);           // zona 3: municion_50
     const cargado = campaign.load()!;
     expect(cargado).not.toBeNull();
     expect(cargado.floor).toBe(2);
@@ -39,13 +40,21 @@ describe('21.14 / 19 · guardado y carga', () => {
     expect(cargado.score).toBeGreaterThan(0);
     expect(cargado.score).toBe(world.stats.scoreGained);
     expect(Object.keys(cargado.members).sort()).toEqual([...CLASS_IDS].sort());
-    // lo guardado es lo que quedó en la partida: vida, munición total (cargador+reserva) e inventario
-    const snap = world.memberSnapshot();
+    // lo guardado es lo que quedó en la partida (vida, munición total cargador+reserva, inventario) más la recompensa:
+    // en la primera ranura libre del inventario o, si está lleno, aplicada al momento (+50 balas).
     for (const c of CLASS_IDS) {
-      const m = cargado.members[c];
+      const m = cargado.members[c], s0 = snap[c]!;
       expect(m.inv).toHaveLength(5);
-      expect(m.hp).toBe(snap[c]!.hp);
-      expect(m.ammo).toBe(snap[c]!.ammo);
+      expect(m.hp).toBe(s0.hp);
+      const libre = s0.inv.indexOf(null);
+      if (libre >= 0) {
+        expect(m.ammo).toBe(s0.ammo);
+        expect(m.inv[libre]).toBe('municion_50');
+        expect(m.inv.filter((x, i) => i !== libre)).toEqual(s0.inv.filter((_, i) => i !== libre));
+      } else {
+        expect(m.ammo).toBe(Math.min(999, s0.ammo + 50));
+        expect(m.inv).toEqual(s0.inv);
+      }
       expect(m.hp).toBeGreaterThan(0);
       expect(m.hp).toBeLessThanOrEqual(world.entities.find(e => e.kind === c)!.maxHp);
     }

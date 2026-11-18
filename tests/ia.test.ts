@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { playZone } from '../tools/partida';
 import { emptyInput } from '../src/sim/types';
 import type { Unit, World } from '../src/sim/world';
-import { DT, clearZone, dist, killAllies, quickWorld, run } from './helpers';
+import { DT, calmar, dist, killAllies, quickWorld, run } from './helpers';
 
 describe('21.6 · no se atascan', () => {
   const zonas: [number, number][] = [[1, 1], [1, 3], [1, 5], [4, 3], [7, 5]];
@@ -68,7 +68,7 @@ describe('21.6 · patrullan', () => {
 
   it('21.6 · control: el desplazamiento se debe a la patrulla (sin ruta no se mueven): enemigo suelto sin escuadra no sale de su sitio', () => {
     const { world } = quickWorld(1, 5);
-    clearZone(world);
+    calmar(world);
     killAllies(world);
     const e = world.spawnUnit('enemy1', world.player.x + 20, world.player.y, false);
     const x0 = e.x, y0 = e.y;
@@ -80,7 +80,7 @@ describe('21.6 · patrullan', () => {
 
 // ───────────────────────── Oído (14) ─────────────────────────
 
-/** Coloca `n` enemigos sueltos a 10-26 m andando del jugador y SIN línea de visión con él (en ningún sentido). */
+/** Coloca `n` enemigos sueltos a 8-18 m andando del jugador y SIN línea de visión con él (en ningún sentido). */
 function enemigosEscondidos(world: World, n: number): Unit[] {
   const p = world.player, L = world.level;
   const out: Unit[] = [];
@@ -89,7 +89,7 @@ function enemigosEscondidos(world: World, n: number): Unit[] {
       if (!L.inside(gx, gy) || !L.walkableAt(gx, gy, false)) continue;
       const wd = world.walkDistToPlayer(gx, gy);
       const d = Math.hypot(gx - p.x, gy - p.y);
-      if (!(wd >= 10 && wd <= 26 && d >= 5 && d <= 22)) continue;
+      if (!(wd >= 8 && wd <= 18 && d >= 4 && d <= 16)) continue;
       if (out.some(o => Math.hypot(o.x - gx, o.y - gy) < 3)) continue;
       // sin visión en ninguno de los dos sentidos: sólo puede enterarse por el oído
       const hide = [0.9, 1.7].some(z => L.clear(p.x, p.y, 1.6, gx, gy, z, 'sight') || L.clear(gx, gy, 1.6, p.x, p.y, z, 'sight'));
@@ -103,52 +103,55 @@ function enemigosEscondidos(world: World, n: number): Unit[] {
 }
 
 describe('14 · oído', () => {
-  const montar = () => {
-    const { world } = quickWorld(1, 1);
-    clearZone(world);
+  const montar = (floor: number, zone: number) => {
+    const { world } = quickWorld(floor, zone);
+    calmar(world);
     killAllies(world);
     world.cheats.god = true;
     const p = world.player;
     const hits = enemigosEscondidos(world, 5);
     return { world, p, hits };
   };
+  const mapas: [number, number][] = [[1, 1], [2, 1], [4, 2], [6, 1]];
 
-  it('14 · control: sin disparar, ninguno pasa a «va a mirar» (el jugador quieto no hace ruido)', () => {
-    const { world, hits } = montar();
-    expect(hits.length).toBeGreaterThanOrEqual(3);
-    let miraron = 0;
-    run(world, 6, emptyInput(), () => { for (const e of hits) if (e.aiState === 'va a mirar') miraron++; });
-    expect(miraron).toBe(0);
-  });
+  for (const [floor, zone] of mapas) {
+    it(`14 · planta ${floor} zona ${zone}: control — sin disparar, ninguno pasa a «va a mirar» (el jugador quieto no hace ruido)`, () => {
+      const { world, hits } = montar(floor, zone);
+      expect(hits.length, 'enemigos ocultos que se han podido colocar').toBeGreaterThanOrEqual(2);
+      let miraron = 0;
+      run(world, 6, emptyInput(), () => { for (const e of hits) if (e.aiState === 'va a mirar') miraron++; });
+      expect(miraron).toBe(0);
+    });
 
-  it('14 · el jugador dispara sin ser visto: varios enemigos pasan a «va a mirar» en < 3 s y se acercan al disparo', () => {
-    const { world, p, hits } = montar();
-    expect(hits.length).toBeGreaterThanOrEqual(3);
-    run(world, 0.5);                                           // asentarse
-    const d0 = new Map(hits.map(e => [e.id, dist(e, p)]));
-    const inp = emptyInput();
-    // dispara contra el suelo/paredes de delante: lo único relevante es el ruido del disparo
-    inp.fire = true;
-    inp.yaw = p.yaw;
-    const reaccion = new Map<number, number>();
-    const t0 = world.time;
-    const tFin = 3;
-    while (world.time - t0 < tFin) {
-      world.step(DT, inp);
-      p.mag = p.magSize;
-      for (const e of hits) if (e.aiState === 'va a mirar' && !reaccion.has(e.id)) reaccion.set(e.id, world.time - t0);
-    }
-    const oyentes = hits.filter(e => reaccion.has(e.id));
-    // seguir la marcha unos segundos para ver que de verdad se acercan (ya sin disparar)
-    inp.fire = false;
-    run(world, 4, inp);
-    const seAcercan = oyentes.filter(e => e.alive && dist(e, p) < d0.get(e.id)! - 1.0);
-    console.log(`[14] ${hits.length} enemigos ocultos; ${oyentes.length} pasan a 'va a mirar' (primeros en ${[...reaccion.values()].map(v => v.toFixed(2)).join(', ')} s); ${seAcercan.length} se acercan > 1 m`);
-    expect(oyentes.length, 'enemigos que reaccionan al disparo en < 3 s').toBeGreaterThanOrEqual(2);
-    for (const e of oyentes) expect(reaccion.get(e.id)!).toBeLessThan(3);
-    expect(seAcercan.length, 'enemigos que además se acercan a la posición del disparo').toBeGreaterThanOrEqual(2);
-    expect(world.status).not.toBe('dead');
-  });
+    it(`14 · planta ${floor} zona ${zone}: el jugador dispara sin ser visto → varios pasan a «va a mirar» en < 3 s y se acercan al disparo`, () => {
+      const { world, p, hits } = montar(floor, zone);
+      expect(hits.length, 'enemigos ocultos que se han podido colocar').toBeGreaterThanOrEqual(2);
+      run(world, 0.5);                                           // asentarse
+      const d0 = new Map(hits.map(e => [e.id, dist(e, p)]));
+      const inp = emptyInput();
+      // dispara hacia delante: lo único relevante es el ruido del disparo (a 30 m por donde se anda)
+      inp.fire = true;
+      inp.yaw = p.yaw;
+      const reaccion = new Map<number, number>();
+      const t0 = world.time;
+      while (world.time - t0 < 3) {
+        world.step(DT, inp);
+        p.mag = p.magSize;
+        for (const e of hits) if (e.aiState === 'va a mirar' && !reaccion.has(e.id)) reaccion.set(e.id, world.time - t0);
+      }
+      const oyentes = hits.filter(e => reaccion.has(e.id));
+      // seguir unos segundos más, ya sin disparar, para comprobar que de verdad se acercan
+      inp.fire = false;
+      run(world, 4, inp);
+      const seAcercan = oyentes.filter(e => e.alive && dist(e, p) < d0.get(e.id)! - 1.0);
+      console.log(`[14] P${floor}Z${zone}: ${hits.length} enemigos ocultos (a ${hits.map(e => d0.get(e.id)!.toFixed(0)).join(', ')} m); ` +
+        `${oyentes.length} pasan a 'va a mirar' (en ${[...reaccion.values()].map(v => v.toFixed(2)).join(', ')} s); ${seAcercan.length} se acercan > 1 m`);
+      expect(oyentes.length, 'enemigos que reaccionan al disparo en < 3 s').toBeGreaterThanOrEqual(2);
+      for (const e of oyentes) expect(reaccion.get(e.id)!).toBeLessThan(3);
+      expect(seAcercan.length, 'enemigos que además se acercan a la posición del disparo').toBeGreaterThanOrEqual(2);
+      expect(world.status).not.toBe('dead');
+    });
+  }
 
   it('14 · el sonido se propaga por donde se anda: la puerta cerrada amortigua y el tabique obliga a rodear', () => {
     const { world } = quickWorld(1, 1);

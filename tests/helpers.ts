@@ -109,3 +109,15 @@ export function pointAtDistance(world: World, cx: number, cy: number, d: number,
   }
   return null;
 }
+
+/**
+ * Zona limpia y «congelada» para escenarios a mano: mata a todos, deja correr el director hasta que no quede nadie por
+ * salir y luego lo desactiva y vuelve a poner el estado en 'playing'. Hace falta porque con status 'cleared' la
+ * simulación ya no hiere a los aliados (World.damage), y los escenarios de daño necesitan que sí.
+ * LIMITACIÓN: el director queda sin efecto (no suelta refuerzos ni declara la zona limpia): sólo para escenarios aislados.
+ */
+export function calmar(world: World, maxSeconds = 300): void {
+  clearZone(world, maxSeconds);
+  world.status = 'playing';
+  world.director.update = () => { /* congelado */ };
+}

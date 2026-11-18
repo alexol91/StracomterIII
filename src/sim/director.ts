@@ -195,7 +195,7 @@ export class Director {
     return pts;
   }
 
-  private spawnGroup(kinds: EnemyKind[], at: Vec2, hunt: boolean, routeRadius: number): Squad {
+  private spawnGroup(kinds: EnemyKind[], at: Vec2, hunt: boolean, routeRadius: number, minDist = 0, hidden = true): Squad {
     const w = this.w, L = w.level;
     const s = w.enemyAI.newSquad(at, hunt);
     s.route = this.routeAround(at, 3, routeRadius); // también los de caza: si te pierden, patrullan
@@ -205,9 +205,15 @@ export class Director {
       for (let t = 0; t < 12 && cell < 0; t++) {
         const a = (k * 2.4) + t, r = 0.6 + 0.45 * Math.sqrt(k + t);
         const c = L.cellOf(at[0] + Math.cos(a) * r, at[1] + Math.sin(a) * r);
-        if (c >= 0 && L.passable(c, true) && !L.doorCell[c] && w.pField[c] < Infinity && L.walkLine(at[0], at[1], L.cellX(c), L.cellY(c), true)) cell = c;
+        if (c < 0 || !L.passable(c, true) || L.doorCell[c] || !(w.pField[c] < Infinity)) continue;
+        const mx = L.cellX(c), my = L.cellY(c);
+        if (!L.walkLine(at[0], at[1], mx, my, true)) continue;
+        // cada miembro cumple las reglas por sí mismo, no solo el punto del grupo
+        if (Math.hypot(mx - w.player.x, my - w.player.y) < minDist) continue;
+        if (hidden && this.visibleToPlayer(mx, my)) continue;
+        cell = c;
       }
-      if (cell < 0) cell = L.nearestFree(at[0], at[1], true);
+      if (cell < 0) cell = L.nearestFree(at[0], at[1], true); // el propio punto elegido, que sí las cumple
       const u = w.spawnUnit(kind, L.cellX(cell), L.cellY(cell), w.time > 0);
       w.enemyAI.join(u, s);
       k++;
@@ -223,9 +229,11 @@ export class Director {
     while (i < kinds.length) {
       const n = Math.min(kinds.length - i, groupSize + (this.w.rng() < 0.4 ? 1 : 0));
       let at: Vec2 | null = null;
-      for (let relax = 0; relax <= 6 && !at; relax++) at = this.pickSpawn(relax);
-      if (!at) at = this.w.level.map.punto_jefe;
-      this.spawnGroup(kinds.slice(i, i + n), at, false, 12);
+      // al empezar se afloja la distancia si el mapa no da para más, pero NUNCA la regla de no estar a la vista
+      let relax = 0;
+      for (; relax <= 4 && !at; relax++) at = this.pickSpawn(relax);
+      if (!at) { this.qAsc.push(...kinds.slice(i, i + n)); i += n; continue; } // no hay sitio justo: llegarán como oleada
+      this.spawnGroup(kinds.slice(i, i + n), at, false, 12, Math.max(5, 12 - (relax - 1) * 2));
       i += n;
     }
   }
@@ -241,7 +249,7 @@ export class Director {
     const at = this.pickSpawn(relax);
     if (!at) return false;
     this.failSince = -1;
-    const s = this.spawnGroup(q.splice(0, n), at, hunt, 10);
+    const s = this.spawnGroup(q.splice(0, n), at, hunt, 10, Math.max(5, 12 - relax * 2), relax < 5);
     if (!hunt) {
       // oleada del ascenso: viene hacia la zona donde anda el jugador, sin saber exactamente dónde está
       const p = w.player;
