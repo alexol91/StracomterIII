@@ -56,6 +56,8 @@ interface Brain {
   /** ya está en su puesto de cobertura (aunque no clave el punto exacto) */
   atHide: boolean;
   peekDone: boolean;
+  /** a quién dispara en la ráfaga en curso */
+  fireTarget: number;
   hideDone: boolean;
 }
 
@@ -77,7 +79,7 @@ export class Squad {
 }
 
 // Dispersión (sigma, rad). Además, un blanco que corre es mucho más difícil: la velocidad del jugador es su defensa.
-const SPREAD: Record<EnemyKind, number> = { enemy1: 0.085, enemy2: 0.07, enemy3: 0.055, miniboss: 0.03, megaboss: 0.07 };
+const SPREAD: Record<EnemyKind, number> = { enemy1: 0.085, enemy2: 0.07, enemy3: 0.055, miniboss: 0.03, megaboss: 0.12 };
 /** distancia a la que le gusta pelear a cada tipo [mín, máx] */
 const BAND: Record<EnemyKind, [number, number]> = { enemy1: [5, 11], enemy2: [8, 16], enemy3: [11, 21], miniboss: [6, 14], megaboss: [5, 14] };
 
@@ -125,7 +127,7 @@ export class EnemyAI {
       visId: -1, senseAt: this.w.time + this.w.rng() * 0.1, role: 'assault', cover: null, hide: null, peek: null, peeking: false,
       phaseUntil: 0, coverCheckAt: 0, cycles: 0, band: 0, dest: null, patrolI: 0, waitUntil: 0, searchPts: [], inv: null,
       reactAt: 0, burstUntil: 0, restUntil: 0, faceYaw: u.yaw, alerted: false, hunt: s.hunt, home: s.home, lastSawAt: -99,
-      specialAt: this.w.time + 3, unstuck: 0, atHide: false, peekDone: false, hideDone: false,
+      specialAt: this.w.time + 3, unstuck: 0, atHide: false, peekDone: false, hideDone: false, fireTarget: -1,
     };
   }
 
@@ -639,15 +641,31 @@ export class EnemyAI {
     if (w.time < b.reactAt || u.reloading > 0 || u.mag <= 0 || u.fireCd > 0) return false;
     if (w.time < b.restUntil) return false;
     if (w.time > b.burstUntil) {
-      if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + 0.35 + w.rng() * 0.6; b.burstUntil = 0; return false; }
-      b.burstUntil = w.time + 0.7 + w.rng() * 0.9;
+      // El MegaBoss dispara en ráfagas largas con pausas claras: la pausa es la ventana para asomarse.
+      const mega = u.kind === 'megaboss';
+      if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + (mega ? 2.2 + w.rng() * 1.0 : 0.35 + w.rng() * 0.6); b.burstUntil = 0; return false; }
+      // Turnos de fuego: contra un mismo blanco solo dispara a la vez un número limitado de enemigos
+      // (más cuanto más alta la planta). El resto espera su turno cubierto o maniobrando. Sin esto, 40
+      // enemigos en una planta diáfana son un pelotón de fusilamiento y no hay táctica que valga.
+      if (!mega && u.kind !== 'miniboss') {
+        const limit = t.isPlayer ? 2 + Math.floor(w.floor / 3) : 2;
+        let n = 0;
+        for (const o of w.entities) {
+          if (o === u || !o.alive || o.team !== 'enemy') continue;
+          const ob = o.brain as Brain;
+          if (ob.fireTarget === t.id && ob.burstUntil > w.time) n++;
+        }
+        if (n >= limit) { b.restUntil = w.time + 0.3 + w.rng() * 0.4; return false; }
+      }
+      b.fireTarget = t.id;
+      b.burstUntil = w.time + (mega ? 1.0 : 0.7 + w.rng() * 0.9);
     }
     if (Math.abs(angDiff(Math.atan2(t.y - u.y, t.x - u.x), u.yaw)) > 0.22) return false;
     const az = w.shotLine(u, t);
     if (az < 0) return false;
     const tv = Math.hypot(t.vx, t.vy);
     const moving = Math.hypot(u.vx, u.vy) > 0.4 ? 0.02 : 0;
-    w.fire(u, t.x, t.y, az * 0.85, (SPREAD[u.ekind!] + tv * 0.013 + (t.crouch ? 0.015 : 0) + moving) * spreadMul);
+    w.fire(u, t.x, t.y, az * 0.85, (SPREAD[u.ekind!] + tv * (u.kind === 'megaboss' ? 0.03 : 0.013) + (t.crouch ? 0.015 : 0) + moving) * spreadMul);
     u.fireCd = 1 / u.stats.rof;
     return true;
   }
@@ -813,7 +831,7 @@ export class EnemyAI {
         u.aiState = 'fase ' + phase;
         if (this.tryShoot(u, b, tgt, phase >= 3 ? 0.9 : 1.1) && phase >= 3) u.fireCd /= 1.5;
         if (phase >= 2 && w.time > b.specialAt && d > 4 && facing) {
-          b.specialAt = w.time + (phase >= 3 ? 4 : 6);
+          b.specialAt = w.time + (phase >= 3 ? 6 : 8);
           w.launch(u, phase >= 3 ? 'rocket' : 'grenade', tgt.x + tgt.vx * 0.4, tgt.y + tgt.vy * 0.4, 26);
         }
       }

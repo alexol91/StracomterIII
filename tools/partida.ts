@@ -69,7 +69,8 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
     } else {
       // ir hacia el enemigo vivo más cercano (el bot «sabe» dónde están: es un bot de pruebas)
       let goal: Unit | null = null, gd = Infinity;
-      for (const e of world.entities) { if (e.alive && e.team === 'enemy') { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < gd) { gd = d; goal = e; } } }
+      for (const e of world.entities) { if (e.alive && e.team === 'enemy') { const d = Math.hypot(e.x - p.x, e.y - p.y) + (e.shielded ? 1000 : 0); if (d < gd) { gd = d; goal = e; } } }
+      if (goal && goal.shielded) goal = null; // con el escudo puesto no tiene sentido acercarse al jefe
       // como haría una persona: si va tocado o seco y hay botín, primero a por él
       let gx = goal ? goal.x : p.x, gy = goal ? goal.y : p.y;
       const needHp = p.hp < p.maxHp * 0.75, needAmmo = total < 40;
@@ -108,6 +109,13 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       const tt = Math.max(0, Math.min(pr.fuse, 1.5));
       const ix = pr.x + pr.vx * tt, iy = pr.y + pr.vy * tt;
       if (pr.team === 'enemy' && Math.hypot(ix - p.x, iy - p.y) < 4.5) { input.moveR = (Math.floor(world.time / 3) % 2 ? 1 : -1); input.moveF = 0; input.fire = false; break; }
+    }
+    // a un jefe no se le pelea a quemarropa: si está a menos de 9 m, retrocede sin dejar de mirarle
+    for (const e of world.entities) {
+      if (e.alive && e.kind === 'megaboss' && Math.hypot(e.x - p.x, e.y - p.y) < 9) {
+        const away = Math.atan2(p.y - e.y, p.x - e.x) - input.yaw;
+        input.moveF = Math.cos(away); input.moveR = Math.sin(away);
+      }
     }
     world.step(1 / 60, input);
 
@@ -163,7 +171,7 @@ if (isMain) {
   } else {
     const zone = parseInt(args[1] || '1', 10);
     let st: CampaignState = campaign.newCampaign((process.env.DIF as any) || 'normal', cls);
-    let ok = true;
+    let ok = true, retries = 0;
     while (st.floor <= 9) {
       const loaded = campaign.load();
       if (st.floor > 1 && (!loaded || loaded.floor !== st.floor)) { console.log('FALLO: no se guardó la planta', st.floor); ok = false; }
@@ -176,7 +184,9 @@ if (isMain) {
       const w = campaign.startZone(st, z) as World;
       const r = playZone(w, 1200, god);
       console.log(fmt(r));
+      if (r.result === 'dead' && retries < 5) { retries++; campaign.failZone(st); console.log(`  → muerto; reintenta la planta (intento ${retries + 1}, ajuste ${st.adapt})`); continue; }
       if (r.result !== 'cleared') { ok = false; console.log('  → la campaña se para aquí'); break; }
+      retries = 0;
       const sum = campaign.completeZone(st, w);
       console.log(`     recompensa ${sum.reward} → ${sum.rewarded.join(', ')}; caídos: ${sum.fallen.join(', ') || 'ninguno'}; puntos ${sum.totalScore}; ajuste ${st.adapt}` + (sum.campaignWon ? '  *** VICTORIA ***' : ''));
     }

@@ -936,12 +936,10 @@ function despacho(c: Ctx, r: Rect, rica: boolean): number {
 
 function furnishLeaf(c: Ctx, l: Leaf, budget: number): number {
   const n = furnishLeaf0(c, l, budget);
-  if (process.env.DBG_ROOM) console.log('LEAF', l.role, JSON.stringify(l.r), Math.round(budget), n);
   if (n > 0 || l.role === 'pas' || l.role === 'laberinto') return n;
   // sala que no admitió su patrón: al menos un escritorio con su silla, estanterías y una maceta
   const r: Rect = { x0: l.r.x0 + 0.185, y0: l.r.y0 + 0.185, x1: l.r.x1 - 0.185, y1: l.r.y1 - 0.185 };
   const n2 = despacho(c, r, false);
-  if (process.env.DBG_ROOM && n2 === 0) console.log('SALA VACIA', l.role, JSON.stringify(l.r), __why);
   return n2;
 }
 
@@ -1208,9 +1206,15 @@ function intentoSalas(floor: number, size: Size, plan: Plan, intento: number): M
         else { wallShelves(ctx, r, 2); plants(ctx, r, 1); }
       }
     }
+    // recorta grupos al azar (no los últimos: así no se vacía la última sala)
     while (ctx.furn.length > Math.min(rgMob[1], T0 + 2)) {
-      const g = ctx.furn[ctx.furn.length - 1].gid;
-      while (ctx.furn.length && ctx.furn[ctx.furn.length - 1].gid === g) ctx.furn.pop();
+      // primero los grupos pequeños (estanterías sueltas, macetas, sofás): los patrones de la planta se quedan
+      const tam = new Map<number, number>();
+      for (const f of ctx.furn) tam.set(f.gid, (tam.get(f.gid) ?? 0) + 1);
+      const pequenos = [...tam.entries()].filter(([, n]) => n <= 2).map(([g]) => g);
+      const todos = [...tam.keys()];
+      const g = pequenos.length ? pequenos[Math.floor(rng() * pequenos.length)] : todos[Math.floor(rng() * todos.length)];
+      ctx.furn = ctx.furn.filter((f) => f.gid !== g);
     }
   }
   const mobiliario = ctx.furn.map((f) => ({ tipo: f.tipo, pos: [f.x, f.y] as Vec2, angulo: f.ang }));
@@ -1328,12 +1332,12 @@ function intentoComercial(floor: number, size: Size, intento: number): MapInfo |
     if (!inPer(x, y, 1.2)) continue;
     const q = rng();
     if (q < 0.22) put(ctx, [['mesa_con_sillas', x, y, 0], ['sofa', x - 0.665 - 0.02 - 0.295, y, 0], ['sofa', x + 0.665 + 0.02 + 0.295, y, 180]]);
-    else if (q < 0.40) put(ctx, [['sofa', x, y, 0], ['sofa', x, y + 1.62, 0], ['sofa', x, y + 3.24, 0], ['maceta', x + 0.9, y - 1.4, 0]]);
-    else if (q < 0.55) put(ctx, [['mesa_con_sillas', x, y, Math.round(rr(rng, -25, 25)) || 12], ['mesa_con_sillas', x + 1.35, y, 0]]);
-    else if (q < 0.70) put(ctx, [['mesa', x, y, 90], ['mesa', x, y + 0.58, 90], silla(ctx, x - 0.3, y - 0.56), silla(ctx, x + 0.3, y + 1.15)]);
+    else if (q < 0.40) put(ctx, [['sofa', x, y, 0], ['sofa', x, y + 1.62, 0], ['sofa', x, y + 3.24, 0], ['maceta', x + 0.3 + 0.02 + 0.135, y - 0.8 - 0.02 - 0.135, 0]]);
+    else if (q < 0.55) put(ctx, [['mesa_con_sillas', x, y, 0], ['mesa_con_sillas', x + 1.35, y, 0], ['mesa_con_sillas', x + 2.7, y + 1.35, 0]]);
+    else if (q < 0.70) put(ctx, [['mesa', x, y, 90], ['mesa', x, y + 0.58, 90], silla(ctx, x - 0.3, y - 0.69), silla(ctx, x + 0.3, y + 1.27)]);
     else if (q < 0.82) put(ctx, [['butaca', x, y, 0], ['mesa', x + 0.6, y, 0], ['butaca', x + 1.2, y, 180]]);
-    else if (q < 0.92) put(ctx, [['sofa', x, y, 90], ['sofa', x + 1.62, y, 90], ['mesa', x + 0.8, y + 0.9, 90]]);
-    else put(ctx, [['maceta', x, y, 0], ['maceta', x + 1.3, y + 0.4, 0], ['maceta', x + 0.4, y + 1.5, 0]]);
+    else if (q < 0.92) put(ctx, [['sofa', x, y, 90], ['sofa', x + 1.62, y, 90], ['mesa', x + 0.81, y + 0.6, 90]]);
+    else put(ctx, [['maceta', x, y, 0], ['maceta', x + 1.6, y + 0.4, 0], ['maceta', x + 0.5, y + 1.7, 0]]);
   }
   while (ctx.furn.length > rg.mob[1]) {
     const g = ctx.furn[ctx.furn.length - 1].gid;

@@ -504,7 +504,9 @@ export class World implements IWorld {
       return;
     }
     if (hit) {
-      const mult = hit.zone === 'head' ? HEAD_MULT : hit.zone === 'limb' ? LIMB_MULT : 1;
+      // «Apuntar importa» (§13) premia a quien apunta: la escuadra. Los enemigos no multiplican por zona
+      // (un ×2,5 fortuito de 40 tiradores a la vez mataba sin que el jugador pudiera hacer nada). Ver DECISIONES.
+      const mult = u.team === 'enemy' ? 1 : hit.zone === 'head' ? HEAD_MULT : hit.zone === 'limb' ? LIMB_MULT : 1;
       if (u.isPlayer) this.stats.shotsHit++;
       this.damage(hit.u, u.stats.damage * mult, u, hit.zone, u.x, u.y);
     }
@@ -630,8 +632,9 @@ export class World implements IWorld {
       this.enemyAI.onDeath(t);
       // botín ocasional (ver DECISIONES): evita quedarse sin munición si cae el Especialista
       const boss = t.kind === 'miniboss' || t.kind === 'megaboss';
-      if (boss || this.rng() < 0.14) {
-        this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : 'municion_20', x: t.x, y: t.y, taken: false });
+      const r = this.rng();
+      if (boss || r < 0.22) {
+        this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : r < 0.12 ? 'municion_20' : 'vida_20', x: t.x, y: t.y, taken: false });
       }
     } else if (t.isPlayer) {
       this.status = 'dead';

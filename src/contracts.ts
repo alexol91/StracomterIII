@@ -121,6 +121,8 @@ export interface ICampaign {
   startZone(state: CampaignState, zone: number): IWorld;
   /** Llamar cuando world.status === 'cleared'. Modifica y devuelve el estado nuevo (planta+1, recompensas, muertos) y GUARDA (salvo partida rápida). */
   completeZone(state: CampaignState, world: IWorld): ZoneSummary;
+  /** Llamar al morir (world.status === 'dead'): el ajuste dinámico baja un escalón y se guarda. No toca nada más. */
+  failZone(state: CampaignState): void;
   save(state: CampaignState): void;
   load(): CampaignState | null;
   hasSave(): boolean;

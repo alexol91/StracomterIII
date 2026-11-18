@@ -301,6 +301,7 @@ function showDefeat(): void {
   controls.setActive(false);
   hud.show(false);
   audio.ui('defeat');
+  if (state) campaign.failZone(state); // el ajuste dinámico afloja un escalón tras una derrota
   const floor = world?.floor ?? state?.floor ?? 1;
   const zone = world?.zone ?? 1;
   screens.show(() => defeatScreen({ floor, zone, onRetry: retryFloor, onMenu: showTitle }));

@@ -93,7 +93,7 @@ export function createCampaign(storage: KVStorage): ICampaign {
       return new World({
         map: zi.map, floor: state.floor, zone: zi.zone, controlled,
         members: state.members, director: directorConfig(state, state.floor, zi.size),
-        seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97),
+        seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131,
       });
     },
     completeZone(state, world) {
@@ -130,6 +130,11 @@ export function createCampaign(storage: KVStorage): ICampaign {
       state.floor = world.floor + 1;
       if (!state.quick) { if (campaignWon) self.clearSave(); else self.save(state); }
       return { floor: world.floor, zone: world.zone, stats: { ...world.stats }, reward, rewarded, fallen, totalScore: state.score, campaignWon };
+    },
+    failZone(state) {
+      // «si va ahogado, baja»: morir es la señal más clara. Un escalón por intento.
+      state.adapt = Math.max(-3, state.adapt - 1);
+      if (!state.quick) self.save(state);
     },
     save(state) {
       if (state.quick) return;
