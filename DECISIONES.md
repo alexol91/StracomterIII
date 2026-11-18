@@ -210,6 +210,22 @@ análisis de producto («me gustan todas las ideas… vamos a ello»). Lo que ca
 Sin comprobar con el bot: el bot no esprinta ni apunta al hombro, así que el equilibrio de esas dos
 mecánicas solo está probado a mano. Las pruebas `tests/v12-*.test.ts` anotan qué no cubren.
 
+## v1.3, oleada de combate (decisión del dueño, 2026-11-18)
+
+Añadidos que no están en el documento, aprobados por el dueño. Lo que cambia respecto al encargo:
+
+* **Compañeros derribados**: al llegar a 0 de vida quedan 25 s en el suelo y se les puede reanimar (mantener E 3 s, o lo hace otro compañero) con el 30 % de vida. Si no, mueren para siempre, como pide el encargo. **Suaviza la regla «un compañero muerto sigue muerto»**: dicho en voz alta.
+* **Voltereta** (Espacio): 3,5 m en 0,5 s, mitad de daño de explosiones los primeros 0,25 s, 1,5 s de espera.
+* **Granadas tácticas**: además de 3 explosivas, 2 cegadoras (ciegan 3 s a quien la ve a ≤ 9 m, también a ti y a los tuyos 2 s) y 1 de humo (8 s; tapa la visión, no las balas).
+* **Recarga**: recargar con balas conserva una en recámara; esprintar la cancela.
+* **Dos armas principales por clase** (se elige en Estrategia), con el daño por segundo de la alternativa dentro de ±10 %: fusil de ráfaga (pausa de 0,23 s en vez de los 0,32 s previstos, que daban −26 %), escopeta de 8 perdigones, fusil de tirador y lanzador de rebote.
+* **Orden contextual** (botón central) y **combos** de habilidades: marcado + Supresión clava 3 s; Demolición aturde 2 s al otro lado del boquete; Hackeo sin puerta a la vista apaga las luces 10 s (los enemigos ven la mitad). Antes el Hackeo sin puerta fallaba.
+* **Cuatro oficios de enemigo** que sustituyen (no añaden) enemigos normales — 10 % en planta 2, 20 % en 3-4, 28 % en 5-6, 35 % en 7-9: asaltante (a cuchillo, 20 de daño), granadero, tirador (láser de 1,4 s —1,0 s en difícil— y bala de 30) y blindado (escudo frontal; lo baja al recargar, con explosión o cegadora). Los números se bajaron respecto al diseño (tirador 55→30 y 1 vivo como máximo, cuchillada 25→20, blindado más lento disparando) **porque el bot no sabe esquivar el láser ni rodear el escudo**; a los compañeros IA, láser, cuchillada y embestida les hacen ×0,4 porque tampoco esquivan. Queda pendiente subirlos cuando se prueben con personas.
+* **Jefes de planta distintos**: artillero (el de siempre) en 2 y 6, ametrallador en 3 y 7, ariete en 4 y 8, patrón con escoltas que lo curan en 5; en 6-8 con +15 % de vida y dos acompañantes de oficio. Cada uno avisa su ataque y queda expuesto (×1,5 de daño) después.
+* **Avisos**: círculo donde va a estallar una granada o cohete, láser del tirador, pasillos de embestida y de barrido, y frases cortas ligadas al estado real de enemigos y compañeros.
+* **Mando**: soporte de mando estándar con vibración; sin probar con un mando real.
+* Equilibrio medido con el bot (una campaña por celda, con mucha varianza): Fácil 0 muertes, Normal 2-3, Difícil 0-1. Antes de los oficios, Normal eran 0-2.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo

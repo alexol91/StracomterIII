@@ -48,6 +48,7 @@ export function directorConfig(state: CampaignState, floor: number, size: 'peque
     megaboss: floor === 9,
     reinforcements: Math.max(4, Math.round(12 * diff * (1 + 0.1 * state.adapt) * solo)),
     tactics: floor >= 2 ? 1 : 0,
+    difficulty: state.difficulty, // v1.3: el láser del tirador apunta menos tiempo en difícil
   };
 }
 
@@ -147,7 +148,7 @@ export function createCampaign(storage: KVStorage, now: () => Date = () => new D
       return new World({
         map: zi.map, floor: state.floor, zone: zi.zone, controlled,
         members, director: directorConfig(state, state.floor, zi.size),
-        baseScore: state.score, upgrades: (state.upgrades ?? []).slice(),
+        baseScore: state.score, upgrades: (state.upgrades ?? []).slice(), loadout: { ...(state.loadout ?? {}) },
         seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131 + (state.retries ?? 0) * 17,
       });
     },
@@ -210,6 +211,11 @@ export function createCampaign(storage: KVStorage, now: () => Date = () => new D
       // «si va ahogado, baja»: morir es la señal más clara. Un escalón por intento.
       state.adapt = Math.max(-3, state.adapt - 1);
       state.retries = (state.retries ?? 0) + 1;
+      if (!state.quick) self.save(state);
+    },
+    setLoadout(state, cls, variant) {
+      if (variant !== 0 && variant !== 1) return;
+      state.loadout = { ...(state.loadout ?? {}), [cls]: variant };
       if (!state.quick) self.save(state);
     },
     chooseUpgrade(state, id) {

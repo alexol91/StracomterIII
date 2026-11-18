@@ -13,11 +13,12 @@ import { calmar, killAllies, memStorage, place, puntoLibre } from './helpers';
 export interface Mundo { world: World; p: Unit; state: CampaignState; campaign: ReturnType<typeof createCampaign>; storage: ReturnType<typeof memStorage>; x: number; y: number }
 
 /** Mundo quieto de planta 1 zona 1: director congelado, jugador en un claro de ≥3,5 m, sin compañeros (salvo `aliados`). */
-export function mundo(opts: { upgrades?: string[]; cls?: ClassId; aliados?: boolean; difficulty?: Difficulty } = {}): Mundo {
+export function mundo(opts: { upgrades?: string[]; cls?: ClassId; aliados?: boolean; difficulty?: Difficulty; loadout?: Partial<Record<ClassId, 0 | 1>> } = {}): Mundo {
   const storage = memStorage();
   const campaign = createCampaign(storage);
   const state = campaign.newQuickPlay(opts.difficulty ?? 'normal', opts.cls ?? 'captain', 1);
   state.upgrades = (opts.upgrades ?? []).slice();
+  if (opts.loadout) for (const [c, v] of Object.entries(opts.loadout)) campaign.setLoadout(state, c as ClassId, v as 0 | 1);
   const world = campaign.startZone(state, 1) as World;
   calmar(world);
   if (!opts.aliados) killAllies(world);

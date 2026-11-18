@@ -143,6 +143,8 @@ const ICONS: Record<string, string> = {
   focus: '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/></g>',
   second: '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.5a3 3 0 116 0c0 2-3 2.5-3 5M12 18v.5"/></g>',
   scav: '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h6l2-4 3 8 2-4h3"/><circle cx="4" cy="12" r="1"/></g>',
+  smoke: '<g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 18a4 4 0 010-8 5 5 0 019-1 4 4 0 011 9z"/></g>',
+  cross: '<path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z"/>',
   shield: '<path d="M12 2l8 3v6c0 5-3.4 9-8 11-4.6-2-8-6-8-11V5z"/>',
   bolt: '<path d="M13 2L4 14h6l-1 8 9-12h-6z"/>',
   arrow: '<path d="M3 12l14-8v5h4v6h-4v5z"/>',

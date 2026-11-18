@@ -9,7 +9,7 @@ import './ui/styles.css';
 import type {
   RecordEntry, CampaignState, ConsoleHost, IAudio, IConsole, IControls, ICampaign, IRenderer, IWorld, KVStorage, MusicTrack, ZoneSummary,
 } from './contracts';
-import type { ClassId, PlayerInput } from './sim/types';
+import type { ClassId, OrderKind, PlayerInput } from './sim/types';
 import { CLASS_IDS, emptyInput } from './sim/types';
 import { createRenderer } from './render';
 import { createAudio } from './audio';
@@ -17,7 +17,7 @@ import { createControls } from './input';
 import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
 import { onLangChange, setLang, t } from './ui/i18n';
-import { loadSettings, saveSettings, takeBindingsNotice } from './ui/settings';
+import { loadSettings, saveSettings, takeBindingsNotice, setDeviceProvider } from './ui/settings';
 import { asset, button, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
@@ -164,7 +164,7 @@ function hideLoading(): void {
 // Dentro de #ui, de abajo arriba: HUD, capa de pantallas, carga, consola.
 const screensLayer = h('div', { id: 'screens' });
 const screens = new Screens(screensLayer);
-const hud = new Hud(uiRoot, () => settings, () => controls.isTouch, () => togglePause());
+const hud = new Hud(uiRoot, () => settings, () => controls.isTouch, () => togglePause(), (x, y, z) => renderer.project(x, y, z));
 uiRoot.appendChild(screensLayer);
 uiRoot.appendChild(loadingEl);
 const consoleUi = new ConsoleOverlay(uiRoot, runConsole, () => closeConsole());
@@ -173,6 +173,45 @@ const tutorial = new Tutorial(uiRoot, {
   isTouch: () => controls.isTouch,
   project: (x, y, z) => renderer.project(x, y, z),
 }, () => { /* el tutorial ya queda marcado en localStorage */ });
+
+// Dispositivo de entrada en uso (teclado, táctil o mando): las ayudas de tecla muestran el botón del mando si toca
+setDeviceProvider(() => (controls as unknown as { lastDevice?: 'keyboard' | 'touch' | 'gamepad' }).lastDevice ?? (controls.isTouch ? 'touch' : 'keyboard'));
+
+/** Vibración del mando (si el módulo de controles la ofrece y el ajuste está activo). */
+function rumble(strong: number, weak: number, ms: number): void {
+  if (settings.vibration === false) return;
+  const c = controls as unknown as { rumble?: (a: number, b: number, c: number) => void };
+  try { c.rumble?.(strong, weak, ms); } catch { /* sin vibración */ }
+}
+
+// ───────────────────────────── Rueda de órdenes (mantener el botón de ping) ─────────────────────────────
+
+const WHEEL: { kind: OrderKind; cls: string }[] = [
+  { kind: 'follow', cls: 'n' }, { kind: 'goto', cls: 'e' }, { kind: 'focus', cls: 's' }, { kind: 'hold', cls: 'w' },
+];
+const wheelSecs = WHEEL.map((w) => h('div', { class: 'os ' + w.cls }, t('order.' + w.kind)));
+const wheelDot = h('div', { class: 'od' });
+const wheelEl = h('div', { class: 'owheel' }, ...wheelSecs, wheelDot);
+uiRoot.appendChild(wheelEl);
+let pingDownAt = -1;
+let wheelOpen = false;
+let wheelX = 0, wheelY = 0;
+let wheelSel = -1;
+let pendingOrder: OrderKind | null = null;
+
+function wheelUpdate(): void {
+  const len = Math.hypot(wheelX, wheelY);
+  wheelSel = len < 25 ? -1 : Math.abs(wheelX) > Math.abs(wheelY) ? (wheelX > 0 ? 1 : 3) : (wheelY > 0 ? 2 : 0);
+  wheelSecs.forEach((el, i) => el.classList.toggle('sel', i === wheelSel));
+  const k = len > 60 ? 60 / len : 1;
+  wheelDot.style.transform = `translate(${Math.round(wheelX * k)}px, ${Math.round(wheelY * k)}px)`;
+}
+function wheelClose(send: boolean): void {
+  if (wheelOpen && send && wheelSel >= 0) pendingOrder = WHEEL[wheelSel].kind;
+  wheelOpen = false;
+  pingDownAt = -1;
+  wheelEl.classList.remove('on');
+}
 
 // ───────────────────────────── Ajustes aplicados ─────────────────────────────
 
@@ -192,6 +231,7 @@ onLangChange(() => {
   hud.relabel();
   consoleUi.relabel();
   tutorial.relabel();
+  wheelSecs.forEach((el, i) => { el.textContent = t('order.' + WHEEL[i].kind); });
 });
 
 // ───────────────────────────── Música ─────────────────────────────
@@ -227,6 +267,7 @@ function setUnloadGuard(on: boolean): void {
 }
 
 function leaveGame(): void {
+  wheelClose(false);
   setUnloadGuard(false);
   tutorial.stop(null);
   world = null;
@@ -294,6 +335,12 @@ function showStrategy(): void {
     state: st, zones,
     onEnter: enterZone,
     onControl: (c: ClassId) => { st.controlled = c; },
+    onLoadout: (c, v) => {
+      // El selector de variante lo implementa la simulación (campaign.setLoadout); si aún no existe, se guarda en el estado
+      try { (campaign as unknown as { setLoadout?: (s: CampaignState, c: ClassId, v: 0 | 1) => void }).setLoadout?.(st, c, v); } catch (err) { reportError(err); }
+      if (!st.loadout) st.loadout = {};
+      st.loadout[c] = v;
+    },
     onMenu: showTitle,
   }));
 }
@@ -533,6 +580,12 @@ function neutralInput(src: PlayerInput): PlayerInput {
 function simulate(dtReal: number): void {
   const w = world!;
   const input = controls.poll(dtReal, w);
+  // Rueda de órdenes: se abre al mantener el botón de ping más de 0,35 s; la orden elegida entra por el mismo camino que las teclas
+  if (pingDownAt >= 0 && !wheelOpen && performance.now() - pingDownAt > 350 && !controls.isTouch) {
+    wheelOpen = true; wheelX = 0; wheelY = 0; wheelSel = -1; wheelUpdate();
+    wheelEl.classList.add('on');
+  }
+  if (pendingOrder) { input.order = pendingOrder; pendingOrder = null; }
   acc += dtReal;
   let n = 0;
   while (acc >= STEP && n < MAX_STEPS) {
@@ -540,6 +593,10 @@ function simulate(dtReal: number): void {
     renderer.onEvents(w.events);
     audio.handleEvents(w);
     hud.onEvents(w);
+    for (const ev of w.events) {
+      if (ev.type === 'hurt' && ev.id === w.player.id) rumble(0.5, 0.3, 120);
+      else if (ev.type === 'explosion' && Math.hypot(ev.x - w.player.x, ev.y - w.player.y) < 7) rumble(0.7, 0.7, 200);
+    }
     tutorial.onEvents(w);
     acc -= STEP;
     n++;
@@ -693,6 +750,24 @@ function onGlobalKey(e: KeyboardEvent): void {
   }
 }
 window.addEventListener('keydown', onGlobalKey, true);
+
+// Ping / rueda de órdenes: el botón (o tecla) asignado a «ping»; el ratón mueve el selector mientras se mantiene
+function isPingCode(code: string): boolean { return code !== '' && code === settings.bindings.ping; }
+window.addEventListener('mousedown', (e) => {
+  if (screen === 'game' && !consoleUi.isOpen && isPingCode('Mouse' + e.button)) pingDownAt = performance.now();
+}, true);
+window.addEventListener('mouseup', (e) => { if (isPingCode('Mouse' + e.button)) wheelClose(true); }, true);
+window.addEventListener('keydown', (e) => {
+  if (screen === 'game' && !consoleUi.isOpen && !e.repeat && isPingCode(e.code)) pingDownAt = performance.now();
+}, true);
+window.addEventListener('keyup', (e) => { if (isPingCode(e.code)) wheelClose(true); }, true);
+window.addEventListener('mousemove', (e) => {
+  if (!wheelOpen) return;
+  wheelX += e.movementX || 0; wheelY += e.movementY || 0;
+  const len = Math.hypot(wheelX, wheelY);
+  if (len > 90) { wheelX *= 90 / len; wheelY *= 90 / len; }
+  wheelUpdate();
+});
 
 // ?test=1: en pruebas automáticas el panel pierde el foco y el pointer lock sin parar; ahí no se pausa sola
 const testMode = DEBUG && params.has('test');

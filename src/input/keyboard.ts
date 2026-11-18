@@ -9,6 +9,7 @@ export const DEFAULT_BINDINGS: Record<Action, string> = {
   fire: 'Mouse0', knife: 'KeyV', sprint: 'ShiftLeft', aim: 'Mouse2', reload: 'KeyR', grenade: 'KeyG', ability: 'KeyF',
   interact: 'KeyE', useItem: 'KeyT', cycleItem: 'Tab', crouch: 'ControlLeft',
   orderFollow: 'KeyZ', orderGoto: 'KeyX', orderFocus: 'KeyB', orderHold: 'KeyN',
+  roll: 'Space', ping: 'Mouse1',
   slot1: 'Digit1', slot2: 'Digit2', slot3: 'Digit3', slot4: 'Digit4', lastWeapon: 'KeyQ',
   pause: 'Escape', console: 'Backquote',
 };
@@ -25,6 +26,8 @@ export interface KeyboardHooks {
   core: Core;
   onPause(): void;
   onConsole(): void;
+  /** Aviso de que el último dispositivo usado es el teclado/ratón. */
+  onDevice(): void;
   /** false en modo táctil: ahí los eventos de ratón los atiende la capa táctil. */
   useMouse: boolean;
 }
@@ -38,6 +41,9 @@ export interface KeyHeld {
   crouch: boolean;
   sprint: boolean;
   aim: boolean;
+  /** botón de ping mantenido (para la rueda de órdenes de la interfaz) */
+  ping: boolean;
+  interactHold: boolean;
 }
 
 export interface KeyboardCtl {
@@ -68,7 +74,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   let ignorePauseUntil = 0;
   let lastWheelAt = -1000;
 
-  const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false };
+  const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false, ping: false, interactHold: false };
 
   function rebuild(): void {
     byCode = new Map();
@@ -122,6 +128,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
           case 'slot2': input.weaponSlot = 'secondary'; break;
           case 'slot3': input.weaponSlot = 'knife'; break;
           case 'slot4': input.weaponSlot = 'grenade'; break;
+          case 'roll': input.roll = true; break;
+          case 'ping': input.ping = true; break;
           case 'lastWeapon': input.weaponLast = true; break;
           case 'orderFollow': input.order = 'follow'; break;
           case 'orderGoto': input.order = 'goto'; break;
@@ -146,6 +154,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   // ───────── teclado ─────────
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!active || isTextTarget(e.target)) return;
+    hooks.onDevice();
     if (BLOCKED.has(e.code)) e.preventDefault();
     // Con el ratón capturado, Ctrl+tecla de juego no debe llegar al navegador (Ctrl+W no es cancelable).
     if (e.ctrlKey && locked && !e.code.startsWith('Control')) e.preventDefault();
@@ -173,6 +182,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
     if (!inGame(t)) return;
     // Un botón de la interfaz (pausa, etc.) no es un clic de juego.
     if (t && typeof t.closest === 'function' && t.closest('button, a, input, select, textarea, [role="button"], [data-ui]')) return;
+    hooks.onDevice();
     const code = 'Mouse' + e.button;
     if (e.button === 1) e.preventDefault(); // autoscroll del botón central
     down.add(code);
@@ -189,6 +199,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   };
   const onMouseMove = (e: MouseEvent): void => {
     if (!active || !hooks.useMouse) return;
+    if (e.movementX || e.movementY) hooks.onDevice();
     let mx = e.movementX;
     let my = e.movementY;
     if (!locked) {
@@ -276,7 +287,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
 
     update(dt: number): KeyHeld {
       if (!active) {
-        held.moveF = 0; held.moveR = 0; held.fire = false; held.knife = false; held.crouch = false; held.sprint = false; held.aim = false;
+        held.moveF = 0; held.moveR = 0; held.fire = false; held.knife = false; held.crouch = false; held.sprint = false; held.aim = false; held.ping = false; held.interactHold = false;
         return held;
       }
       // Flechas: giran la vista siempre, con o sin pointer lock (no dependen de la sensibilidad).
@@ -291,6 +302,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       held.crouch = isHeld('crouch') || latch.has('crouch') || (!byCode.has('KeyC') && down.has('KeyC'));
       held.sprint = isHeld('sprint') || latch.has('sprint');
       held.aim = isHeld('aim') || latch.has('aim');
+      held.ping = isHeld('ping');
+      held.interactHold = isHeld('interact');
       latch.clear();
       return held;
     },

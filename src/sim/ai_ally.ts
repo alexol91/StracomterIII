@@ -4,6 +4,7 @@
 
 import { FORMATION_BY_CONTROLLED, FORMATION_SLOTS, ITEM_EFFECT } from './data';
 import type { ClassId, Vec2 } from './types';
+import { DOWNED } from './data';
 import { angDiff, type Unit, type World } from './world';
 
 interface AllyBrain {
@@ -21,6 +22,9 @@ interface AllyBrain {
   slotAt: number;
   extra: boolean;
   unstuck: number;
+  /** v1.3 — órdenes contextuales pendientes: abrir una puerta / ir a por un objeto (con plazo) */
+  openDoor?: { id: number; until: number } | null;
+  fetch?: { id: number; until: number } | null;
 }
 
 function brainOf(w: World, u: Unit): AllyBrain {
@@ -44,6 +48,25 @@ function slotOffset(w: World, u: Unit): [number, number] {
   // aliados extra (consola): detrás, repartidos
   const k = u.id % 5;
   return [(k - 2) * 1.1, 2.6];
+}
+
+/** ¿A quién debe reanimar `u`? El Capitán IA lo prioriza (si está a ≤ 14 m); si no, el más cercano sin enemigos a la vista. */
+function reviveTarget(w: World, u: Unit): Unit | null {
+  const ais = w.entities.filter(a => a.alive && !a.downed && a.team === 'ally' && !a.isPlayer && a.brain);
+  let best: Unit | null = null, bd = Infinity;
+  for (const e of w.entities) {
+    if (!e.alive || !e.downed || e === u) continue;
+    const d = Math.hypot(e.x - u.x, e.y - u.y);
+    const cap = ais.find(a => a.cls === 'captain' && a !== e && Math.hypot(e.x - a.x, e.y - a.y) <= 14);
+    let me: Unit | null = null;
+    if (cap) me = cap;
+    else {
+      let nd = Infinity;
+      for (const a of ais) { if (a === e || (a.brain as AllyBrain).visible > 0) continue; const k = Math.hypot(e.x - a.x, e.y - a.y); if (k < nd) { nd = k; me = a; } }
+    }
+    if (me === u && d < bd) { bd = d; best = e; }
+  }
+  return best;
 }
 
 export function allyThink(w: World, u: Unit, dt: number): void {
@@ -71,6 +94,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
       if (e.shielded) s += 50;
       if (s < bs) { bs = s; best = e; }
     }
+    if (n > 0 && b.visible === 0) w.bark(u, 'ally.contact');
     b.visible = n;
     const prev = b.targetId;
     b.targetId = best ? best.id : -1;
@@ -88,7 +112,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
   // esquivar granadas y cohetes
   let dodge = false;
   for (const pr of w.projectiles) {
-    if (pr.dead) continue;
+    if (pr.dead || pr.kind === 'flash' || pr.kind === 'smoke') continue;
     const t = Math.max(0, Math.min(pr.fuse, 1.5));
     const ix = pr.x + pr.vx * t, iy = pr.y + pr.vy * t;
     const d = Math.hypot(ix - u.x, iy - u.y);
@@ -108,6 +132,11 @@ export function allyThink(w: World, u: Unit, dt: number): void {
   const hurtBad = u.hp < u.maxHp * (lowMorale ? 0.6 : 0.35);
   const obey = !lowMorale; // con la moral baja priorizan sobrevivir: no van a puntos lejanos ni persiguen
 
+  // v1.3: reanimar a un compañero derribado, abrir una puerta o ir a por un objeto (órdenes contextuales)
+  const rv = dodge ? null : reviveTarget(w, u);
+  let reviving = false;
+  if (b.openDoor && w.time > b.openDoor.until) b.openDoor = null;
+  if (b.fetch && (w.time > b.fetch.until || w.pickups.find(k => k.id === b.fetch!.id)?.taken !== false)) b.fetch = null;
   if (!dodge) {
     // posición de formación respecto a la espalda del jugador (se recalcula cada poco)
     if (w.time - b.slotAt > 0.25) {
@@ -126,7 +155,21 @@ export function allyThink(w: World, u: Unit, dt: number): void {
     const dPlayer = Math.hypot(p.x - u.x, p.y - u.y);
     const [ox, oy] = slotOffset(w, u);
 
-    if (hurtBad && captain && captain !== u && Math.hypot(captain.x - u.x, captain.y - u.y) > 3.5) {
+    if (rv) {
+      const dr = Math.hypot(rv.x - u.x, rv.y - u.y);
+      gx = rv.x; gy = rv.y; want = dr > 1.2; arriveR = 1.1; label = 'reanima';
+      if (dr <= 1.5) { reviving = true; want = false; w.reviveTick(rv, u, dt); w.bark(u, 'ally.reviving'); }
+    } else if (b.openDoor) {
+      const d = L.doors[b.openDoor.id];
+      if (!d || d.open) b.openDoor = null;
+      else {
+        gx = d.cx; gy = d.cy; want = true; arriveR = 1.0; label = 'abre';
+        if (Math.hypot(d.cx - u.x, d.cy - u.y) < 1.5) { w.toggleDoor(d.id, true, u); b.openDoor = null; }
+      }
+    } else if (b.fetch) {
+      const pk = w.pickups.find(k => k.id === b.fetch!.id);
+      if (pk) { gx = pk.x; gy = pk.y; want = true; arriveR = 0.3; label = 'recoge'; }
+    } else if (hurtBad && captain && captain !== u && Math.hypot(captain.x - u.x, captain.y - u.y) > 3.5) {
       gx = captain.x; gy = captain.y; want = true; arriveR = 2.5; label = 'al Capitán';
     } else if (total < 12 && spec && spec !== u && Math.hypot(spec.x - u.x, spec.y - u.y) > 3.5) {
       gx = spec.x; gy = spec.y; want = true; arriveR = 2.5; label = 'al Especialista';
@@ -165,7 +208,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
 
   // ── combate ──
   const suppressing = u.cls === 'especialist' && u.abilityActive > 0;
-  if (hasT) {
+  if (hasT && !reviving) {
     const t = tgt!;
     const d = Math.hypot(t.x - u.x, t.y - u.y);
     b.faceYaw = Math.atan2(t.y - u.y, t.x - u.x);
@@ -205,6 +248,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
       }
     }
     if (u.mag <= 0 && u.ammo > 0) w.startReload(u);
+    if (total <= 0 && u.mag <= 0) w.bark(u, 'ally.empty');
     if (label === 'formación' || label === 'mantiene') label = 'dispara';
     // quieto y bajo fuego: se agacha (menos blanco, y aprovecha los muebles)
     if (Math.hypot(u.wishX, u.wishY) < 0.3 && (w.order.kind === 'hold' || w.time - b.hurtAt < 2.5)) u.crouch = true;

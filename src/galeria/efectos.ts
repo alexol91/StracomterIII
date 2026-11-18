@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Fx } from '../render/fx';
+import { ThreatLayer } from '../render/threats';
 import { getStyleMode, setStyleMode } from '../render/style';
 import type { IWorld } from '../contracts';
 import type { GameEvent } from '../sim/types';
@@ -39,6 +40,9 @@ const world = {
   cam: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 },
   player: { id: 1 },
   projectiles: [] as unknown[],
+  threats: [] as unknown[],
+  smokes: [] as unknown[],
+  lightsOffUntil: 0,
   order: { kind: 'follow', x: 0, y: 0, targetId: -1 },
   entities: [], pickups: [], time: 0,
   entityById: () => undefined,
@@ -46,7 +50,8 @@ const world = {
 } as unknown as IWorld;
 
 const fx = new Fx();
-scene.add(fx.group);
+const threats = new ThreatLayer();
+scene.add(fx.group, threats.group);
 (fx as unknown as { setHighQuality(on: boolean): void }).setHighQuality(true);
 const q0 = new URLSearchParams(location.search).get('quality');
 let quality: 'low' | 'medium' | 'high' = q0 === 'low' || q0 === 'medium' ? q0 : 'high';
@@ -89,6 +94,22 @@ function cohete(): void {
   }, 16);
 }
 
+// ── v1.3: humo, cegadora, avisos y escudo
+let nextId = 100;
+function humo(): void {
+  (world.smokes as unknown[]).push({ id: nextId++, x: 0, y: -1, r: 3.5, from: world.time, until: world.time + 10 });
+  ev([{ type: 'smoke', x: 0, y: -1, z: 0.5, radius: 3.5, duration: 10 } as GameEvent]);
+}
+function cegadora(): void { ev([{ type: 'flash', x: 0, y: -2, z: 1.2, radius: 5, playerBlind: 0 } as GameEvent]); }
+function aviso(kind: 'blast' | 'laser' | 'charge' | 'lane'): void {
+  const t = world.time;
+  const th = kind === 'blast' ? { fx: 0, fy: 0, x: -2, y: -1, r: 2.5 }
+    : kind === 'laser' ? { fx: 3, fy: 2, x: 0, y: -1, r: 0 }
+    : { fx: -4, fy: -4, x: 4, y: 0, r: 1.6 };
+  (world.threats as unknown[]).push({ id: nextId++, kind, ...th, from: t, at: t + 2.5, ownerId: 2 });
+}
+function escudo(): void { ev([{ type: 'shieldHit', id: 2, x: 1, y: -4.8, z: 1.2 } as GameEvent]); }
+
 const barra = document.getElementById('barra')!;
 const boton = (txt: string, f: () => void): void => { const b = document.createElement('button'); b.textContent = txt; b.onclick = f; barra.appendChild(b); };
 boton('Explosión (granada, r=2,5)', () => explosion(2.5));
@@ -99,7 +120,13 @@ boton('Pistola', () => rafaga('enemy1', 8));
 boton('Ráfaga (secundaria)', () => rafaga('captain', 12, 'secondary'));
 boton('Impactos (pared, mueble, puerta, suelo, cuerpo)', impactos);
 boton('Cohete', cohete);
-boton('Limpiar', () => { fx.clear(); });
+boton('Humo', humo);
+boton('Cegadora', cegadora);
+boton('Aviso: blast', () => aviso('blast'));
+boton('Aviso: láser', () => aviso('laser'));
+boton('Aviso: embestida', () => aviso('charge'));
+boton('Escudo (impacto)', escudo);
+boton('Limpiar', () => { fx.clear(); threats.clear(); (world.threats as unknown[]).length = 0; (world.smokes as unknown[]).length = 0; });
 const sel = (opts: string[], val: string, f: (v: string) => void): void => {
   const s = document.createElement('select');
   for (const o of opts) { const op = document.createElement('option'); op.value = o; op.textContent = o; if (o === val) op.selected = true; s.appendChild(op); }
@@ -125,6 +152,9 @@ function loop(now: number): void {
   (world.cam as { x: number; y: number; z: number }).z = camera.position.y;
   controls.update();
   fx.update(dt, world, world.time, camera);
+  world.threats = (world.threats as { at: number }[]).filter((t) => t.at + 0.5 > world.time) as never;
+  world.smokes = (world.smokes as { until: number }[]).filter((c) => c.until + 1 > world.time) as never;
+  threats.update(world, world.time, camera, dt);
   // sacudida (si el juego la aplicara): pequeña vibración de la cámara para ver su intensidad
   const sh = fx.shake;
   const off = sh > 0 ? new THREE.Vector3((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh) : null;

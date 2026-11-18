@@ -38,6 +38,9 @@ npm run preview    # sirve dist/ para comprobarlo
 | Mayús · Ctrl (o C) | Correr · agacharse |
 | R · E · F | Recargar · puerta · habilidad de clase |
 | G · V | Granada rápida · cuchillada rápida |
+| Espacio · botón central | Voltereta · orden contextual (mantener: rueda de órdenes) |
+| 4 otra vez | Cambiar de tipo de granada (explosiva, cegadora, humo) |
+| E mantenida | Reanimar a un compañero derribado |
 | T · Tab | Usar objeto · cambiar de objeto |
 | Z · X · B · N | Órdenes: a mí · ir ahí · enfocar eso · mantener posición |
 | Alt + rueda · Esc | Zoom · pausa |

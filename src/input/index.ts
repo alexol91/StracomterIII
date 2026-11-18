@@ -4,6 +4,7 @@ import type { IControls, IWorld, Settings } from '../contracts';
 import { emptyInput } from '../sim/types';
 import { createKeyboard } from './keyboard';
 import { createTouch } from './touch';
+import { createGamepad } from './gamepad';
 import { PITCH_MAX, PITCH_MIN, angleDiff, clamp } from './shared';
 import type { Core } from './shared';
 
@@ -27,7 +28,19 @@ function detectTouch(): { isTouch: boolean; forced: boolean } {
   return { isTouch: coarse || (points > 0 && !fine), forced };
 }
 
-export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IControls {
+/** Dispositivo del que vino la última entrada (para que la interfaz cambie los iconos). */
+export type InputDevice = 'keyboard' | 'touch' | 'gamepad';
+
+/** IControls más lo añadido en v1.3. */
+export interface ControlsExt extends IControls {
+  lastDevice: InputDevice;
+  /** Botón de ping (clic central) mantenido ahora mismo (ordenador). */
+  pingHeld: boolean;
+  /** Vibración del mando; no hace nada si no hay mando o no soporta vibración. */
+  rumble(strong: number, weak: number, ms: number): void;
+}
+
+export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): ControlsExt {
   const { isTouch, forced } = detectTouch();
   const input = emptyInput();
   input.aimAssist = isTouch; // obligatorio en táctil, apagado en ordenador
@@ -46,8 +59,11 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
     },
   };
 
-  const ctl: IControls = {
+  const ctl: ControlsExt = {
     isTouch,
+    lastDevice: isTouch ? 'touch' : 'keyboard',
+    pingHeld: false,
+    rumble(strong: number, weak: number, ms: number): void { gp.rumble(strong, weak, ms); },
     onPause: null,
     onConsole: null,
 
@@ -55,9 +71,10 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
       active = a;
       kb.setActive(a);
       if (touch) touch.setActive(a);
+      gp.setPlaying(a);
       if (!a) {
         input.moveF = 0; input.moveR = 0;
-        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false;
+        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false; input.interactHold = false;
       }
     },
 
@@ -65,33 +82,38 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
       settings = s;
       kb.applySettings(s);
       if (touch) touch.applySettings(s);
-      input.aimAssist = isTouch;
+      input.aimAssist = isTouch || ctl.lastDevice === 'gamepad';
     },
 
     poll(dt: number, world: IWorld): PlayerInputRef {
       const d = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
       if (!active) {
         input.moveF = 0; input.moveR = 0;
-        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false;
+        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false; input.interactHold = false;
         return input;
       }
       const k = kb.update(d);
       const t = touch ? touch.update(d, world) : null;
+      const p = gp.update(d);
+      if (p.used) ctl.lastDevice = 'gamepad';
+      ctl.pingHeld = k.ping;
 
-      // Movimiento: teclado + stick, normalizado para no pasar de 1.
-      let f = k.moveF + (t ? t.moveF : 0);
-      let r = k.moveR + (t ? t.moveR : 0);
+      // Movimiento: teclado + stick táctil + stick del mando, normalizado para no pasar de 1.
+      let f = k.moveF + (t ? t.moveF : 0) + p.moveF;
+      let r = k.moveR + (t ? t.moveR : 0) + p.moveR;
       const len = Math.hypot(f, r);
       if (len > 1) { f /= len; r /= len; }
       input.moveF = f;
       input.moveR = r;
 
-      input.fire = k.fire || (t ? t.fire : false);
-      input.knife = k.knife || (t ? t.knife : false);
-      input.crouch = k.crouch || (t ? t.crouch : false);
-      input.sprint = k.sprint || (t ? t.sprint : false);
-      input.aim = k.aim || (t ? t.aim : false);
-      input.aimAssist = isTouch;
+      input.fire = k.fire || (t ? t.fire : false) || p.fire;
+      input.knife = k.knife || (t ? t.knife : false) || p.knife;
+      input.crouch = k.crouch || (t ? t.crouch : false) || p.crouch;
+      input.sprint = k.sprint || (t ? t.sprint : false) || p.sprint;
+      input.aim = k.aim || (t ? t.aim : false) || p.aim;
+      input.interactHold = k.interactHold || (t ? t.interactHold : false) || p.interactHold;
+      // Táctil: asistido siempre. Mando: asistido suave si fue la última entrada.
+      input.aimAssist = isTouch || ctl.lastDevice === 'gamepad';
 
       // Imán del apuntado asistido (solo táctil).
       if (isTouch && world && world.assist) {
@@ -117,6 +139,7 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
 
     dispose(): void {
       kb.dispose();
+      gp.dispose();
       if (touch) touch.dispose();
     },
   };
@@ -126,8 +149,15 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
     useMouse: !isTouch,
     onPause: () => { if (ctl.onPause) ctl.onPause(); },
     onConsole: () => { if (ctl.onConsole) ctl.onConsole(); },
+    onDevice: () => { ctl.lastDevice = 'keyboard'; },
+  });
+  const gp = createGamepad({
+    core,
+    onPause: () => { if (ctl.onPause) ctl.onPause(); },
+    isPlaying: () => active,
   });
   const touch = isTouch ? createTouch(root, canvas, core, forced) : null;
+  if (touch) touch.onTouch = () => { ctl.lastDevice = 'touch'; };
 
   return ctl;
 }

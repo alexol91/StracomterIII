@@ -1,8 +1,9 @@
 // Director: cuántos enemigos, de qué tipo, dónde y cuándo aparecen (§8 y §9), el jefe y las fases del MegaBoss.
 
-import type { Squad } from './ai_enemy';
+import { applyBossVariant, applyVariant, type Squad } from './ai_enemy';
+import { BOSS_ESCORTED, BOSS_LATE, FLOOR_BOSS, VARIANT_ALIVE_CAP, VARIANT_BASE, VARIANT_ORDER, VARIANT_SHARE, VARIANT_UNLOCK } from './data';
 import { CELL } from './level';
-import type { EnemyKind, Vec2 } from './types';
+import type { BossVariant, EnemyKind, EnemyVariant, Vec2 } from './types';
 import type { Unit, World } from './world';
 
 export interface DirectorConfig {
@@ -16,6 +17,47 @@ export interface DirectorConfig {
   reinforcements: number;
   /** 0 = sin flanqueo ni repliegue (planta 1) */
   tactics: number;
+  /** v1.3 — dificultad (el láser del tirador apunta menos tiempo en difícil). Si falta se toma 'normal'. */
+  difficulty?: 'easy' | 'normal' | 'hard';
+  /** v1.3 — fuerza la variante del jefe de planta (pruebas); por defecto FLOOR_BOSS[planta] */
+  bossVariant?: BossVariant;
+}
+
+/** v1.3 — un puesto en la cola de apariciones: tipo base y, si lo lleva, oficio. */
+export interface Slot { kind: EnemyKind; variant: EnemyVariant | null }
+
+/** v1.3 — cuántos enemigos de cada oficio tocan en una planta con `n` enemigos normales (reparto a partes iguales entre los desbloqueados). */
+export function variantCounts(n: number, floor: number): Record<EnemyVariant, number> {
+  const out: Record<EnemyVariant, number> = { asaltante: 0, granadero: 0, tirador: 0, blindado: 0 };
+  const share = VARIANT_SHARE[floor] ?? 0;
+  const un = VARIANT_ORDER.filter(v => floor >= VARIANT_UNLOCK[v]);
+  if (share <= 0 || un.length === 0) return out;
+  const total = Math.round(n * share);
+  for (let i = 0; i < total; i++) out[un[i % un.length]]++;
+  return out;
+}
+
+/**
+ * v1.3 — reparte los oficios sobre una lista de enemigos normales. Sustituye, no añade: devuelve una lista igual de larga.
+ * Cada oficio sale de su tipo base preferido (VARIANT_BASE). Determinista con `rng`.
+ */
+export function assignVariants(kinds: EnemyKind[], floor: number, rng: () => number): Slot[] {
+  const out: Slot[] = kinds.map(kind => ({ kind, variant: null }));
+  const cnt = variantCounts(kinds.length, floor);
+  // primero los más exigentes con su tipo base (blindado y tirador quieren Veteranos)
+  for (const v of VARIANT_ORDER.slice().reverse()) {
+    for (let k = 0; k < cnt[v]; k++) {
+      let free: number[] = [];
+      for (const base of VARIANT_BASE[v]) {
+        free = [];
+        for (let i = 0; i < out.length; i++) if (!out[i].variant && out[i].kind === base) free.push(i);
+        if (free.length) break;
+      }
+      if (!free.length) break;
+      out[free[Math.floor(rng() * free.length)]].variant = v;
+    }
+  }
+  return out;
 }
 
 interface SpawnCand { x: number; y: number; access: boolean }
@@ -24,10 +66,10 @@ interface SpawnCand { x: number; y: number; access: boolean }
 const ALIVE_CAP = 44;
 
 export class Director {
-  private qAsc: EnemyKind[] = [];
-  private qPeak: EnemyKind[] = [];
-  private qRelief: EnemyKind[] = [];
-  private qBoss: EnemyKind[] = []; // refuerzos del MegaBoss ya liberados
+  private qAsc: Slot[] = [];
+  private qPeak: Slot[] = [];
+  private qRelief: Slot[] = [];
+  private qBoss: Slot[] = []; // refuerzos del MegaBoss ya liberados
   private bossReserve = 0;         // refuerzos de fases aún no alcanzadas
   private cands: SpawnCand[] = [];
   private recent: Vec2[] = [];
@@ -62,11 +104,47 @@ export class Director {
     return out;
   }
 
+  /** v1.3 — n enemigos normales con su parte de oficios ya repartida. */
+  private slots(n: number): Slot[] { return assignVariants(this.kinds(n), this.w.floor, this.w.rng); }
+
+  /**
+   * v1.3 — saca `n` puestos de la cola respetando el máximo de cada oficio vivo a la vez: el que no cabe cede el turno
+   * al siguiente; si en la cola ya solo quedan oficios al tope, sale como enemigo normal (nunca se bloquea la cola).
+   */
+  private take(q: Slot[], n: number): Slot[] {
+    const cnt: Record<EnemyVariant, number> = { asaltante: 0, granadero: 0, tirador: 0, blindado: 0 };
+    for (const e of this.w.entities) if (e.alive && e.team === 'enemy' && e.variant) cnt[e.variant]++;
+    const out: Slot[] = [];
+    while (out.length < n && q.length > 0) {
+      const j = q.findIndex(s => !s.variant || cnt[s.variant] < VARIANT_ALIVE_CAP[s.variant]);
+      if (j < 0) { out.push({ kind: q.shift()!.kind, variant: null }); continue; }
+      const s = q.splice(j, 1)[0];
+      if (s.variant) cnt[s.variant]++;
+      out.push(s);
+    }
+    return out;
+  }
+
+  /** v1.3 — saca de la lista `n` puestos para acompañar al jefe: con ese oficio (o, si `variant` es null, enemy2 sin oficio). */
+  private pull(all: Slot[], n: number, variant: EnemyVariant | null): Slot[] {
+    const out: Slot[] = [];
+    for (let k = 0; k < n && all.length > 0; k++) {
+      let i = all.findIndex(s => s.variant === variant && (variant !== null || s.kind === 'enemy2'));
+      if (i < 0) i = all.findIndex(s => s.variant === null && (variant === null || s.kind === VARIANT_BASE[variant][0]));
+      if (i < 0) i = all.findIndex(s => s.variant === null);
+      if (i < 0) break;
+      const s = all.splice(i, 1)[0];
+      out.push(variant ? { kind: s.kind, variant } : { kind: 'enemy2', variant: null });
+    }
+    return out;
+  }
+
   begin(): void {
     const w = this.w, cfg = this.cfg;
     w.enemyAI.tactics = cfg.tactics;
+    w.enemyAI.hard = cfg.difficulty === 'hard';
     this.buildCandidates();
-    const all = this.kinds(cfg.total);
+    const all = this.slots(cfg.total);
     const [bx, by] = w.level.map.punto_jefe;
 
     if (cfg.megaboss) {
@@ -83,6 +161,13 @@ export class Director {
       w.pacing = 'pico';
       return;
     }
+    // v1.3 — jefe de planta: su variante y, si toca, los acompañantes (salen de la cuota normal, no se añaden)
+    const bv: BossVariant = cfg.bossVariant ?? FLOOR_BOSS[w.floor] ?? 'cohetes';
+    let escorts: Slot[] = [], escortsHeal = false;
+    if (cfg.miniboss) {
+      if (bv === 'escoltas') { escorts = this.pull(all, BOSS_ESCORTED.escorts, null); escortsHeal = true; }
+      else if (w.floor >= BOSS_LATE.fromFloor && BOSS_LATE.companions[w.floor]) escorts = this.pull(all, 2, BOSS_LATE.companions[w.floor]);
+    }
     const nAsc = Math.round(all.length * 0.4), nPeak = Math.round(all.length * 0.5);
     const asc = all.slice(0, nAsc);
     this.qPeak = all.slice(nAsc, nAsc + nPeak);
@@ -98,10 +183,30 @@ export class Director {
       if (c >= 0) {
         const boss = w.spawnUnit('miniboss', w.level.cellX(c), w.level.cellY(c), false);
         this.boss = boss;
+        applyBossVariant(boss, bv, w.floor);
         const s = w.enemyAI.newSquad([boss.x, boss.y], false);
         s.route = this.routeAround([boss.x, boss.y], 2, 5);
         w.enemyAI.join(boss, s);
-      }
+        // acompañantes: junto al jefe y en su grupo
+        let k = 0;
+        for (const sl of escorts) {
+          let cell = -1;
+          for (let t = 0; t < 16 && cell < 0; t++) {
+            const a = k * 2.4 + t * 0.9, r = 1.4 + 0.3 * t;
+            const cc = w.level.cellOf(boss.x + Math.cos(a) * r, boss.y + Math.sin(a) * r);
+            if (cc < 0 || !w.level.passable(cc, true) || w.level.doorCell[cc] || !(w.pField[cc] < Infinity)) continue;
+            if (!w.level.walkLine(boss.x, boss.y, w.level.cellX(cc), w.level.cellY(cc), true)) continue;
+            cell = cc;
+          }
+          if (cell < 0) cell = c;
+          const u = w.spawnUnit(sl.kind, w.level.cellX(cell), w.level.cellY(cell), false);
+          if (sl.variant) applyVariant(u, sl.variant);
+          w.enemyAI.join(u, s);
+          if (escortsHeal) w.enemyAI.makeEscort(u, boss);
+          k++;
+        }
+        s.initial = s.members.length;
+      } else this.qAsc.push(...escorts); // sin sitio para el jefe: los acompañantes vuelven a la cola
     }
     this.nextWaveAt = 10;
   }
@@ -195,12 +300,12 @@ export class Director {
     return pts;
   }
 
-  private spawnGroup(kinds: EnemyKind[], at: Vec2, hunt: boolean, routeRadius: number, minDist = 0, hidden = true): Squad {
+  private spawnGroup(kinds: Slot[], at: Vec2, hunt: boolean, routeRadius: number, minDist = 0, hidden = true): Squad {
     const w = this.w, L = w.level;
     const s = w.enemyAI.newSquad(at, hunt);
     s.route = this.routeAround(at, 3, routeRadius); // también los de caza: si te pierden, patrullan
     let k = 0;
-    for (const kind of kinds) {
+    for (const { kind, variant } of kinds) {
       let cell = -1;
       for (let t = 0; t < 12 && cell < 0; t++) {
         const a = (k * 2.4) + t, r = 0.6 + 0.45 * Math.sqrt(k + t);
@@ -215,6 +320,7 @@ export class Director {
       }
       if (cell < 0) cell = L.nearestFree(at[0], at[1], true); // el propio punto elegido, que sí las cumple
       const u = w.spawnUnit(kind, L.cellX(cell), L.cellY(cell), w.time > 0);
+      if (variant) applyVariant(u, variant);
       w.enemyAI.join(u, s);
       k++;
     }
@@ -224,22 +330,21 @@ export class Director {
     return s;
   }
 
-  private placeInitial(kinds: EnemyKind[], groupSize: number): void {
-    let i = 0;
-    while (i < kinds.length) {
-      const n = Math.min(kinds.length - i, groupSize + (this.w.rng() < 0.4 ? 1 : 0));
+  private placeInitial(kinds: Slot[], groupSize: number): void {
+    const q = kinds.slice();
+    while (q.length > 0) {
+      const n = Math.min(q.length, groupSize + (this.w.rng() < 0.4 ? 1 : 0));
       let at: Vec2 | null = null;
       // al empezar se afloja la distancia si el mapa no da para más, pero NUNCA la regla de no estar a la vista
       let relax = 0;
       for (; relax <= 4 && !at; relax++) at = this.pickSpawn(relax);
-      if (!at) { this.qAsc.push(...kinds.slice(i, i + n)); i += n; continue; } // no hay sitio justo: llegarán como oleada
-      this.spawnGroup(kinds.slice(i, i + n), at, false, 12, Math.max(5, 12 - (relax - 1) * 2));
-      i += n;
+      if (!at) { this.qAsc.push(...q.splice(0, n)); continue; } // no hay sitio justo: llegarán como oleada
+      this.spawnGroup(this.take(q, n), at, false, 12, Math.max(5, 12 - (relax - 1) * 2));
     }
   }
 
   /** Intenta soltar un grupo por un acceso. Devuelve false si ahora mismo no hay sitio justo. */
-  private release(q: EnemyKind[], n: number, hunt: boolean): boolean {
+  private release(q: Slot[], n: number, hunt: boolean): boolean {
     const w = this.w;
     const room = ALIVE_CAP - w.enemiesAlive();
     n = Math.min(n, q.length, room);
@@ -249,7 +354,7 @@ export class Director {
     const at = this.pickSpawn(relax);
     if (!at) return false;
     this.failSince = -1;
-    const s = this.spawnGroup(q.splice(0, n), at, hunt, 10, Math.max(5, 12 - relax * 2), relax < 5);
+    const s = this.spawnGroup(this.take(q, n), at, hunt, 10, Math.max(5, 12 - relax * 2), relax < 5);
     if (!hunt) {
       // oleada del ascenso: viene hacia la zona donde anda el jugador, sin saber exactamente dónde está
       const p = w.player;
@@ -338,7 +443,7 @@ export class Director {
     this.shieldWave++;
     const n = Math.min(this.bossReserve, this.cfg.reinforcements);
     this.bossReserve -= n;
-    this.qBoss.push(...this.kinds(n));
+    this.qBoss.push(...this.slots(n));
     this.tryAt = 0; this.failSince = -1;
     w.events.push({ type: 'bossPhase', id: boss.id, phase: boss.bossPhase });
     if (real > 0) { boss.hp = thr + real; } // el daño que cabía hasta el umbral se aplica fuera

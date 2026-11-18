@@ -31,6 +31,7 @@ export interface TouchHeld {
   crouch: boolean;
   sprint: boolean;
   aim: boolean;
+  interactHold: boolean;
 }
 
 export interface TouchCtl {
@@ -38,6 +39,8 @@ export interface TouchCtl {
   applySettings(s: Settings): void;
   /** Una vez por frame: refresca el botón contextual y devuelve lo mantenido (mismo objeto). */
   update(dt: number, world: IWorld | null): TouchHeld;
+  /** Se llama cuando un dedo toca la capa (para lastDevice). */
+  onTouch: (() => void) | null;
   /** ¿Hay un dedo arrastrando la cámara ahora mismo (zona de cámara o botón de disparo)? */
   isDragging(): boolean;
   dispose(): void;
@@ -73,6 +76,7 @@ const TXT: Record<string, { es: string; en: string }> = {
   ability: { es: 'Habilidad', en: 'Ability' },
   useItem: { es: 'Objeto', en: 'Item' },
   interact: { es: 'Puerta', en: 'Door' },
+  revive: { es: 'Reanimar', en: 'Revive' },
   cycle: { es: 'Cambiar objeto', en: 'Next item' },
   crouch: { es: 'Agacharse', en: 'Crouch' },
   weapon: { es: 'Arma', en: 'Weapon' },
@@ -116,6 +120,8 @@ const CSS = `
 `;
 
 type Pos = { r: number; b: number; size: number };
+
+const nowS = (): number => performance.now() / 1000;
 
 export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: Core, acceptMouse: boolean): TouchCtl {
   const input = core.input;
@@ -206,6 +212,11 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   stickZone.addEventListener('pointerdown', (e) => {
     if (!accept(e) || e.button > 0 || stickId !== null) return;
     e.preventDefault();
+    // Voltereta: doble toque rápido, o tocar de nuevo en < 0,25 s tras soltar a fondo.
+    const tNow = nowS();
+    if (tNow - lastStickEnd < (lastStickWasTap ? 0.3 : 0.25) && (lastStickWasTap || lastStickFull)) input.roll = true;
+    stickDownAt = tNow;
+    ctl.onTouch?.();
     stickId = e.pointerId;
     capture(stickZone, e.pointerId);
     const rect = layer.getBoundingClientRect();
@@ -222,7 +233,15 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     stickMove(e);
   });
   stickZone.addEventListener('pointermove', (e) => { if (e.pointerId === stickId) stickMove(e); });
-  const stickEnd = (e: PointerEvent): void => { if (e.pointerId === stickId) stickRelease(); };
+  let stickDownAt = 0, lastStickEnd = -10, lastStickWasTap = false, lastStickFull = false;
+  const stickEnd = (e: PointerEvent): void => {
+    if (e.pointerId !== stickId) return;
+    const t = nowS();
+    lastStickWasTap = t - stickDownAt < 0.25 && sMag < 0.5;
+    lastStickFull = sMag > SPRINT_EDGE;
+    lastStickEnd = t;
+    stickRelease();
+  };
   stickZone.addEventListener('pointerup', stickEnd);
   stickZone.addEventListener('pointercancel', stickEnd);
   function stickRelease(): void {
@@ -233,7 +252,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
 
   // ───────── cámara (arrastre en la zona derecha) ─────────
   let camId: number | null = null;
-  let camX = 0, camY = 0;
+  let camX = 0, camY = 0, camDownAt = 0, camTravel = 0;
   const lookBy = (dx: number, dy: number): void => {
     const k = CAM_K * core.sensitivity() * (aimOn ? AIM_LOOK : 1);
     core.rotate(dx * k, -dy * k);   // arrastrar a la derecha = +yaw; arrastrar arriba = +pitch
@@ -243,14 +262,22 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     if (!accept(e) || e.button > 0 || camId !== null) return;
     e.preventDefault();
     camId = e.pointerId; camX = e.clientX; camY = e.clientY;
+    camDownAt = nowS(); camTravel = 0;
+    ctl.onTouch?.();
     capture(camZone, e.pointerId);
   });
   camZone.addEventListener('pointermove', (e) => {
     if (e.pointerId !== camId) return;
+    camTravel += Math.hypot(e.clientX - camX, e.clientY - camY);
     lookBy(e.clientX - camX, e.clientY - camY);
     camX = e.clientX; camY = e.clientY;
   });
-  const camEnd = (e: PointerEvent): void => { if (e.pointerId === camId) camId = null; };
+  const camEnd = (e: PointerEvent): void => {
+    if (e.pointerId !== camId) return;
+    camId = null;
+    // Ping: toque corto (< 0,2 s) sin arrastre.
+    if (e.type === 'pointerup' && nowS() - camDownAt < 0.2 && camTravel < 10) input.ping = true;
+  };
   camZone.addEventListener('pointerup', camEnd);
   camZone.addEventListener('pointercancel', camEnd);
 
@@ -269,6 +296,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
       id = e.pointerId;
       capture(d, e.pointerId);
       d.classList.add('tl-down');
+      ctl.onTouch?.();
       onDown(e);
     });
     if (onMove) d.addEventListener('pointermove', (e) => { if (e.pointerId === id) onMove(e); });
@@ -350,8 +378,11 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
 
   // Interactuar contextual (solo visible con puerta al alcance)
   const interactBtn = makeBtn('interact', { r: 68, b: 158, size: 58 }, { caption: true, cls: 'tl-interact' });
-  bindPress(interactBtn, () => { input.interact = true; }, () => {});
+  let interactHeld = false;
+  bindPress(interactBtn, () => { input.interact = true; interactHeld = true; }, () => { interactHeld = false; });
   let interactShown = false;
+  let interactRevive = false;
+  const interactCap = interactBtn.querySelector('.tl-cap') as HTMLElement;
 
   // Órdenes de escuadra: botón + menú 2x2 que se repliega al elegir
   const ordersBtn = makeBtn('orders', { r: 258, b: 150, size: 46 }, { caption: false });
@@ -395,9 +426,10 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     closeMenu();
   }
 
-  const held: TouchHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false };
+  const held: TouchHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false, interactHold: false };
 
-  return {
+  const ctl: TouchCtl = {
+    onTouch: null,
     setActive(a: boolean): void {
       active = a;
       layer.classList.toggle('tl-on', a);
@@ -416,7 +448,14 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
 
     update(dt: number, world: IWorld | null): TouchHeld {
       clock += dt;
-      const want = !!world && world.interactDoor >= 0;
+      const rev = !!world && world.interactRevive >= 0;
+      const want = !!world && (world.interactDoor >= 0 || rev);
+      if (rev !== interactRevive) {
+        interactRevive = rev;
+        const key = rev ? 'revive' : 'interact';
+        interactCap.textContent = TXT[key][lang];
+        interactBtn.setAttribute('aria-label', TXT[key][lang]);
+      }
       if (want !== interactShown) {
         interactShown = want;
         interactBtn.style.display = want ? 'flex' : 'none';
@@ -429,7 +468,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
       } else { fullTime = 0; gestureSprint = false; }
       const sprinting = gestureSprint || sprintOn;
       if (sprinting && aimOn) setAim(false);
-      held.sprint = sprinting; held.aim = aimOn;
+      held.sprint = sprinting; held.aim = aimOn; held.interactHold = interactHeld && interactShown;
       held.moveF = sF; held.moveR = sR;
       held.fire = fireHeld; held.knife = knifeHeld; held.crouch = crouchOn;
       return held;
@@ -446,4 +485,5 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
       style.remove();
     },
   };
+  return ctl;
 }

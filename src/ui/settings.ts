@@ -4,8 +4,8 @@ import type { Action, Difficulty, Settings } from '../contracts';
 import { t } from './i18n';
 
 export const SETTINGS_KEY = 'stracomter3.settings';
-/** Versión del esquema de atajos: la 2 es el estilo Counter-Strike (incompatible con la 1). */
-export const BINDINGS_VERSION = 2;
+/** Versión del esquema de atajos: la 2 es el estilo Counter-Strike (incompatible con la 1); la 3 solo añade roll y ping. */
+export const BINDINGS_VERSION = 3;
 let bindingsNotice = false;
 /** true una sola vez si los atajos guardados eran de una versión anterior y se han sustituido por los nuevos. */
 export function takeBindingsNotice(): boolean { const v = bindingsNotice; bindingsNotice = false; return v; }
@@ -13,7 +13,7 @@ export function takeBindingsNotice(): boolean { const v = bindingsNotice; bindin
 /** Orden en que se listan las acciones en la pantalla de remapeo. */
 export const ACTIONS: Action[] = [
   'forward', 'back', 'left', 'right', 'fire', 'aim', 'sprint', 'crouch', 'reload',
-  'slot1', 'slot2', 'slot3', 'slot4', 'lastWeapon', 'knife', 'grenade', 'ability',
+  'slot1', 'slot2', 'slot3', 'slot4', 'lastWeapon', 'roll', 'ping', 'knife', 'grenade', 'ability',
   'interact', 'useItem', 'cycleItem', 'orderFollow', 'orderGoto', 'orderFocus',
   'orderHold', 'pause', 'console',
 ];
@@ -23,6 +23,7 @@ export function defaultBindings(): Record<Action, string> {
     forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
     fire: 'Mouse0', aim: 'Mouse2', sprint: 'ShiftLeft', knife: 'KeyV', reload: 'KeyR', grenade: 'KeyG', ability: 'KeyF',
     interact: 'KeyE', useItem: 'KeyT', cycleItem: 'Tab', crouch: 'ControlLeft',
+    roll: 'Space', ping: 'Mouse1',
     slot1: 'Digit1', slot2: 'Digit2', slot3: 'Digit3', slot4: 'Digit4', lastWeapon: 'KeyQ',
     orderFollow: 'KeyZ', orderGoto: 'KeyX', orderFocus: 'KeyB', orderHold: 'KeyN',
     pause: 'Escape', console: 'Backquote',
@@ -70,15 +71,25 @@ export function loadSettings(): Settings {
   if (typeof r.subtitles === 'boolean') s.subtitles = r.subtitles;
   if (typeof r.colorblind === 'boolean') s.colorblind = r.colorblind;
   if (typeof r.cameraShake === 'boolean') s.cameraShake = r.cameraShake;
+  s.vibration = r.vibration !== false;
+  s.reduceFlashes = r.reduceFlashes === true;
   const g = r.graphics;
   s.graphics = g === 'high' || g === 'medium' || g === 'low' ? g : 'auto'; // ajustes antiguos sin el campo: 'auto'
-  if (r.bindingsVersion !== BINDINGS_VERSION) {
-    // Atajos de una versión anterior: son incompatibles (1/2/3 eran órdenes, Q usar objeto…). Se usan los nuevos por defecto.
+  if (r.bindingsVersion !== BINDINGS_VERSION && r.bindingsVersion !== 2) {
+    // Atajos de una versión anterior a la 2: son incompatibles (1/2/3 eran órdenes, Q usar objeto…). Se usan los nuevos por defecto.
     bindingsNotice = true;
   } else if (r.bindings && typeof r.bindings === 'object') {
     const b = r.bindings as Record<string, unknown>;
     for (const a of ACTIONS) {
       if (typeof b[a] === 'string' && (b[a] as string).length > 0) s.bindings[a] = b[a] as string;
+    }
+    // De la v2 a la v3 solo se añaden roll y ping: si su tecla por defecto ya la usa otra acción, quedan sin asignar
+    if (r.bindingsVersion === 2) {
+      for (const a of ['roll', 'ping'] as const) {
+        const code = defaultBindings()[a];
+        const taken = ACTIONS.some((o) => o !== a && s.bindings[o] === code);
+        s.bindings[a] = taken ? '' : code;
+      }
     }
   }
   return s;
@@ -95,6 +106,7 @@ export function keyLabel(code: string): string {
   if (code === 'Mouse1') return t('key.mouse1');
   if (code === 'Mouse2') return t('key.mouse2');
   if (code === 'Space') return t('key.space');
+  if (code === 'Mouse1') return t('key.mouse1');
   if (code === 'ShiftLeft' || code === 'ShiftRight') return t('key.shift');
   if (code === 'Delete') return t('key.delete');
   if (code === 'Enter' || code === 'NumpadEnter') return t('key.enter');
@@ -109,4 +121,25 @@ export function keyLabel(code: string): string {
     AltLeft: 'Alt', AltRight: 'Alt', Enter: 'Enter', Backspace: 'Backspace', CapsLock: 'CapsLock',
   };
   return names[code] ?? code;
+}
+
+// ───────────── Ayudas de tecla según el dispositivo en uso (teclado o mando) ─────────────
+
+type Device = 'keyboard' | 'touch' | 'gamepad';
+let deviceFn: () => Device = () => 'keyboard';
+/** La app indica de dónde leer el último dispositivo usado (controls.lastDevice, si existe). */
+export function setDeviceProvider(fn: () => Device): void { deviceFn = fn; }
+export function currentDevice(): Device { try { return deviceFn(); } catch { return 'keyboard'; } }
+
+/** Glifo simple del botón del mando que dispara cada acción (mapeo estándar de src/input/gamepad.ts). */
+const PAD: Partial<Record<Action, string>> = {
+  fire: 'RT', aim: 'LT', sprint: 'L3', crouch: 'Ⓑ', knife: 'R3', roll: 'Ⓐ', lastWeapon: 'Ⓨ', grenade: 'RB', ability: 'LB',
+  ping: '✚↑', useItem: '✚↓', cycleItem: 'Back', pause: 'Start', reload: 'Ⓧ', interact: 'Ⓧ',
+  slot1: '✚← →', slot2: '✚← →', slot3: '✚← →', slot4: '✚← →',
+};
+
+/** Etiqueta de la tecla de una acción; con mando, el glifo del botón. */
+export function actionLabel(a: Action, bindings: Record<Action, string>): string {
+  if (currentDevice() === 'gamepad' && PAD[a]) return PAD[a] as string;
+  return keyLabel(bindings[a]);
 }

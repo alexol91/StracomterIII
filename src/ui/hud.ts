@@ -5,12 +5,12 @@
 // vida y munición suben a las esquinas superiores (clase `touch` en #hud).
 
 import type { IWorld, Settings } from '../contracts';
-import type { ClassId, Entity, GameEvent, ItemType, OrderKind } from '../sim/types';
+import type { ClassId, Entity, GameEvent, ItemType, OrderKind, Threat } from '../sim/types';
 import { CLASS_IDS } from '../sim/types';
 import { CLASS_STATS, isClass } from '../sim/data';
 import { fmtTime, h, icon, itemIcon, setBar, setCls, setStyle, setText } from './dom';
 import { t } from './i18n';
-import { keyLabel } from './settings';
+import { actionLabel } from './settings';
 
 interface Arc { el: HTMLElement; fromX: number; fromY: number; until: number; active: boolean }
 interface Sub { text: string; until: number }
@@ -61,12 +61,22 @@ export class Hud {
   private feed: { el: HTMLElement; until: number }[] = [];
   private litUntil = -1;          // la lista de armas se ilumina 1,5 s tras cambiar
   private prevWeapon = '';
+  // v1.3
+  private blindUntil = -1;
+  private blindTotal = 1;
+  private comboUntil = -1;
+  private comboText = '';
+  private barkNext = 0;
+  private pingNext = 0;
+  private barks: { el: HTMLElement; id: number; until: number }[] = [];
+  private pings: { el: HTMLElement; x: number; y: number; until: number }[] = [];
 
   constructor(
     parent: HTMLElement,
     private getSettings: () => Settings,
     private isTouch: () => boolean,
     private onPauseButton: () => void,
+    private project: (x: number, y: number, z: number) => { x: number; y: number } | null = () => null,
   ) {
     this.el = h('div', { id: 'hud' });
     parent.appendChild(this.el);
@@ -84,7 +94,7 @@ export class Hud {
     this.subsKey = '';
     this.hitUntil = this.vigUntil = this.phaseUntil = -1;
     this.lastSubAt.clear();
-    this.litUntil = -1; this.prevWeapon = '';
+    this.litUntil = -1; this.prevWeapon = ''; this.blindUntil = -1; this.comboUntil = -1;
     this.streak = 0; this.streakAt = -99; this.reloadTotal = 0; this.reloadPrev = 0; this.feed = []; this.lastT = 0;
     this.r = this.build();
   }
@@ -110,10 +120,15 @@ export class Hud {
     // Munición, arma, granadas y habilidad (abajo a la derecha; en táctil, arriba bajo los puntos)
     const plAmmo = h('div', { class: 'ammo-big' });
     const plWeapon = h('div', { class: 'wlist' });
-    const wslots = [0, 1, 2, 3].map(() => {
+    // Ranura 4: tipo seleccionado + existencias de las tres granadas (explosiva, cegadora, humo)
+    const gst = ['grenade', 'bolt', 'smoke'].map((ic) => {
+      const n = h('span');
+      return { el: h('span', { class: 'gst' }, icon(ic), n), n };
+    });
+    const wslots = [0, 1, 2, 3].map((i) => {
       const k = h('span', { class: 'wk' });
       const n = h('span', { class: 'wn' });
-      const x = h('span', { class: 'wx' });
+      const x = h('span', { class: 'wx' }, ...(i === 3 ? gst.map((g) => g.el) : []));
       const row = h('div', { class: 'wslot' }, k, n, x);
       plWeapon.appendChild(row);
       return { row, k, n, x };
@@ -162,7 +177,8 @@ export class Hud {
     const bossName = h('span');
     const bossBar = sbar('boss');
     const bossShield = h('div', { class: 'shield' });
-    const boss = h('div', { class: 'boss' }, h('div', { class: 'bn' }, icon('warn'), bossName), bossBar.el, bossShield);
+    const bossExp = h('div', { class: 'shield exposed' });
+    const boss = h('div', { class: 'boss' }, h('div', { class: 'bn' }, icon('warn'), bossName), bossBar.el, bossShield, bossExp);
     const phaseMsg = h('div', { class: 'phase-msg' });
     const chutaos = h('div', { class: 'chutaos' }, t('hud.chutaos'));
     const cheated = h('div', { class: 'chutaos cheated' }, icon('warn'), t('hud.cheats'));
@@ -189,6 +205,30 @@ export class Hud {
     const prompt = h('div', { class: 'prompt' });
     const clearedMsg = h('div', { class: 'cleared-msg' }, t('hud.cleared'));
 
+    // v1.3: voltereta, cegado, luces, avisos de amenaza, combos, reanimar, marcadores proyectados
+    const rollFill = h('i');
+    const rollInd = h('div', { class: 'roll-ind' }, rollFill);
+    const blind = h('div', { class: 'blind' });
+    const dark = h('div', { class: 'dark' });
+    const edgeWarn = h('div', { class: 'edge-warn' });
+    const warnMsg = h('div', { class: 'warnmsg' });
+    const comboMsg = h('div', { class: 'combo-msg' });
+    const reviveFill = h('i');
+    const revive = h('div', { class: 'revive' }, h('div', { class: 'rv-t' }), h('div', { class: 'rv-bar' }, reviveFill));
+    const thr = [0, 1, 2, 3].map(() => {
+      const inner = h('span', { class: 'thr-i' }, icon('grenade'), h('b', null, '▲'));
+      return { el: h('div', { class: 'thr' }, inner), inner };
+    });
+    const dnMarks = [0, 1, 2].map(() => {
+      const sec = h('span');
+      return { el: h('div', { class: 'proj dn-mark' }, icon('cross'), sec), sec };
+    });
+    this.barks = []; this.pings = [];
+    const projLayer = h('div', { class: 'proj-layer' });
+    for (let i = 0; i < 6; i++) { const el = h('div', { class: 'proj bark' }); projLayer.appendChild(el); this.barks.push({ el, id: -1, until: -1 }); }
+    for (let i = 0; i < 3; i++) { const el = h('div', { class: 'proj ping-mark' }); projLayer.appendChild(el); this.pings.push({ el, x: 0, y: 0, until: -1 }); }
+    for (const d of dnMarks) projLayer.appendChild(d.el);
+
     // Abajo al centro: subtítulos, orden, inventario
     const subsBox = h('div', { class: 'subs' });
     const order = h('div', { class: 'order' });
@@ -196,10 +236,11 @@ export class Hud {
     const slots = [0, 1, 2, 3, 4].map(() => h('div', { class: 'slot' }));
     const bc = h('div', { class: 'hud-bc' }, subsBox, order, invName, h('div', { class: 'inv' }, ...slots));
 
-    this.el.append(vignette, vit, ammo, squad, tr, feedBox, top, xh, streakEl, hit, hurtLayer, prompt, clearedMsg, bc);
+    this.el.append(vignette, dark, edgeWarn, blind, projLayer, vit, ammo, squad, tr, feedBox, top, xh, rollInd, ...thr.map((x) => x.el), streakEl, hit, hurtLayer, warnMsg, comboMsg, revive, prompt, clearedMsg, bc);
 
     return {
-      plName, plHp, plBar, plAmmo, plWeapon, wslots, plGren, plWarn, abilLbl, abilBar, allyRows,
+      plName, plHp, plBar, plAmmo, plWeapon, wslots, gst, plGren,
+      rollInd, rollFill, blind, dark, edgeWarn, warnMsg, comboMsg, revive, reviveFill, thr, dnMarks, bossExp, plWarn, abilLbl, abilBar, allyRows,
       vScore, vTime, vEnemies, pauseBtn,
       compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos, cheated,
       plSprint, ring, streakEl, feedBox,
@@ -283,6 +324,36 @@ export class Hud {
           this.onDeath(world, e);
           if (subsOn && e.team === 'ally' && e.id !== p.id && isClass(e.kind)) this.pushSub(t('sub.allyDown', { name: t('kind.' + e.kind) }), now);
           break;
+        case 'flash':
+          if ((e.playerBlind ?? 0) > 0) { this.blindUntil = now + e.playerBlind; this.blindTotal = e.playerBlind; }
+          break;
+        case 'combo':
+          this.comboText = `${t('hud.combo')} — ${t('combo.' + e.key)}`;
+          this.comboUntil = now + 1.5;
+          break;
+        case 'ping': {
+          const pg = this.pings[this.pingNext];
+          this.pingNext = (this.pingNext + 1) % this.pings.length;
+          pg.x = e.x; pg.y = e.y; pg.until = now + 2;
+          pg.el.textContent = '';
+          pg.el.appendChild(icon(e.what === 'enemy' ? 'target' : e.what === 'door' ? 'door' : e.what === 'item' ? 'ammo' : 'arrow'));
+          break;
+        }
+        case 'bark': {
+          const sp = world.entityById(e.id);
+          if (!sp) break;
+          if (e.team === 'enemy' && Math.hypot(sp.x - p.x, sp.y - p.y) > 35) break;
+          const full = 'bark.' + e.key;
+          const tr = t(full);
+          const text = tr === full ? e.key : tr; // clave desconocida: se muestra la clave
+          const b = this.barks[this.barkNext];
+          this.barkNext = (this.barkNext + 1) % this.barks.length;
+          b.id = e.id; b.until = now + 1.6;
+          b.el.textContent = text;
+          b.el.classList.toggle('foe', e.team === 'enemy');
+          if (subsOn) this.pushSub(`${t('kind.' + sp.kind)}: «${text}»`, now);
+          break;
+        }
         case 'weaponSwitch':
           if (e.id === p.id) this.litUntil = now + 1.5;
           break;
@@ -326,6 +397,13 @@ export class Hud {
     while (this.feed.length > 5) this.feed.shift()!.el.remove();
   }
 
+  /** Coloca (o esconde) un elemento proyectado en pantalla. */
+  private place(el: HTMLElement, pr: { x: number; y: number } | null): void {
+    if (!pr) { setStyle(el, 'display', 'none'); return; }
+    setStyle(el, 'display', 'flex');
+    setStyle(el, 'transform', `translate(${Math.round(pr.x)}px, ${Math.round(pr.y)}px) translate(-50%, -100%)`);
+  }
+
   // ───────────── actualización por frame ─────────────
 
   update(world: IWorld): void {
@@ -347,17 +425,25 @@ export class Hud {
     if (this.prevWeapon !== '' && this.prevWeapon !== wpn) this.litUntil = Math.max(this.litUntil, now + 1.5);
     this.prevWeapon = wpn;
     const order = ['primary', 'secondary', 'knife', 'grenade'] as const;
-    const slotKeys = [s.bindings.slot1, s.bindings.slot2, s.bindings.slot3, s.bindings.slot4];
-    const slotNames = [isClass(p.kind) ? t('weapon.' + p.kind) : t('hud.pistol'), t('hud.pistol'), t('hud.knife'), t('hud.grenade')];
+    const slotActs = ['slot1', 'slot2', 'slot3', 'slot4'] as const;
+    let primaryName = t('hud.pistol');
+    if (isClass(p.kind)) {
+      const vk = `weapon.${p.kind}.${p.primaryVariant ?? 0}`;
+      primaryName = t(vk) === vk ? t('weapon.' + p.kind) : t(vk);
+    }
+    const gType = p.grenadeType ?? 'frag';
+    const gCounts = [p.grenades, p.flashes ?? 0, p.smokes ?? 0];
+    const gSel = gType === 'flash' ? 1 : gType === 'smoke' ? 2 : 0;
+    const slotNames = [primaryName, t('hud.pistol'), t('hud.knife'), t('gren.' + gType)];
     for (let i = 0; i < 4; i++) {
       const ws = r.wslots[i];
-      setText(ws.k, keyLabel(slotKeys[i]));
+      setText(ws.k, actionLabel(slotActs[i], s.bindings));
       setText(ws.n, slotNames[i]);
-      setText(ws.x, i === 3 ? `×${p.grenades}` : '');
       setCls(ws.row, 'act', order[i] === wpn);
-      setCls(ws.row, 'off', i === 3 && p.grenades <= 0);
+      setCls(ws.row, 'off', i === 3 && gCounts[gSel] <= 0);
     }
     setCls(r.plWeapon, 'lit', now < this.litUntil);
+    for (let i = 0; i < 3; i++) { setText(r.gst[i].n, String(gCounts[i])); setCls(r.gst[i].el, 'sel', i === gSel); }
 
     // Contador grande: munición del arma ACTIVA (principal mag/reserva, pistola mag2/∞, cuchillo y granada sin cargador)
     let big = '';
@@ -365,11 +451,11 @@ export class Hud {
     let reloadable = true;
     if (wpn === 'secondary') { big = `${p.mag2 ?? 0} / ∞`; emptyMag = (p.mag2 ?? 0) <= 0; }
     else if (wpn === 'knife') { big = '—'; reloadable = false; }
-    else if (wpn === 'grenade') { big = `×${p.grenades}`; reloadable = false; emptyMag = p.grenades <= 0; }
+    else if (wpn === 'grenade') { big = `×${gCounts[gSel]}`; reloadable = false; emptyMag = gCounts[gSel] <= 0; }
     else { big = `${p.mag} / ${p.ammo}`; emptyMag = p.mag <= 0; }
     setText(r.plAmmo, big);
     setCls(r.plAmmo, 'empty', emptyMag);
-    setText(r.plGren, `×${p.grenades}`);
+    setText(r.plGren, `×${gCounts[gSel]}`);
     const hasReserve = wpn === 'secondary' ? true : p.ammo > 0;
     const magSz = wpn === 'secondary' ? (p.magSize2 ?? 0) : p.magSize;
     const magNow = wpn === 'secondary' ? (p.mag2 ?? 0) : p.mag;
@@ -377,9 +463,9 @@ export class Hud {
     if (reloadable) {
       if (p.reloading > 0) warn = t('hud.reloading');
       else if (emptyMag) {
-        warn = hasReserve ? t('hud.empty', { key: keyLabel(s.bindings.reload) }) : t('hud.noAmmo');
+        warn = hasReserve ? t('hud.empty', { key: actionLabel('reload', s.bindings) }) : t('hud.noAmmo');
         crit = true;
-      } else if (magNow <= Math.max(3, magSz * 0.25) && hasReserve) warn = t('hud.reloadHint', { key: keyLabel(s.bindings.reload) });
+      } else if (magNow <= Math.max(3, magSz * 0.25) && hasReserve) warn = t('hud.reloadHint', { key: actionLabel('reload', s.bindings) });
     }
     setText(r.plWarn, warn);
     setCls(r.plWarn, 'crit', crit);
@@ -389,7 +475,7 @@ export class Hud {
       const ready = p.abilityCd <= 0;
       const max = p.abilityCdMax > 0 ? p.abilityCdMax : 1;
       const nm = t('ability.' + p.kind);
-      setText(r.abilLbl, ready ? `[${keyLabel(s.bindings.ability)}] ${nm} — ${t('hud.ready')}` : `${nm} — ${Math.ceil(p.abilityCd)} s`);
+      setText(r.abilLbl, ready ? `[${actionLabel('ability', s.bindings)}] ${nm} — ${t('hud.ready')}` : `${nm} — ${Math.ceil(p.abilityCd)} s`);
       setBar(r.abilBar, ready ? 1 : 1 - p.abilityCd / max);
       setCls(r.abilBar.el, 'ready', ready);
       setCls(r.abilBar.el, 'cd', !ready);
@@ -419,12 +505,13 @@ export class Hud {
       if (!c || !e) { setStyle(row.row, 'display', 'none'); continue; }
       setStyle(row.row, 'display', '');
       const dead = !e.alive || e.hp <= 0;
+      const down = !dead && !!e.downed;
       setText(row.nm, t('kind.' + c));
       setCls(row.row, 'dead', dead);
       const max = e.maxHp || CLASS_STATS[c].hp;
-      setBar(row.bar, dead ? 0 : e.hp / max);
+      setBar(row.bar, dead || down ? 0 : e.hp / max);
       setCls(row.bar.el, 'low', !dead && e.hp / max < 0.3);
-      setText(row.gone, dead ? t('hud.fallen') : '');
+      setText(row.gone, dead ? t('hud.fallen') : down ? `${t('hud.downed')} ${Math.max(0, Math.ceil((e.downedUntil ?? 0) - now))} s` : '');
     }
 
     // Puntos, tiempo, hostiles
@@ -442,7 +529,12 @@ export class Hud {
     if (boss) {
       setCls(r.boss, 'on', true);
       const phase = boss.kind === 'megaboss' && boss.bossPhase > 0 ? ` · ${t('hud.phase', { n: boss.bossPhase })}` : '';
-      setText(r.bossName, t('kind.' + boss.kind) + phase);
+      let bn = t('kind.' + boss.kind);
+      const own = boss.bossName ?? '';
+      if (own) { const k = own.startsWith('boss.') ? own : 'boss.' + own; if (t(k) !== k) bn = t(k); }
+      setText(r.bossName, bn + phase);
+      const exposed = (boss.exposedUntil ?? 0) > now || /recarga|aturdid|reload|stun/i.test(boss.aiState || '');
+      setText(r.bossExp, boss.enraged ? t('hud.enraged') + (exposed ? ' · ' + t('hud.exposed') : '') : exposed ? t('hud.exposed') : '');
       setBar(r.bossBar, boss.hp / (boss.maxHp || 1));
       setText(r.bossShield, boss.shielded ? t('hud.shield') : '');
     } else {
@@ -509,9 +601,80 @@ export class Hud {
     setStyle(r.vignette, 'opacity', vl > 0 ? (Math.round(vl * this.vigPeak * 20) / 20).toString() : '0');
 
     // Aviso contextual de puerta (en táctil lo pone el módulo de controles)
-    const showPrompt = world.interactDoor >= 0 && !this.isTouch();
+    const reviving = (world.interactRevive ?? -1) >= 0;
+    const showPrompt = world.interactDoor >= 0 && !this.isTouch() && !reviving;
     setCls(r.prompt, 'on', showPrompt);
-    if (showPrompt) setText(r.prompt, t('hud.interact', { key: keyLabel(s.bindings.interact) }));
+    setCls(r.revive, 'on', reviving);
+    if (reviving) {
+      const tgt = world.entityById(world.interactRevive);
+      setText(r.revive.firstElementChild as HTMLElement, this.isTouch() ? t('hud.downed') : t('hud.revive', { key: actionLabel('interact', s.bindings) }));
+      setStyle(r.reviveFill, 'width', Math.round(Math.min(1, Math.max(0, tgt?.reviveProgress ?? 0)) * 100) + '%');
+    }
+    if (showPrompt) setText(r.prompt, t('hud.interact', { key: actionLabel('interact', s.bindings) }));
+
+    // ── v1.3 ──
+    // Voltereta: marca junto a la retícula que se rellena con rollCd (1,5 s) y desaparece al estar lista
+    const rcd = p.rollCd ?? 0;
+    setCls(r.rollInd, 'on', rcd > 0);
+    if (rcd > 0) setStyle(r.rollFill, 'width', Math.round((1 - Math.min(1, rcd / 1.5)) * 100) + '%');
+
+    // Cegado: pantalla en blanco que se desvanece (con «reducir destellos»: gris al 50 %)
+    const reduce = !!s.reduceFlashes;
+    const brem = this.blindUntil - now;
+    const bop = brem > 0 ? Math.min(1, brem / (this.blindTotal * 0.7)) * (reduce ? 0.5 : 1) : 0;
+    setStyle(r.blind, 'background', reduce ? '#808080' : '#ffffff');
+    setStyle(r.blind, 'opacity', (Math.round(bop * 20) / 20).toString());
+
+    // Luces apagadas por el Hackeo
+    setCls(r.dark, 'on', (world.lightsOffUntil ?? 0) > now);
+
+    // Combo
+    const comboOn = now < this.comboUntil;
+    if (comboOn) setText(r.comboMsg, this.comboText);
+    setCls(r.comboMsg, 'on', comboOn);
+
+    // Amenazas: granada (icono + flecha junto a la retícula), láser (te apuntan), embestida/barrido (apártate)
+    let nb = 0, aimed = false, dodge = false;
+    const threats: Threat[] = world.threats ?? [];
+    for (const th of threats) {
+      if (th.kind === 'blast') {
+        if (nb < r.thr.length && Math.hypot(th.x - p.x, th.y - p.y) <= th.r + 1) {
+          const rel = normAngle(Math.atan2(th.y - p.y, th.x - p.x) - world.cam.yaw);
+          const ti = r.thr[nb++];
+          setStyle(ti.el, 'transform', `rotate(${rel.toFixed(2)}rad)`);
+          setStyle(ti.inner, 'transform', `rotate(${(-rel).toFixed(2)}rad)`);
+          setStyle(ti.el, 'display', 'block');
+        }
+      } else {
+        const d = segDist(p.x, p.y, th.fx, th.fy, th.x, th.y);
+        if (th.kind === 'laser') { if (d <= 1.5) aimed = true; }
+        else if (d <= th.r / 2 + 0.5) dodge = true;
+      }
+    }
+    for (let i = nb; i < r.thr.length; i++) setStyle(r.thr[i].el, 'display', 'none');
+    setCls(r.edgeWarn, 'on', aimed);
+    setCls(r.warnMsg, 'on', aimed || dodge);
+    if (aimed || dodge) setText(r.warnMsg, dodge ? t('hud.dodge') : t('hud.aimedAt'));
+
+    // Marcadores proyectados: frases sobre quien habla, pings y compañeros derribados
+    for (const b of this.barks) {
+      const ent = b.until > now ? world.entityById(b.id) : undefined;
+      const pr = ent ? this.project(ent.x, ent.y, 2.2) : null;
+      this.place(b.el, pr);
+    }
+    for (const pg of this.pings) {
+      const pr = pg.until > now ? this.project(pg.x, pg.y, 1.0) : null;
+      this.place(pg.el, pr);
+    }
+    let dn = 0;
+    for (const e of world.entities) {
+      if (dn >= r.dnMarks.length) break;
+      if (e.team !== 'ally' || e.isPlayer || !e.alive || !e.downed) continue;
+      const m = r.dnMarks[dn++];
+      setText(m.sec, String(Math.max(0, Math.ceil((e.downedUntil ?? 0) - now))));
+      this.place(m.el, this.project(e.x, e.y, 1.6));
+    }
+    for (let i = dn; i < r.dnMarks.length; i++) this.place(r.dnMarks[i].el, null);
 
     // Zona limpia
     setCls(r.clearedMsg, 'on', world.status === 'cleared');
@@ -549,4 +712,12 @@ export class Hud {
       r.subsBox.textContent = '';
     }
   }
+}
+
+/** Distancia de un punto a un segmento. */
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const u = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  return Math.hypot(px - (ax + u * dx), py - (ay + u * dy));
 }

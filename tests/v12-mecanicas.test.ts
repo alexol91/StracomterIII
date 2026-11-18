@@ -36,7 +36,7 @@ describe('v1.2 · esprint', () => {
     expect(d.p.crouch).toBe(false);
   });
 
-  it('esprintando no dispara, no apuñala y no lanza granada; recargar sí se puede', () => {
+  it('esprintando no dispara, no apuñala y no lanza granada; esprintar cancela la recarga', () => {
     const { world, p } = mundo();
     const mag = p.mag, gr = p.grenades;
     const eventos: GameEvent[] = [];
@@ -47,7 +47,7 @@ describe('v1.2 · esprint', () => {
     expect(eventos.some(e => e.type === 'knife' || e.type === 'shot' || e.type === 'throw')).toBe(false);
     p.mag = 5;
     world.step(DT, entrada({ moveF: 1, sprint: true, reload: true }));
-    expect(p.reloading).toBeGreaterThan(0);                  // la recarga sigue siendo posible
+    expect(p.reloading).toBe(0);                             // v1.3: esprintar cancela la recarga (antes la dejaba seguir)
   });
 
   it('al pulsar fuego sale del esprint y hay 0,35 s de levantar el arma antes del primer disparo', () => {

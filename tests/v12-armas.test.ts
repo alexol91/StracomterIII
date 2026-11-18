@@ -63,7 +63,7 @@ describe('v1.2 · ranuras de arma: cambio', () => {
     const orden: WeaponSlot[] = ['secondary', 'knife', 'grenade', 'primary', 'secondary'];
     for (const s of orden) { m.world.step(DT, entrada({ weaponCycle: 1 })); expect(m.p.weapon).toBe(s); }
     for (const s of ['primary', 'grenade', 'knife'] as WeaponSlot[]) { m.world.step(DT, entrada({ weaponCycle: -1 })); expect(m.p.weapon).toBe(s); }
-    m.p.grenades = 0;
+    m.p.grenades = 0; m.p.flashes = 0; m.p.smokes = 0;   // sin granadas de ningún tipo
     m.world.step(DT, entrada({ weaponCycle: 1 }));
     expect(m.p.weapon).toBe('primary');                        // salta la granada
     m.world.step(DT, entrada({ weaponCycle: -1 }));
@@ -222,7 +222,7 @@ describe('v1.2 · cuchillo y granada como ranuras', () => {
     const g0 = m.p.grenades;
     run(m.world, 4, entrada({ fire: true }));                   // manteniendo: una sola
     expect(m.p.grenades).toBe(g0 - 1);
-    m.p.grenades = 1;
+    m.p.grenades = 1; m.p.flashes = 0; m.p.smokes = 0;
     m.p.grenadeCd = 0;
     m.world.step(DT, entrada());
     m.world.step(DT, entrada({ fire: true }));

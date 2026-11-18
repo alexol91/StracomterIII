@@ -5,14 +5,14 @@
 import type { Action, IWorld, Settings } from '../contracts';
 import { h, icon, setCls, setStyle, setText } from './dom';
 import { t } from './i18n';
-import { keyLabel } from './settings';
+import { actionLabel, keyLabel } from './settings';
 
 const STORAGE_KEY = 'stracomter3.tutorial';
 const NEXT_AFTER = 25;   // s sin completar el paso: se ofrece «siguiente»
 const FLASH = 0.7;       // s que se muestra el ✓ al completar un paso
 const FINAL_SHOW = 6;    // s que permanece el último paso
 
-type EvKey = 'shot' | 'reload' | 'throw' | 'ability' | 'order' | 'door' | 'weapon';
+type EvKey = 'shot' | 'reload' | 'throw' | 'ability' | 'order' | 'door' | 'weapon' | 'roll';
 
 interface Deps {
   getSettings: () => Settings;
@@ -33,7 +33,7 @@ export class Tutorial {
   private startX = 0; private startY = 0;
   private lastYaw = 0; private yawAcc = 0;
   private sprintT = 0;
-  private ev: Record<EvKey, boolean> = { shot: false, reload: false, throw: false, ability: false, order: false, door: false, weapon: false };
+  private ev: Record<EvKey, boolean> = { shot: false, reload: false, throw: false, ability: false, order: false, door: false, weapon: false, roll: false };
   private onKey = (e: KeyboardEvent): void => {
     if (!this.active || !this.visible || e.repeat) return;
     const ae = document.activeElement as HTMLElement | null;
@@ -57,7 +57,7 @@ export class Tutorial {
   static mark(v: 'done' | 'skipped'): void { try { localStorage.setItem(STORAGE_KEY, v); } catch { /* sin almacenamiento */ } }
   static reset(): void { try { localStorage.removeItem(STORAGE_KEY); } catch { /* sin almacenamiento */ } }
 
-  static readonly STEPS = 13;
+  static readonly STEPS = 14;
 
   private build() {
     this.el.textContent = '';
@@ -118,14 +118,14 @@ export class Tutorial {
     if (w) {
       this.startX = w.player.x; this.startY = w.player.y;
       this.lastYaw = w.cam.yaw;
-      if (i >= 5) w.hold = false; // desde el paso de disparar, el mundo vuelve a la vida
+      if (i >= 6) w.hold = false; // desde el paso de disparar, el mundo vuelve a la vida
     }
     this.render();
   }
 
   private keys(actions: Action[], sep = ' '): string {
     const b = this.deps.getSettings().bindings;
-    return actions.map((a) => keyLabel(b[a])).join(sep);
+    return actions.map((a) => actionLabel(a, b)).join(sep);
   }
 
   private stepText(): string {
@@ -137,15 +137,16 @@ export class Tutorial {
       case 0: return touch ? t('tut.t1') : t('tut.s1', { key: this.keys(['forward', 'left', 'back', 'right']) });
       case 1: return touch ? t('tut.t2') : t('tut.s2');
       case 2: return t('tut.s3', { key: k(['sprint']) });
-      case 3: return t('tut.s4', { key: k(['crouch']) });
-      case 4: return t('tut.s5', { key: k(['aim']) });
-      case 5: return t('tut.s6', { key: k(['fire']) });
-      case 6: return t('tut.s7', { key: k(['reload']) });
-      case 7: return touch ? t('tut.tw') : t('tut.sw', { k2: this.keys(['slot2']), k1: this.keys(['slot1']), kq: this.keys(['lastWeapon']) });
-      case 8: return t('tut.s8', { key: k(['grenade']), slot: touch ? btn : this.keys(['slot4']) });
-      case 9: return t('tut.s9', { key: k(['ability']), ability: w ? t('ability.' + w.player.kind) : '' });
-      case 10: return t('tut.s10', { key: k(['orderFollow', 'orderGoto', 'orderFocus', 'orderHold'], ' / ') });
-      case 11: return t('tut.s11', { key: k(['interact']) });
+      case 3: return t('tut.sroll', { key: k(['roll']) });
+      case 4: return t('tut.s4', { key: k(['crouch']) });
+      case 5: return t('tut.s5', { key: k(['aim']) });
+      case 6: return t('tut.s6', { key: k(['fire']) });
+      case 7: return t('tut.s7', { key: k(['reload']) });
+      case 8: return touch ? t('tut.tw') : t('tut.sw', { k2: this.keys(['slot2']), k1: this.keys(['slot1']), kq: this.keys(['lastWeapon']) });
+      case 9: return t('tut.s8', { key: k(['grenade']), slot: touch ? btn : this.keys(['slot4']) });
+      case 10: return t('tut.s9', { key: k(['ability']), ability: w ? t('ability.' + w.player.kind) : '' });
+      case 11: return t('tut.s10', { key: k(['orderFollow', 'orderGoto', 'orderFocus', 'orderHold'], ' / ') });
+      case 12: return t('tut.s11', { key: k(['interact']) });
       default: return t('tut.s12');
     }
   }
@@ -164,15 +165,16 @@ export class Tutorial {
       case 0: return Math.hypot(p.x - this.startX, p.y - this.startY) > 3;
       case 1: return this.yawAcc > (60 * Math.PI) / 180;
       case 2: return this.sprintT >= 1;
-      case 3: return !!p.crouch;
-      case 4: return !!p.aiming;
-      case 5: return this.ev.shot;
-      case 6: return this.ev.reload;
-      case 7: return this.ev.weapon;
-      case 8: return this.ev.throw;
-      case 9: return this.ev.ability;
-      case 10: return this.ev.order;
-      case 11: return this.ev.door;
+      case 3: return this.ev.roll;
+      case 4: return !!p.crouch;
+      case 5: return !!p.aiming;
+      case 6: return this.ev.shot;
+      case 7: return this.ev.reload;
+      case 8: return this.ev.weapon;
+      case 9: return this.ev.throw;
+      case 10: return this.ev.ability;
+      case 11: return this.ev.order;
+      case 12: return this.ev.door;
       default: return false;
     }
   }
@@ -185,6 +187,7 @@ export class Tutorial {
       switch (e.type) {
         case 'shot': if (e.id === p.id) this.ev.shot = true; break;
         case 'reload': if (e.id === p.id) this.ev.reload = true; break;
+        case 'roll': if (e.id === p.id) this.ev.roll = true; break;
         case 'weaponSwitch': if (e.id === p.id) this.ev.weapon = true; break;
         case 'throw': if (e.id === p.id && e.kind === 'grenade') this.ev.throw = true; break;
         case 'ability': if (e.id === p.id) this.ev.ability = true; break;
@@ -226,7 +229,7 @@ export class Tutorial {
 
   /** Paso de la puerta: flecha de borde de pantalla hacia la puerta cercana (o marcador si ya se ve). */
   private updateArrow(world: IWorld): void {
-    if (this.idx !== 11) { setCls(this.arrow, 'on', false); return; }
+    if (this.idx !== 12) { setCls(this.arrow, 'on', false); return; }
     const p = world.player;
     let best: { cx: number; cy: number } | null = null;
     let bd = Infinity;

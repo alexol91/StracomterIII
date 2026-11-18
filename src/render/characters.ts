@@ -334,6 +334,7 @@ export class CharManager implements CharHost {
   private rb: RbLibrary | null = null;
   private useRb = false;
   private deathFrom = new Map<number, { x: number; y: number }>();
+  private throwPending = new Set<number>();
   private ghostOp = 0.22;
   /** a partir de esta distancia a la cámara los personajes animan 1 de cada 3 frames */
   private farAnimDist = 30;
@@ -411,19 +412,20 @@ export class CharManager implements CharHost {
   /** Sucesos del último paso: guarda de dónde vino el golpe final para orientar la caída. */
   onEvents(events: { type: string; id?: number; fromX?: number; fromY?: number }[]): void {
     for (const ev of events) {
+      if (ev.type === 'throw' && ev.id !== undefined) this.throwPending.add(ev.id);
       if (ev.type === 'death' && ev.id !== undefined && ev.fromX !== undefined && ev.fromY !== undefined) this.deathFrom.set(ev.id, { x: ev.fromX, y: ev.fromY });
     }
   }
 
   /** Biblioteca de personajes realistas (Rocketbox); se usa cuando `setUseRb(true)`. */
-  setRb(lib: RbLibrary | null): void { this.rb = lib; this.clear(); }
+  setRb(lib: RbLibrary | null): void { this.rb = lib; if (lib) lib.onChange = () => this.clear(); this.clear(); }
   setFarAnimDist(m: number): void { this.farAnimDist = m; }
   setUseRb(on: boolean): void { if (on !== this.useRb) { this.useRb = on; this.clear(); } }
 
-  private makeView(kind: Kind, id: number): View {
+  private makeView(kind: Kind, id: number, ent?: Entity): View {
     if (this.useRb && this.rb) {
       const rt = this.rb.templates.get(kind);
-      if (rt) { try { return new RbView(rt, id, this.rb); } catch { /* cae a Quaternius */ } }
+      if (rt) { try { return new RbView(rt, id, this.rb, ent); } catch { /* cae a Quaternius */ } }
     }
     const t = this.templates.get(kind);
     if (t) {
@@ -481,7 +483,7 @@ export class CharManager implements CharHost {
       seen.add(e.id);
       let v = this.views.get(e.id);
       if (!v) {
-        v = this.makeView(e.kind, e.id);
+        v = this.makeView(e.kind, e.id, e);
         this.group.add(v.root);
         this.views.set(e.id, v);
       }
@@ -496,6 +498,7 @@ export class CharManager implements CharHost {
         const animate = v.root.visible && ((inF && distCam < this.farAnimDist) || (this.frame + e.id) % 3 === 0);
         const animDt = v.pendingDt;
         if (animate) v.pendingDt = 0;
+        if (v instanceof RbView && this.throwPending.delete(e.id)) v.triggerThrow(time);
         if (v instanceof RbView && !e.alive) { const f = this.deathFrom.get(e.id); if (f) v.setDeathFrom(f.x, f.y); }
         v.update(e, time, dt, this, animate, animDt);
       } else this.animate(v, e, time, dt);

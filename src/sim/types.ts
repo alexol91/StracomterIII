@@ -71,7 +71,27 @@ export interface FurnitureInst {
 
 export interface Pickup { id: number; type: ItemType; x: number; y: number; taken: boolean }
 
-export type ProjectileKind = 'grenade' | 'rocket';
+export type ProjectileKind = 'grenade' | 'rocket' | 'flash' | 'smoke';
+/** v1.3 — tipos de granada del jugador (la ranura 4 las recorre) */
+export type GrenadeType = 'frag' | 'flash' | 'smoke';
+/** v1.3 — oficios de enemigo (solo enemy1..3) y variantes de jefe de planta */
+export type EnemyVariant = 'asaltante' | 'tirador' | 'granadero' | 'blindado';
+export type BossVariant = 'cohetes' | 'ametrallador' | 'embestida' | 'escoltas';
+/** v1.3 — aviso de un ataque peligroso que la simulación anuncia antes de que ocurra */
+export interface Threat {
+  id: number;
+  /** 'blast' = círculo en el suelo donde va a estallar algo; 'laser' = línea de un tirador apuntando; 'charge' = pasillo de embestida; 'lane' = pasillo que va a barrer un ametrallador */
+  kind: 'blast' | 'laser' | 'charge' | 'lane';
+  /** origen (para laser/charge/lane) y destino o centro */
+  fx: number; fy: number; x: number; y: number;
+  /** radio (blast) o ancho (charge/lane) en metros */
+  r: number;
+  /** world.time en que empezó y en que se ejecuta el ataque */
+  from: number; at: number;
+  ownerId: number;
+}
+/** v1.3 — nube de humo: bloquea la visión ('sight') pero no las balas */
+export interface SmokeCloud { id: number; x: number; y: number; r: number; from: number; until: number }
 export interface Projectile {
   id: number;
   kind: ProjectileKind;
@@ -151,6 +171,33 @@ export interface Entity {
   /** pistola: balas en el cargador y tamaño; su reserva es infinita */
   mag2: number;
   magSize2: number;
+  // ── v1.3 ──
+  /** voltereta: world.time hasta el que rueda (0 si no) y segundos que faltan para poder repetir */
+  rollUntil: number;
+  rollCd: number;
+  /** compañero derribado (alive sigue true, no actúa ni recibe más daño): world.time límite y progreso 0..1 de la reanimación */
+  downed: boolean;
+  downedUntil: number;
+  reviveProgress: number;
+  /** cegado por una granada cegadora hasta world.time (no ve, puntería muy mala) */
+  blindedUntil: number;
+  /** granadas tácticas del jugador y tipo seleccionado en la ranura 4 (`grenades` son las explosivas) */
+  flashes: number;
+  smokes: number;
+  grenadeType: GrenadeType;
+  /** variante del arma principal (0 = la de siempre, 1 = alternativa de la clase) */
+  primaryVariant: 0 | 1;
+  /** oficio del enemigo o variante del jefe de planta; null en el resto */
+  variant: EnemyVariant | null;
+  bossVariant: BossVariant | null;
+  /** nombre propio para la barra de jefe (clave i18n `boss.<variante>`), o '' */
+  bossName: string;
+  /** v1.3 (jefes) — world.time hasta el que está expuesto (recargando / aturdido tras embestir): recibe ×1,5. Ver damageTakenMult en ai_enemy.ts */
+  exposedUntil?: number;
+  /** v1.3 (jefes) — el jefe de escoltas se ha enfurecido (sus dos escoltas han caído) */
+  enraged?: boolean;
+  /** v1.3 (jefes) — id del jefe al que esta escolta está curando AHORA (para dibujar el vínculo), o -1/ausente */
+  healTargetId?: number;
 }
 
 /** Entrada del jugador para un paso de simulación. La genera la capa de controles. */
@@ -180,6 +227,11 @@ export interface PlayerInput {
   order: OrderKind | null;
   /** v1.2 — pulsaciones (flanco): elegir ranura, volver a la anterior (Q), rueda (+1 siguiente, -1 anterior) */
   weaponSlot: WeaponSlot | null;
+  /** v1.3 — flancos: voltereta (en la dirección de movimiento; parado, hacia atrás) y orden contextual según a qué se mira */
+  roll: boolean;
+  ping: boolean;
+  /** v1.3 — tecla de interactuar MANTENIDA (reanimar exige mantener; `interact` sigue siendo el flanco) */
+  interactHold: boolean;
   weaponLast: boolean;
   weaponCycle: number;
   /** móvil: las balas se corrigen hacia el enemigo visible más cercano a la mira */
@@ -192,7 +244,7 @@ export function emptyInput(): PlayerInput {
     fire: false, sprint: false, aim: false, knife: false, crouch: false,
     reload: false, grenade: false, ability: false, interact: false,
     useItem: false, cycleItem: false, order: null, aimAssist: false,
-    weaponSlot: null, weaponLast: false, weaponCycle: 0,
+    weaponSlot: null, weaponLast: false, weaponCycle: 0, roll: false, ping: false, interactHold: false,
   };
 }
 
@@ -206,6 +258,22 @@ export type GameEvent =
       /** v1.2 — con qué ranura se disparó (ausente = principal) */
       weapon?: WeaponSlot }
   | { type: 'weaponSwitch'; id: number; weapon: WeaponSlot }
+  // ── v1.3 ──
+  | { type: 'roll'; id: number }
+  | { type: 'flash'; x: number; y: number; z: number; radius: number; /** el jugador ha quedado cegado estos segundos (0 si no) */ playerBlind: number }
+  | { type: 'smoke'; x: number; y: number; z: number; radius: number; duration: number }
+  | { type: 'downed'; id: number; kind: Kind; x: number; y: number }
+  | { type: 'revived'; id: number; byId: number }
+  /** frase corta de un personaje ligada a su estado real: clave i18n `bark.<key>` */
+  | { type: 'bark'; id: number; team: Team; key: string }
+  /** combinación de habilidades: clave i18n `combo.<key>` */
+  | { type: 'combo'; key: 'clavado' | 'conmocion' | 'apagon'; x: number; y: number }
+  /** orden contextual: qué se ha marcado */
+  | { type: 'ping'; what: 'enemy' | 'door' | 'item' | 'ground'; x: number; y: number; targetId: number }
+  | { type: 'threat'; threat: Threat }
+  /** un blindado ha parado la bala con el escudo */
+  | { type: 'shieldHit'; id: number; x: number; y: number; z: number }
+  | { type: 'lights'; on: boolean }
   | { type: 'dryfire'; id: number }
   | { type: 'explosion'; x: number; y: number; z: number; radius: number }
   | { type: 'hurt'; id: number; amount: number; zone: HitZone | 'blast' | 'knife'; fromX: number; fromY: number; attackerId: number }

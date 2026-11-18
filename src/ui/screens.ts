@@ -287,8 +287,17 @@ export interface StrategyParams {
   zones: ZoneInfo[];
   onEnter(zone: number): void;
   onControl(c: ClassId): void;
+  onLoadout(c: ClassId, v: 0 | 1): void;
   onMenu(): void;
 }
+
+/** Valores de las barras del selector de armamento (daño, cadencia, alcance), 0..1. Son solo de presentación. */
+const WEAPON_BARS: Record<ClassId, [[number, number, number], [number, number, number]]> = {
+  captain: [[0.5, 0.55, 0.7], [0.75, 0.4, 0.8]],
+  technic: [[0.35, 1, 0.4], [0.9, 0.25, 0.2]],
+  especialist: [[0.3, 0.5, 0.6], [0.85, 0.2, 0.95]],
+  explosives: [[1, 0.3, 0.6], [0.8, 0.35, 0.5]],
+};
 
 function slotChip(it: ItemType | null): HTMLElement {
   if (!it) return h('span', { class: 'slot-i empty' }, '·');
@@ -355,6 +364,44 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
     upBox.appendChild(row);
   }
   party.appendChild(upBox);
+
+  // Armamento: dos variantes del arma principal por operador (pestañas por operador; empieza en el que controlas)
+  let loSel: ClassId = st.controlled;
+  const loBox = h('div', { class: 'loadout' });
+  const paintLo = (): void => {
+    loBox.textContent = '';
+    const cur = (st.loadout?.[loSel] ?? 0) as 0 | 1;
+    loBox.appendChild(h('span', { class: 'tag' }, '// ' + t('strat.loadout')));
+    const tabs = h('div', { class: 'lo-tabs' });
+    for (const c of CLASS_IDS) {
+      if (st.members[c].hp <= 0) continue;
+      tabs.appendChild(h('button', {
+        type: 'button', class: 'lo-tab' + (c === loSel ? ' on' : ''), 'data-nav': true,
+        onclick: () => { uiSound('click'); loSel = c; paintLo(); },
+      }, t('kind.' + c)));
+    }
+    loBox.appendChild(tabs);
+    ([0, 1] as const).forEach((v) => {
+      const bars = WEAPON_BARS[loSel][v];
+      loBox.appendChild(h('button', {
+        type: 'button', class: 'lo-opt' + (cur === v ? ' sel' : ''), 'data-nav': true,
+        onclick: () => {
+          uiSound('confirm');
+          p.onLoadout(loSel, v);
+          if (!st.loadout) st.loadout = {};
+          st.loadout[loSel] = v;
+          paintLo();
+        },
+      },
+        h('div', { class: 'lo-n' }, t(`weapon.${loSel}.${v}`)),
+        statLine(t('stat.damage'), bars[0], ''),
+        statLine(t('stat.rof'), bars[1], ''),
+        statLine(t('stat.range'), bars[2], ''),
+      ));
+    });
+  };
+  paintLo();
+  party.appendChild(loBox);
 
   // Zonas: tarjetas de «plano táctico». Un clic selecciona; ENTRAR (o Enter) despliega.
   const zones = h('div', { class: 'zones' });
@@ -809,6 +856,7 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
       h('h3', { class: 'h-title opt-sec' }, '// ' + t('opt.controls')),
       h('p', { class: 'hint' }, t('opt.remapHint')),
       h('p', { class: 'hint', style: 'color:var(--acc)' }, t('opt.controlsNote')),
+      h('p', { class: 'hint', style: 'color:var(--acc)' }, t('opt.controlsNote2')),
       ...fullscreenTip(),
       msg,
       bindGrid,
@@ -826,6 +874,8 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
       slider(t('opt.uiscale'), 0.8, 1.4, 0.05, () => st.uiScale, (v) => { st.uiScale = v; }, pct),
       toggle(t('opt.colorblind'), () => st.colorblind, (v) => { st.colorblind = v; }),
       toggle(t('opt.shake'), () => st.cameraShake, (v) => { st.cameraShake = v; }),
+      toggle(t('opt.vibration'), () => st.vibration !== false, (v) => { st.vibration = v; }),
+      toggle(t('opt.reduceFlashes'), () => !!st.reduceFlashes, (v) => { st.reduceFlashes = v; }),
       segment(t('opt.graphics'), [
         { v: 'auto', text: t('opt.gfx.auto') }, { v: 'high', text: t('opt.gfx.high') },
         { v: 'medium', text: t('opt.gfx.medium') }, { v: 'low', text: t('opt.gfx.low') },

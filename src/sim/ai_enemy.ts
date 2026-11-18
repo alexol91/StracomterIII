@@ -6,13 +6,22 @@
 //  - Ver a través de una pared o una puerta cerrada: toda detección pasa por world.canSee (rayo 'sight').
 //  - Disparar a través de un tabique: world.fire traza la bala con un rayo real; además no se aprieta el
 //    gatillo sin world.shotLine() válida en ese mismo instante.
+//
+// v1.3 — oficios (asaltante, tirador, granadero, blindado) y jefes de planta (ametrallador, embestida, escoltas).
+//  - Toda la visión pasa por this.visible(): world.canSee (pared, humo, cegado) y nunca un compañero derribado.
+//  - Todo ataque nuevo que quita mucha vida se anuncia antes con un Threat (laser / lane / charge) y lo que se
+//    anuncia es EXACTAMENTE lo que luego se ejecuta: la dirección se fija al empezar el aviso (pasillos) o el aviso
+//    se mueve con el punto apuntado (láser). Lo que pega son rayos reales: una pared siempre para la bala.
 
-import { ALERT_DELAY, VISION } from './data';
+import {
+  ALERT_DELAY, ASALTANTE, BLINDADO, BOSS_CHARGER, BOSS_ESCORTED, BOSS_EXPOSED_MULT, BOSS_GUNNER, BOSS_LATE, ENEMY_STATS, FLASH,
+  GRANADERO, TIRADOR, V13_ALLY_AI_DAMAGE, VISION,
+} from './data';
 import type { CoverPoint } from './level';
-import type { EnemyKind, Vec2 } from './types';
+import type { BossVariant, EnemyKind, EnemyVariant, Entity, Threat, Vec2 } from './types';
 import { angDiff, type Unit, type World } from './world';
 
-type State = 'patrol' | 'investigate' | 'cover' | 'advance' | 'flank' | 'search' | 'retreat' | 'melee' | 'boss';
+type State = 'patrol' | 'investigate' | 'cover' | 'advance' | 'flank' | 'search' | 'retreat' | 'melee' | 'boss' | 'special';
 type Role = 'suppress' | 'flank' | 'assault';
 
 interface Belief { x: number; y: number; t: number; id: number; vx: number; vy: number }
@@ -59,6 +68,62 @@ interface Brain {
   /** a quién dispara en la ráfaga en curso */
   fireTarget: number;
   hideDone: boolean;
+  // ── v1.3 ──
+  /** asaltante: ya ha gritado la carga de este combate */
+  chargeBarked: boolean;
+  /** tirador */
+  sn: Sniper | null;
+  /** granadero: ancla de «el blanco no se mueve» y enfriamiento */
+  gr: { ax: number; ay: number; since: number; nextAt: number } | null;
+  /** escolta del jefe (id del jefe) o -1 */
+  escortOf: number;
+  /** jefe de escoltas: ha llegado a tener escoltas (si no, nunca se enfurece) */
+  hadEscorts: boolean;
+  /** jefes ametrallador / embestida */
+  bs: BossAttack | null;
+  wasBlind: boolean;
+}
+
+interface Sniper {
+  spot: Vec2 | null; settled: boolean; pickAt: number; moveAt: number; seenAt: number; mustMove: boolean;
+  threat: Threat | null; targetId: number; ax: number; ay: number; az: number; losLostAt: number; shots: number; nextAt: number;
+}
+interface BossAttack {
+  phase: 'idle' | 'tele' | 'sweep' | 'reload' | 'dash' | 'stun' | 'recover';
+  until: number; nextAt: number; yaw: number; dx: number; dy: number; dist: number; len: number;
+  x0: number; y0: number; px: number; py: number; t0: number; stall: number; threat: Threat | null;
+}
+
+/**
+ * v1.3 — multiplicador del daño que recibe `e` por estar expuesto (jefe recargando o aturdido tras fallar la embestida).
+ * Lo llama World.damage. 1 si no aplica (y si falta el dato: sin ventana anunciada no hay daño extra).
+ */
+export function damageTakenMult(e: Entity, world: { time: number }): number {
+  return e.team === 'enemy' && (e.exposedUntil ?? 0) > world.time ? BOSS_EXPOSED_MULT : 1;
+}
+
+/** v1.3 — convierte a un enemigo normal en un oficio: copia sus estadísticas (la tabla ENEMY_STATS no se toca). */
+export function applyVariant(u: Unit, v: EnemyVariant): void {
+  if (u.kind !== 'enemy1' && u.kind !== 'enemy2' && u.kind !== 'enemy3') return;
+  const st = { ...u.stats };
+  if (v === 'asaltante') { st.hp *= ASALTANTE.hpMult; st.speed *= ASALTANTE.speedMult; }
+  else if (v === 'tirador') { st.hp *= TIRADOR.hpMult; }
+  else if (v === 'blindado') { st.hp *= BLINDADO.hpMult; st.speed *= BLINDADO.speedMult; st.rof *= BLINDADO.rofMult; st.magSize = Math.max(1, Math.round(st.magSize * BLINDADO.magMult)); st.reloadTime *= BLINDADO.reloadMult; }
+  st.hp = Math.round(st.hp);
+  u.stats = st; u.variant = v; u.hp = u.maxHp = st.hp;
+  if (st.magSize !== u.magSize) { u.ammo += u.mag - st.magSize; u.mag = u.magSize = st.magSize; } // cargador corto: mismas balas en total
+}
+
+/** v1.3 — da a un MiniBoss su variante de planta (nombre, arma y vida). 'cohetes' es el de siempre. */
+export function applyBossVariant(u: Unit, v: BossVariant, floor: number): void {
+  if (u.kind !== 'miniboss') return;
+  const st = { ...u.stats };
+  if (v === 'ametrallador') { st.explosive = false; st.damage = BOSS_GUNNER.damage; st.rof = BOSS_GUNNER.rof; st.magSize = Math.round(BOSS_GUNNER.rof * BOSS_GUNNER.sweep); st.reloadTime = BOSS_GUNNER.reload; }
+  else if (v === 'embestida') { st.explosive = false; st.damage = BOSS_CHARGER.bulletDamage; st.rof = BOSS_CHARGER.rof; st.magSize = 10; st.reloadTime = 2; }
+  else if (v === 'escoltas') { const vet = ENEMY_STATS.enemy3; st.explosive = false; st.damage = vet.damage; st.rof = vet.rof; st.magSize = vet.magSize; st.reloadTime = vet.reloadTime; }
+  if (floor >= BOSS_LATE.fromFloor) st.hp = Math.round(st.hp * BOSS_LATE.hpMult);
+  u.stats = st; u.bossVariant = v; u.bossName = 'boss.' + v;
+  u.hp = u.maxHp = st.hp; u.mag = u.magSize = st.magSize;
 }
 
 export class Squad {
@@ -90,6 +155,15 @@ export class EnemyAI {
   global: Belief | null = null;
   /** 0 = sin flanqueo ni repliegue (planta 1, tutorial); 1 = todo */
   tactics = 1;
+  /** v1.3 — dificultad difícil: el láser del tirador apunta menos tiempo */
+  hard = false;
+  private lastLowBarkAt = -99;
+  private lastGrenadeAt = -99;
+  /** cuándo disparó por última vez un tirador a cada blanco (id → world.time) */
+  private sniped = new Map<number, number>();
+  /** mapa de exposición compartido por los asaltantes (ruta que evita el pasillo de fuego) */
+  private pen: Float32Array | null = null;
+  private penAt = -99; private penX = 0; private penY = 0;
 
   constructor(private w: World) {}
 
@@ -128,7 +202,34 @@ export class EnemyAI {
       phaseUntil: 0, coverCheckAt: 0, cycles: 0, band: 0, dest: null, patrolI: 0, waitUntil: 0, searchPts: [], inv: null,
       reactAt: 0, burstUntil: 0, restUntil: 0, faceYaw: u.yaw, alerted: false, hunt: s.hunt, home: s.home, lastSawAt: -99,
       specialAt: this.w.time + 3, unstuck: 0, atHide: false, peekDone: false, hideDone: false, fireTarget: -1,
+      chargeBarked: false, sn: null, gr: null, escortOf: -1, hadEscorts: false, bs: null, wasBlind: false,
     };
+  }
+
+  /** v1.3 — marca a `u` como escolta del jefe `boss`: se queda cerca y lo cura mientras viva. */
+  makeEscort(u: Unit, boss: Unit): void {
+    (u.brain as Brain).escortOf = boss.id;
+    (boss.brain as Brain).hadEscorts = true;
+  }
+
+  /** v1.3 — ¿`u` ve a `t`? Pared, humo y cegado van dentro de canSee; a un derribado no se le mira. Sin dato → no. */
+  private visible(u: Unit, t: Unit): boolean {
+    if (!t.alive || t.downed) return false;
+    return this.w.canSee(u, t);
+  }
+
+  /** v1.3 — frase ligada a un estado real. Las de relleno (`low`) dejan hueco a las que avisan de un peligro. */
+  private say(u: Unit, key: string, low = false): void {
+    const w = this.w;
+    if (low) { if (w.time - this.lastLowBarkAt < 6) return; if (w.bark(u, key)) this.lastLowBarkAt = w.time; }
+    else w.bark(u, key);
+  }
+
+  private cancelLaser(b: Brain): void {
+    if (b.sn && b.sn.threat) { this.w.removeThreat(b.sn.threat.id); b.sn.threat = null; }
+  }
+  private dropThreat(b: Brain): void {
+    if (b.bs && b.bs.threat) { this.w.removeThreat(b.bs.threat.id); b.bs.threat = null; }
   }
 
   // ───────────────────────── sucesos ─────────────────────────
@@ -153,6 +254,8 @@ export class EnemyAI {
     const b = u.brain as Brain; const w = this.w;
     if (!b) return;
     this.releaseCover(u, b);
+    this.cancelLaser(b); this.dropThreat(b); // un muerto no deja avisos colgando
+    u.healTargetId = -1;
     const s = b.squad;
     s.members = s.members.filter(m => m !== u);
     s.rolesAt = -99;
@@ -184,12 +287,43 @@ export class EnemyAI {
         const p = b.pending; b.pending = null;
         if (!b.belief || b.belief.t < p.b.t) this.setBelief(u, b, { ...p.b }, false);
       }
+      // v1.3 — cegado: lo dice una vez
+      const blind = w.isBlinded(u);
+      if (blind && !b.wasBlind) this.say(u, 'enemy.blind', true);
+      b.wasBlind = blind;
       this.think(u, b, dt);
-      if (w.time < u.staggerUntil && u.kind !== 'miniboss' && u.kind !== 'megaboss') u.aiState = 'aturdido';
-      // giro hacia donde quiere mirar
-      const rate = (u.kind === 'megaboss' || u.kind === 'miniboss' ? 2.6 : 5.5) * dt;
+      if (w.time < u.staggerUntil && u.kind !== 'miniboss' && u.kind !== 'megaboss' && u.aiState !== 'recarga') u.aiState = 'aturdido';
+      // giro hacia donde quiere mirar (el blindado gira despacio: un flanqueo le gana la espalda)
+      const rate = (u.kind === 'megaboss' || u.kind === 'miniboss' ? 2.6 : u.variant === 'blindado' ? BLINDADO.turnRate : 5.5) * dt;
       const d = angDiff(b.faceYaw, u.yaw);
       u.yaw += Math.abs(d) < rate ? d : Math.sign(d) * rate;
+    }
+    this.escortsUpdate(dt);
+  }
+
+  /** v1.3 — escoltas: curan al jefe mientras vivan y estén cerca; cuando caen las dos, el jefe se enfurece. */
+  private escortsUpdate(dt: number): void {
+    const w = this.w, E = BOSS_ESCORTED;
+    for (const u of w.entities) {
+      if (!u.alive || u.team !== 'enemy') continue;
+      const b = u.brain as Brain;
+      if (b.escortOf >= 0) {
+        const boss = w.entityById(b.escortOf);
+        u.healTargetId = -1;
+        if (!boss || !boss.alive) { b.escortOf = -1; continue; }
+        if (Math.hypot(boss.x - u.x, boss.y - u.y) <= E.healRange && boss.hp < boss.maxHp) {
+          boss.hp = Math.min(boss.maxHp, boss.hp + E.healPerSec * dt);
+          u.healTargetId = boss.id;
+        }
+      } else if (u.bossVariant === 'escoltas' && b.hadEscorts && !u.enraged) {
+        let left = 0;
+        for (const o of w.entities) if (o.alive && o.team === 'enemy' && (o.brain as Brain).escortOf === u.id) left++;
+        if (left === 0) {
+          u.enraged = true;
+          u.stats = { ...u.stats, rof: u.stats.rof * E.enrageRof };
+          this.say(u, 'enemy.enraged');
+        }
+      }
     }
   }
 
@@ -242,11 +376,13 @@ export class EnemyAI {
     const w = this.w;
     const engaged = !!b.belief && w.time - b.belief.t < 4;
     // en combate mira hacia donde sabe que estás: cono más abierto y hasta el alcance del arma
-    const pa = engaged ? 1.05 : VISION.primaryHalfAngle, pr = engaged ? 30 : VISION.primaryRange;
-    const sa = engaged ? 1.75 : VISION.peripheralHalfAngle, sr = engaged ? 14 : VISION.peripheralRange;
+    // v1.3 — con las luces apagadas (Hackeo) ven a la mitad de distancia; un cegado no ve nada
+    const dim = w.lightsOffUntil > w.time ? 0.5 : 1;
+    const pa = engaged ? 1.05 : VISION.primaryHalfAngle, pr = (engaged ? 30 : VISION.primaryRange) * dim;
+    const sa = engaged ? 1.75 : VISION.peripheralHalfAngle, sr = (engaged ? 14 : VISION.peripheralRange) * dim;
     let best: Unit | null = null, bestRate = 0;
-    for (const t of w.entities) {
-      if (!t.alive || t.team !== 'ally') continue;
+    if (!w.isBlinded(u)) for (const t of w.entities) {
+      if (!t.alive || t.team !== 'ally' || t.downed) continue;
       const dx = t.x - u.x, dy = t.y - u.y;
       const d = Math.hypot(dx, dy);
       if (d > pr) continue;
@@ -258,7 +394,7 @@ export class EnemyAI {
       if (rate <= 0) continue;
       if (t.crouch) rate *= 0.6;
       if (rate <= bestRate * (t.isPlayer ? 0.8 : 1)) continue;
-      if (!w.canSee(u, t)) continue; // la pared manda
+      if (!this.visible(u, t)) continue; // la pared manda (y el humo)
       best = t; bestRate = rate;
     }
     if (best) {
@@ -286,7 +422,7 @@ export class EnemyAI {
     if (!this.global || this.global.t < nb.t) this.global = nb;
     if (wasCalm) {
       if (!b.alerted) { b.alerted = true; b.reactAt = w.time + 0.25 + w.rng() * 0.35; }
-      if (own && w.time - s.alertEvtAt > 6 && nb.t >= w.time - 0.2) { s.alertEvtAt = w.time; w.events.push({ type: 'alert', id: u.id, x: u.x, y: u.y }); }
+      if (own && w.time - s.alertEvtAt > 6 && nb.t >= w.time - 0.2) { s.alertEvtAt = w.time; w.events.push({ type: 'alert', id: u.id, x: u.x, y: u.y }); this.say(u, 'enemy.contact', true); }
       if (b.state === 'patrol' || b.state === 'investigate' || b.state === 'search') b.commitUntil = 0;
     }
     if (own && w.time - s.shareAt > 0.4) {
@@ -306,7 +442,7 @@ export class EnemyAI {
         if (q === s) continue;
         for (const m of q.members) {
           const d = Math.hypot(m.x - u.x, m.y - u.y);
-          if (d < 6 || (d < 13 && w.canSee(u, m))) tell(m, 0.4);
+          if (d < 6 || (d < 13 && this.visible(u, m))) tell(m, 0.4);
         }
       }
     }
@@ -328,11 +464,13 @@ export class EnemyAI {
       const rally = this.pickRally(s);
       if (rally) {
         s.retreated = true; s.mode = 'retreat'; s.retreatAt = w.time; s.rally = rally;
-        for (const m of s.members) { const mb = m.brain as Brain; this.releaseCover(m, mb); this.setState(m, mb, 'retreat', 2); }
+        // v1.3 — asaltantes, tiradores y blindados no se repliegan: siguen a lo suyo
+        for (const m of s.members) { if (soloist(m)) continue; const mb = m.brain as Brain; this.releaseCover(m, mb); this.setState(m, mb, 'retreat', 2); }
+        this.say(s.members[0], 'enemy.retreat', true);
       } else s.retreated = true;
     }
     if (s.mode === 'retreat') {
-      const arrived = s.members.every(m => Math.hypot(m.x - s.rally[0], m.y - s.rally[1]) < 3);
+      const arrived = s.members.every(m => soloist(m) || Math.hypot(m.x - s.rally[0], m.y - s.rally[1]) < 3);
       if (arrived || w.time - s.retreatAt > 11) {
         // reagrupar: se funden con el grupo más cercano y vuelven
         let near: Squad | null = null, nd = 12;
@@ -351,7 +489,7 @@ export class EnemyAI {
           for (const m of into.members) { const mb = m.brain as Brain; if (mb.state === 'retreat') { mb.commitUntil = 0; this.setState(m, mb, mb.belief ? 'advance' : 'patrol', 0.5); } }
           return;
         }
-        for (const m of s.members) { const mb = m.brain as Brain; mb.commitUntil = 0; this.setState(m, mb, mb.belief ? 'advance' : 'patrol', 0.5); }
+        for (const m of s.members) { if (soloist(m)) continue; const mb = m.brain as Brain; mb.commitUntil = 0; this.setState(m, mb, mb.belief ? 'advance' : 'patrol', 0.5); }
       }
       return;
     }
@@ -359,7 +497,7 @@ export class EnemyAI {
     // reparto de papeles: se revisa cada 5 s o cuando cae alguien
     if (s.mode === 'combat' && w.time - s.rolesAt > 5) {
       s.rolesAt = w.time;
-      const ms = s.members.filter(m => m.kind !== 'miniboss' && m.kind !== 'megaboss');
+      const ms = s.members.filter(m => m.kind !== 'miniboss' && m.kind !== 'megaboss' && !soloist(m) && (m.brain as Brain).escortOf < 0);
       const n = ms.length;
       const nSup = n >= 2 ? Math.max(1, Math.round(n * 0.35)) : 0;
       const nFl = this.tactics > 0 && n >= 3 ? Math.max(1, Math.round(n * 0.3)) : 0;
@@ -413,6 +551,9 @@ export class EnemyAI {
     b.commitUntil = w.time + commit * (0.85 + w.rng() * 0.3);
     u.path = null; u.repathAt = 0; b.atHide = false;
     if (st !== 'cover') { u.crouch = false; b.peeking = false; }
+    if (st !== 'melee') u.sprinting = false;
+    if (st !== 'special') this.cancelLaser(b);
+    if (st === 'patrol') b.chargeBarked = false;
     if (st === 'patrol' || st === 'investigate' || st === 'search') b.waitUntil = Math.max(b.waitUntil, 0);
   }
 
@@ -426,6 +567,10 @@ export class EnemyAI {
     const w = this.w, s = b.squad;
     const bl = b.belief!;
     const age = w.time - bl.t;
+    // v1.3 — oficios con conducta propia
+    if (u.variant === 'asaltante') { this.setState(u, b, 'melee', 1); return; }
+    if (u.variant === 'tirador' || u.variant === 'blindado') { this.setState(u, b, 'special', 1); return; }
+    if (b.escortOf >= 0 && this.escortDecide(u, b)) return;
     if (s.mode === 'retreat') { this.setState(u, b, 'retreat', 2); return; }
     if (u.mag <= 0 && u.ammo <= 0) { this.setState(u, b, 'melee', 1.5); return; }
     if (age > 6) { this.startSearch(u, b); return; }
@@ -438,7 +583,7 @@ export class EnemyAI {
     }
     if (b.role === 'flank' && this.tactics > 0 && this.someoneCovering(s, u) && this.startFlank(u, b)) return;
     // presionar: solo se acorta distancia si alguien cubre; si no, se aguanta en cobertura
-    const band = BAND[u.ekind!];
+    const band = u.variant === 'granadero' ? GRANADERO.band : BAND[u.ekind!];
     let rmin = band[0], rmax = band[1];
     if (b.role === 'assault' && this.someoneCovering(s, u)) { rmax = Math.max(rmin + 2, rmax - 3 * Math.min(3, b.cycles)); }
     if (b.role === 'suppress') { rmin += 2; rmax += 4; }
@@ -458,7 +603,7 @@ export class EnemyAI {
   }
 
   /** Busca un punto de cobertura contra la amenaza en (tx,ty) y lo reserva. */
-  private startCover(u: Unit, b: Brain, tx: number, ty: number, rmin: number, rmax: number): boolean {
+  private startCover(u: Unit, b: Brain, tx: number, ty: number, rmin: number, rmax: number, near: { x: number; y: number; r: number } | null = null): boolean {
     const w = this.w, L = w.level;
     let best: CoverPoint | null = null, bs = -Infinity, bestPeek: Vec2 | null = null;
     const tz = 1.4;
@@ -466,6 +611,7 @@ export class EnemyAI {
       if (c.taken >= 0 && c.taken !== u.id) { const o = w.entityById(c.taken); if (o && o.alive) continue; c.taken = -1; }
       const ds = Math.hypot(c.x - u.x, c.y - u.y);
       if (ds > 15) continue;
+      if (near && Math.hypot(c.x - near.x, c.y - near.y) > near.r) continue;
       const dt = Math.hypot(c.x - tx, c.y - ty);
       if (dt < 3.5) continue;
       // ¿protege? agachado para cobertura baja, de pie para alta
@@ -482,7 +628,7 @@ export class EnemyAI {
       let peek: Vec2 | null = null;
       if (!c.high && L.clear(c.x, c.y, 1.5, tx, ty, 1.2, 'bullet') && L.clear(c.x, c.y, 1.6, tx, ty, 1.5, 'sight')) peek = [c.x, c.y];
       else peek = this.findPeek(c.x, c.y, tx, ty);
-      if (!peek && b.role === 'suppress') continue; // quien fija necesita poder asomarse
+      if (!peek && b.role === 'suppress' && !near) continue; // quien fija necesita poder asomarse
       if (!peek) sc -= 6; // sirve para esconderse pero no para pelear
       if (sc <= bs) continue;
       bs = sc; best = c; bestPeek = peek;
@@ -541,6 +687,7 @@ export class EnemyAI {
     const p = w.nav.path(u.x, u.y, best[0], best[1], { doors: true, penalty: s.pen });
     if (!p) return false;
     b.dest = best;
+    this.say(u, 'enemy.flank', true);
     this.setState(u, b, 'flank', 2.0);
     u.path = p; u.pathI = 0; u.goalX = best[0]; u.goalY = best[1]; u.navVer = L.version; u.repathAt = w.time + 4;
     return true;
@@ -567,7 +714,7 @@ export class EnemyAI {
     const w = this.w;
     const sp = u.stats.speed;
     const tgt = b.visId >= 0 ? w.entityById(b.visId) : undefined;
-    const sees = !!tgt && tgt.alive;
+    const sees = !!tgt && tgt.alive && !tgt.downed;
     if (!sees) b.visId = -1;
     u.wishX = 0; u.wishY = 0;
 
@@ -576,16 +723,44 @@ export class EnemyAI {
       b.belief = { ...this.global, t: Math.max(this.global.t, w.time - 3) }; b.aware = 1; b.alerted = true;
     }
     // recarga cuando toca
-    if (u.mag <= 0 && u.ammo > 0 && u.reloading <= 0) w.startReload(u);
+    if (u.mag <= 0 && u.ammo > 0 && u.reloading <= 0 && w.startReload(u) && b.belief && u.kind !== 'miniboss' && u.kind !== 'megaboss') this.say(u, 'enemy.reloading', true);
 
     if (u.kind === 'miniboss' || u.kind === 'megaboss') { this.bossThink(u, b, tgt && sees ? tgt : null, dt); return; }
+
+    // v1.3 — cegado: no ve, no se mueve y, si acaba de tener a alguien delante, dispara a bulto (dispersión ×4)
+    if (w.isBlinded(u)) {
+      u.aiState = 'cegado'; u.sprinting = false;
+      this.cancelLaser(b);
+      const bl = b.belief;
+      if (bl && w.time - bl.t < 2.5 && u.variant !== 'asaltante' && u.variant !== 'tirador' && w.time >= u.staggerUntil && w.time >= b.reactAt &&
+        u.reloading <= 0 && u.mag > 0 && u.fireCd <= 0) {
+        b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
+        if (Math.abs(angDiff(b.faceYaw, u.yaw)) < 0.3 && w.level.clear(u.x, u.y, w.muzzleZ(u), bl.x, bl.y, 1.1, 'bullet')) {
+          w.fire(u, bl.x, bl.y, 1.1, SPREAD[u.ekind!] * FLASH.spreadMult);
+          u.fireCd = 2 / u.stats.rof;
+        }
+      }
+      return;
+    }
 
     const pinned = w.time < u.pinnedUntil;
     if (pinned) {
       // Supresión: clavado. Agachado, sin avanzar; como mucho devuelve algún tiro.
-      u.crouch = true; u.aiState = 'clavado';
+      u.crouch = u.variant !== 'blindado'; u.aiState = 'clavado'; u.sprinting = false;
+      this.cancelLaser(b);
       if (sees) { b.faceYaw = Math.atan2(tgt!.y - u.y, tgt!.x - u.x); if (w.rng() < 0.25 * dt * 4) { u.crouch = false; this.tryShoot(u, b, tgt!, 2.2); } }
       return;
+    }
+
+    // v1.3 — el blindado con el escudo caído (aturdido, o recargando: para recargar lo baja) se queda clavado en el sitio
+    if (u.variant === 'blindado') {
+      if (u.reloading > 0) u.staggerUntil = Math.max(u.staggerUntil, w.time + u.reloading);
+      if (w.time < u.staggerUntil) { u.aiState = u.reloading > 0 ? 'recarga' : 'aturdido'; return; }
+    }
+    if (u.variant === 'granadero') this.grenadierCheck(u, b);
+    // un oficio con conducta propia no se queda en un estado de enemigo normal (p. ej. al reagruparse su escuadra)
+    if (soloist(u) && (b.state === 'cover' || b.state === 'advance' || b.state === 'flank' || b.state === 'retreat')) {
+      if (b.belief) this.decide(u, b); else this.setState(u, b, 'patrol', 1);
     }
 
     const engaged = !!b.belief;
@@ -627,7 +802,13 @@ export class EnemyAI {
         if (b.squad.mode !== 'retreat' && w.time >= b.commitUntil) this.setState(u, b, b.belief ? 'advance' : 'patrol', 0.5);
         break;
       }
+      case 'special':
+        if (u.variant === 'tirador') this.doTirador(u, b, tgt && sees ? tgt : null, sp, dt);
+        else if (u.variant === 'blindado') this.doBlindado(u, b, tgt && sees ? tgt : null, sp);
+        else this.setState(u, b, 'patrol', 1);
+        break;
       case 'melee': {
+        if (u.variant === 'asaltante') { this.doAsalto(u, b, tgt && sees ? tgt : null, sp); break; }
         u.aiState = 'carga';
         if (u.mag > 0 || u.ammo > 0) { if (b.belief) this.decide(u, b); else this.setState(u, b, 'patrol', 1); break; }
         const tx = sees ? tgt!.x : b.belief ? b.belief.x : u.x, ty = sees ? tgt!.y : b.belief ? b.belief.y : u.y;
@@ -645,7 +826,10 @@ export class EnemyAI {
   /** Aprieta el gatillo solo si hay línea de tiro real ahora mismo. */
   private tryShoot(u: Unit, b: Brain, t: Unit, spreadMul: number): boolean {
     const w = this.w;
+    if (u.variant === 'asaltante' || u.variant === 'tirador') return false; // v1.3: uno solo acuchilla, el otro solo usa el láser
     if (w.time < u.staggerUntil) return false; // aturdido: no dispara
+    if (t.downed) return false;
+    if (w.isBlinded(u)) spreadMul *= FLASH.spreadMult;
     if (w.time < b.reactAt || u.reloading > 0 || u.mag <= 0 || u.fireCd > 0) return false;
     if (w.time < b.restUntil) return false;
     if (w.time > b.burstUntil) {
@@ -765,7 +949,7 @@ export class EnemyAI {
     }
 
     // Lleva un rato en su puesto sin ver a nadie con sus propios ojos: el puesto no sirve. Avanza hacia donde cree que estás.
-    if (w.time - b.lastSawAt > 5 && w.time - b.stateAt > 5 && w.time >= b.commitUntil) {
+    if (b.escortOf < 0 && w.time - b.lastSawAt > 5 && w.time - b.stateAt > 5 && w.time >= b.commitUntil) {
       this.releaseCover(u, b);
       b.dest = this.freeNear(bl.x, bl.y) ?? [bl.x, bl.y];
       this.setState(u, b, 'advance', 1.5);
@@ -777,7 +961,7 @@ export class EnemyAI {
       if (b.peeking) b.phaseUntil = w.time + (supp ? 2.0 + w.rng() * 1.6 : 1.2 + w.rng() * 1.0);
       else {
         b.phaseUntil = w.time + (supp ? 0.5 + w.rng() * 0.6 : 0.9 + w.rng() * 1.3);
-        if (u.mag < u.magSize * 0.4 && u.ammo > 0) w.startReload(u);
+        if (u.mag < u.magSize * 0.4 && u.ammo > 0 && w.startReload(u)) this.say(u, 'enemy.reloading', true);
         // tras un ciclo completo, replantearse la jugada (con el compromiso ya vencido)
         if (w.time >= b.commitUntil) {
           const age = w.time - bl.t;
@@ -832,6 +1016,11 @@ export class EnemyAI {
       if (tgt) this.face(u, b, tgt); else b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
       return;
     }
+    // v1.3 — jefes de planta con ataque propio
+    if (u.bossVariant === 'ametrallador') { this.gunnerThink(u, b, tgt, sp); return; }
+    if (u.bossVariant === 'embestida') { this.chargerThink(u, b, tgt, sp, dt); return; }
+    if (u.bossVariant === 'escoltas') { this.escortedThink(u, b, tgt, sp); return; }
+    if (w.isBlinded(u)) { u.aiState = 'cegado'; return; }
     if (tgt) {
       const d = Math.hypot(tgt.x - u.x, tgt.y - u.y);
       this.face(u, b, tgt);
@@ -865,6 +1054,422 @@ export class EnemyAI {
       if (mega && this.global && this.global.t > bl.t) b.belief = this.global;
     }
   }
+
+  // ───────────────────────── v1.3: oficios ─────────────────────────
+
+  /**
+   * Asaltante: corre hasta el cuerpo a cuerpo y acuchilla. Lejos va por una ruta que evita lo que el blanco tiene a
+   * la vista (no entra por el pasillo de fuego); a menos de `directDist` ya va recto. No dispara ni se retira.
+   * Se le oye venir (grito al lanzarse, pasos de carrera) y cae con poca cosa.
+   */
+  private doAsalto(u: Unit, b: Brain, tgt: Unit | null, sp: number): void {
+    const w = this.w, A = ASALTANTE;
+    const bl = b.belief;
+    if (!bl) { this.setState(u, b, 'patrol', 1); return; }
+    u.aiState = 'asalta';
+    if (!b.chargeBarked) { b.chargeBarked = true; this.say(u, 'enemy.charge'); }
+    const tx = tgt ? tgt.x : bl.x, ty = tgt ? tgt.y : bl.y;
+    const d = Math.hypot(tx - u.x, ty - u.y);
+    const age = w.time - bl.t;
+    if (tgt && d < u.radius + A.reach + tgt.radius * 0.5) {
+      u.sprinting = false;
+      this.face(u, b, tgt);
+      if (u.knifeCd <= 0 && w.time >= u.staggerUntil && Math.abs(angDiff(b.faceYaw, u.yaw)) < 0.6) this.stab(u, tgt);
+      return;
+    }
+    if (!tgt && (age > 8 || (d < 1.5 && age > 3))) { this.startSearch(u, b); return; }
+    u.sprinting = true;
+    let pen: Float32Array | null = null;
+    if (d > A.directDist && this.tactics > 0) {
+      if (!this.pen || w.time - this.penAt > 3 || Math.hypot(bl.x - this.penX, bl.y - this.penY) > 3) {
+        this.pen = w.nav.exposure(bl.x, bl.y, 26, 1.1);
+        this.penAt = w.time; this.penX = bl.x; this.penY = bl.y;
+      }
+      pen = this.pen;
+    }
+    w.navigate(u, tx, ty, sp * A.sprintMult, pen, 0.6);
+    this.faceMove(u, b);
+  }
+
+  /** Cuchillada del asaltante: mismo alcance y comprobaciones que World.knife (ángulo y nada sólido en medio), con su daño. */
+  private stab(u: Unit, t: Unit): void {
+    const w = this.w, A = ASALTANTE;
+    u.knifeCd = A.knifePeriod; u.lastKnifeAt = w.time;
+    const d = Math.hypot(t.x - u.x, t.y - u.y);
+    const hit = t.alive && !t.downed && d <= u.radius + A.reach + t.radius * 0.5 &&
+      Math.abs(angDiff(Math.atan2(t.y - u.y, t.x - u.x), u.yaw)) <= 1.1 &&
+      w.level.clear(u.x, u.y, 1.1, t.x, t.y, Math.min(1.1, w.height(t) * 0.7), 'bullet');
+    w.events.push({ type: 'knife', id: u.id, hit });
+    if (hit) w.damage(t, A.knifeDamage * allyMult(t), u, 'knife', u.x, u.y);
+  }
+
+  /**
+   * Blindado: avanza de frente hacia el blanco, siempre encarándolo (el giro limitado va en update()). No usa
+   * cobertura; a `stopDist` se planta y dispara despacio. Con el escudo caído no llega aquí (se queda quieto).
+   */
+  private doBlindado(u: Unit, b: Brain, tgt: Unit | null, sp: number): void {
+    const w = this.w;
+    const bl = b.belief;
+    if (!bl) { this.setState(u, b, 'patrol', 1); return; }
+    u.aiState = 'avanza con escudo';
+    const age = w.time - bl.t;
+    const tx = tgt ? tgt.x : bl.x, ty = tgt ? tgt.y : bl.y;
+    const d = Math.hypot(tx - u.x, ty - u.y);
+    if (!tgt && (age > 8 || (d < 1.5 && age > 3))) { this.startSearch(u, b); return; }
+    // sin munición no se queda plantado tras el escudo: se echa encima a golpes
+    const dry = u.mag <= 0 && u.ammo <= 0;
+    const reach = u.radius + 1.0 + (tgt ? tgt.radius * 0.5 : 0);
+    if (!tgt || d > (dry ? reach : BLINDADO.stopDist)) w.navigate(u, tx, ty, sp, null, dry ? 0.6 : 1.0);
+    b.faceYaw = Math.atan2(ty - u.y, tx - u.x); // el escudo, hacia donde sabe que estás
+    if (tgt && dry) { if (d <= reach && u.knifeCd <= 0 && Math.abs(angDiff(b.faceYaw, u.yaw)) < 0.6) { w.knife(u); u.knifeCd = 1.0; } }
+    else if (tgt) this.tryShoot(u, b, tgt, 1.2);
+  }
+
+  /**
+   * Tirador: se coloca lejos con línea larga y no avanza. Su único ataque es el láser: aviso 'laser' cuyo punto
+   * apuntado SIGUE al blanco con retraso; al acabar, una bala real hacia ese punto. Cortarle la visión (pared o
+   * humo) más de `losGrace`, aturdirle, cegarle o clavarle cancela el disparo.
+   */
+  private doTirador(u: Unit, b: Brain, tgt: Unit | null, sp: number, dt: number): void {
+    const w = this.w, T = TIRADOR;
+    const sn = b.sn ?? (b.sn = {
+      spot: null, settled: false, pickAt: 0, moveAt: w.time, seenAt: w.time, mustMove: false,
+      threat: null, targetId: -1, ax: 0, ay: 0, az: 1, losLostAt: -1, shots: 0, nextAt: w.time + 0.8,
+    });
+    const bl = b.belief;
+    if (!bl) { this.setState(u, b, 'patrol', 1); return; }
+    if (w.time < u.staggerUntil) { this.cancelLaser(b); sn.nextAt = Math.max(sn.nextAt, w.time + 1); u.aiState = 'aturdido'; return; }
+
+    if (sn.threat) {
+      const th = sn.threat;
+      u.aiState = 'apunta';
+      const t = w.entityById(sn.targetId);
+      const los = !!t && this.visible(u, t);
+      if (los) {
+        sn.losLostAt = -1;
+        const k = 1 - Math.exp(-dt / T.lag);
+        sn.ax += (t!.x - sn.ax) * k; sn.ay += (t!.y - sn.ay) * k; sn.az = w.height(t!) * 0.6;
+      } else {
+        if (sn.losLostAt < 0) sn.losLostAt = w.time;
+        if (!t || !t.alive || t.downed || w.time - sn.losLostAt > T.losGrace) { this.cancelLaser(b); sn.nextAt = w.time + 1.2; return; }
+      }
+      th.fx = u.x; th.fy = u.y; th.x = sn.ax; th.y = sn.ay;
+      b.faceYaw = Math.atan2(sn.ay - u.y, sn.ax - u.x);
+      if (w.time >= th.at) {
+        this.sniperShot(u, sn);
+        this.sniped.set(sn.targetId, w.time);
+        this.cancelLaser(b);
+        sn.shots++; sn.nextAt = w.time + T.cooldown;
+        if (sn.shots >= T.shotsPerSpot) { sn.shots = 0; sn.spot = null; sn.settled = false; sn.mustMove = true; sn.pickAt = w.time + 0.6; }
+      }
+      return;
+    }
+
+    const age = w.time - bl.t;
+    if (!tgt && age > 12) { this.startSearch(u, b); return; }
+    if (tgt) sn.seenAt = w.time;
+    const d = tgt ? Math.hypot(tgt.x - u.x, tgt.y - u.y) : Math.hypot(bl.x - u.x, bl.y - u.y);
+    // fijar blanco: desde su puesto, o desde donde esté si ya lo tiene lejos. Solo un láser a la vez sobre cada blanco.
+    if (tgt && w.time >= sn.nextAt && w.time >= b.reactAt && (sn.settled || d >= T.minDist - 2) && d > 3 && d <= T.maxRange && !this.laserOn(tgt.id) &&
+      w.time + (this.hard ? T.aimTimeHard : T.aimTime) - (this.sniped.get(tgt.id) ?? -99) >= T.targetGap) {
+      sn.targetId = tgt.id; sn.ax = tgt.x; sn.ay = tgt.y; sn.az = w.height(tgt) * 0.6; sn.losLostAt = -1;
+      sn.threat = w.addThreat({ kind: 'laser', fx: u.x, fy: u.y, x: tgt.x, y: tgt.y, r: T.hitRadius, at: w.time + (this.hard ? T.aimTimeHard : T.aimTime), ownerId: u.id });
+      u.path = null;
+      return;
+    }
+    if (!sn.spot && !sn.settled && w.time >= sn.pickAt) {
+      sn.pickAt = w.time + 2;
+      const r = this.pickSniperSpot(u, bl, sn.mustMove);
+      if (r === 'here') { sn.settled = true; sn.seenAt = w.time; }
+      else if (r) { sn.spot = r; sn.moveAt = w.time; sn.mustMove = false; }
+    }
+    if (sn.spot) {
+      u.aiState = 'se coloca';
+      const arrived = w.navigate(u, sn.spot[0], sn.spot[1], sp, null, 0.6);
+      this.faceMove(u, b);
+      if (arrived || w.time - sn.moveAt > 14 || (!u.path && w.time - sn.moveAt > 3)) { sn.spot = null; sn.settled = true; sn.seenAt = w.time; }
+    } else if (sn.settled) {
+      u.aiState = 'acecha';
+      b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
+      if (w.time - sn.seenAt > 5) { sn.settled = false; sn.pickAt = w.time; } // desde aquí no ve a nadie: otro puesto
+    } else {
+      // sin puesto posible: se acerca a donde cree que estás solo hasta tenerte a la vista, y apunta desde ahí
+      u.aiState = 'acecha';
+      if (tgt) sn.settled = true;
+      else if (d > T.minDist * 0.6) { w.navigate(u, bl.x, bl.y, sp, null, 2); this.faceMove(u, b); }
+      else b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
+    }
+  }
+
+  private laserOn(targetId: number): boolean {
+    for (const o of this.w.entities) {
+      if (!o.alive || o.variant !== 'tirador') continue;
+      const sn = (o.brain as Brain).sn;
+      if (sn && sn.threat && sn.targetId === targetId) return true;
+    }
+    return false;
+  }
+
+  /** Puesto de tirador: lejos del blanco (≥ minDist), con línea de visión hasta donde cree que está y alcanzable. */
+  private pickSniperSpot(u: Unit, bl: Belief, mustMove: boolean): Vec2 | 'here' | null {
+    const w = this.w, L = w.level, T = TIRADOR;
+    const dMe = Math.hypot(bl.x - u.x, bl.y - u.y);
+    if (!mustMove && dMe >= T.minDist && dMe <= T.maxRange && !w.sightBlocked(u.x, u.y, bl.x, bl.y)) return 'here';
+    let best: Vec2 | null = null, bs = -Infinity;
+    for (let k = 0; k < 30; k++) {
+      const far = k < 18;
+      const a = w.rng() * Math.PI * 2;
+      const r = far ? T.minDist + w.rng() * (T.maxDist - T.minDist) : 9 + w.rng() * (T.minDist - 9);
+      const x = bl.x + Math.cos(a) * r, y = bl.y + Math.sin(a) * r;
+      if (!L.walkableAt(x, y, true) || !(w.walkDistToPlayer(x, y) < Infinity)) continue;
+      const du = Math.hypot(x - u.x, y - u.y);
+      if (du > 22 || (mustMove && du < 4)) continue;
+      if (w.sightBlocked(x, y, bl.x, bl.y)) continue; // sin línea (o sin poder comprobarla) no vale
+      let sc = -du + (far ? 5 : 0) + w.rng() * 2;
+      for (const o of w.entities) {
+        if (o === u || !o.alive || o.variant !== 'tirador') continue;
+        const os = (o.brain as Brain).sn;
+        const ox = os && os.spot ? os.spot[0] : o.x, oy = os && os.spot ? os.spot[1] : o.y;
+        if (Math.hypot(ox - x, oy - y) < 4) sc -= 6;
+      }
+      if (sc > bs) { bs = sc; best = [x, y]; }
+    }
+    return best;
+  }
+
+  /**
+   * La bala del tirador: un rayo real desde el arma hasta el punto apuntado (y 0,6 m más). Le da al primer cuerpo
+   * aliado que cruce: quien esté a menos de ~0,45 m del punto (o pisando la línea dibujada). Una pared la para.
+   */
+  private sniperShot(u: Unit, sn: Sniper): void {
+    const w = this.w;
+    const oz = w.muzzleZ(u);
+    const dx = sn.ax - u.x, dy = sn.ay - u.y;
+    const d = Math.hypot(dx, dy) || 1e-6;
+    const k = (d + 0.6) / d;
+    const ex = u.x + dx * k, ey = u.y + dy * k, ez = Math.max(0.1, oz + (sn.az - oz) * k);
+    const ri = w.level.rayInfo(u.x, u.y, oz, ex, ey, ez, 'bullet');
+    let t = ri.t;
+    const hit = w.rayUnits(u.x, u.y, oz, ex, ey, ez, 'ally', t);
+    let kind: 'none' | 'wall' | 'entity' = t < 1 ? 'wall' : 'none';
+    let surface: 'wall' | 'door' | 'furniture' | 'floor' | 'body' | 'none' = t < 1 ? ri.surface : 'none';
+    if (hit) { t = hit.t; kind = 'entity'; surface = 'body'; }
+    u.lastShotAt = w.time;
+    w.events.push({
+      type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + (dx / d) * 0.5, fy: u.y + (dy / d) * 0.5, fz: oz,
+      tx: u.x + (ex - u.x) * t, ty: u.y + (ey - u.y) * t, tz: Math.max(0, oz + (ez - oz) * t), hit: kind, surface, nx: hit ? -dx / d : ri.nx, ny: hit ? -dy / d : ri.ny,
+    });
+    w.noises.push({ x: u.x, y: u.y, loud: 30, team: u.team, id: u.id, kind: 'shot' });
+    if (hit) w.damage(hit.u, TIRADOR.damage * allyMult(hit.u), u, hit.zone, u.x, u.y);
+  }
+
+  /**
+   * Granadero: si el blanco lleva un rato sin moverse del sitio, o está agachado donde no le llegan las balas, le
+   * tira una granada. Nunca cerca de los suyos ni de sí mismo, ni si un tabique corta la parábola. El resto del
+   * tiempo pelea como un enemigo normal (a 8-16 m).
+   */
+  private grenadierCheck(u: Unit, b: Brain): void {
+    const w = this.w, G = GRANADERO;
+    const g = b.gr ?? (b.gr = { ax: 0, ay: 0, since: -1, nextAt: w.time + 2 + w.rng() * 2 });
+    const bl = b.belief;
+    if (!bl || w.time - bl.t > 1.5) { g.since = -1; return; } // solo con noticias frescas de dónde está
+    if (g.since < 0 || Math.hypot(bl.x - g.ax, bl.y - g.ay) > G.stillRadius) { g.ax = bl.x; g.ay = bl.y; g.since = bl.t; }
+    if (w.time < g.nextAt || w.time < b.reactAt || w.time < u.staggerUntil || w.time < u.pinnedUntil) return;
+    if (w.time - this.lastGrenadeAt < G.squadGap) return;
+    const t = bl.id >= 0 ? w.entityById(bl.id) : undefined;
+    if (!t || !t.alive || t.downed) return;
+    const still = w.time - g.since > G.stillTime;
+    const hiding = t.crouch && w.shotLine(u, t) < 0;
+    if (!still && !hiding) return;
+    const tx = bl.x, ty = bl.y;
+    const d = Math.hypot(tx - u.x, ty - u.y);
+    if (d < G.minDist || d > G.maxDist) return;
+    for (const o of w.entities) {
+      if (o.alive && o.team === 'enemy' && Math.hypot(o.x - tx, o.y - ty) < G.friendRadius) return;
+    }
+    // la parábola pasa por encima de los muebles, no de los tabiques
+    if (!w.level.clear(u.x, u.y, 2.0, tx, ty, 2.0, 'bullet')) return;
+    const yaw = Math.atan2(ty - u.y, tx - u.x);
+    if (Math.abs(angDiff(yaw, u.yaw)) > 0.5) { b.faceYaw = yaw; return; }
+    w.enemyThrow(u, 'grenade', tx, ty);
+    this.say(u, 'enemy.grenade');
+    g.nextAt = w.time + G.cooldown * (t.isPlayer ? 1 : G.allyCooldownMult); g.since = w.time; g.ax = tx; g.ay = ty;
+    this.lastGrenadeAt = w.time;
+  }
+
+  /** Escolta del jefe: cobertura cerca de él (o, si no hay, un sitio a su lado). No flanquea, no avanza, no se va. */
+  private escortDecide(u: Unit, b: Brain): boolean {
+    const w = this.w, E = BOSS_ESCORTED;
+    const boss = w.entityById(b.escortOf);
+    if (!boss || !boss.alive) { b.escortOf = -1; return false; }
+    const bl = b.belief!;
+    if (this.startCover(u, b, bl.x, bl.y, 0, 99, { x: boss.x, y: boss.y, r: E.stayRadius })) return true;
+    const away = Math.atan2(boss.y - bl.y, boss.x - bl.x) + (u.id % 2 ? 0.9 : -0.9);
+    const hide = this.freeNear(boss.x + Math.cos(away) * 2.2, boss.y + Math.sin(away) * 2.2) ?? [u.x, u.y];
+    this.releaseCover(u, b);
+    this.setState(u, b, 'cover', 2.5);
+    b.hide = Math.hypot(hide[0] - boss.x, hide[1] - boss.y) <= E.stayRadius ? hide : [u.x, u.y];
+    b.peek = null; b.peeking = false; b.phaseUntil = 0;
+    return true;
+  }
+
+  // ───────────────────────── v1.3: jefes de planta ─────────────────────────
+
+  private bossAttack(b: Brain): BossAttack {
+    return b.bs ?? (b.bs = {
+      phase: 'idle', until: 0, nextAt: this.w.time + 1.5, yaw: 0, dx: 1, dy: 0, dist: 0, len: 0, x0: 0, y0: 0, px: 0, py: 0, t0: 0, stall: 0, threat: null,
+    });
+  }
+
+  /** Lo común de los jefes nuevos entre ataques: acercarse hasta tener al blanco a tiro, o acechar donde cree que está. */
+  private bossApproach(u: Unit, b: Brain, tgt: Unit | null, sp: number, far: number): void {
+    const w = this.w, bl = b.belief!;
+    if (tgt) {
+      this.face(u, b, tgt);
+      if (Math.hypot(tgt.x - u.x, tgt.y - u.y) > far) w.navigate(u, tgt.x, tgt.y, sp, null, far * 0.6);
+    } else {
+      b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
+      if (w.time - bl.t > 1.2 && !w.isBlinded(u)) { w.navigate(u, bl.x, bl.y, sp, null, 2); this.faceMove(u, b); }
+    }
+  }
+
+  /**
+   * Ametrallador: aviso 'lane' (pasillo fijo hacia donde estaba el blanco) → barre ESE pasillo hasta vaciar el cargador
+   * → recarga quieto y expuesto (×1,5). Salirse del pasillo es toda la esquiva; la recarga es la ventana para pegarle.
+   */
+  private gunnerThink(u: Unit, b: Brain, tgt: Unit | null, sp: number): void {
+    const w = this.w, G = BOSS_GUNNER;
+    const bs = this.bossAttack(b);
+    if (bs.phase === 'tele') {
+      u.aiState = 'apunta el pasillo'; b.faceYaw = bs.yaw;
+      if (w.time >= bs.until) { bs.phase = 'sweep'; bs.until = w.time + G.sweep + 1; bs.threat = null; } // dura lo que el cargador (el +1 es solo un seguro)
+      return;
+    }
+    if (bs.phase === 'sweep') {
+      u.aiState = 'barre'; b.faceYaw = bs.yaw;
+      const px = -bs.dy, py = bs.dx;
+      if (u.fireCd <= 0 && u.mag > 0 && u.reloading <= 0) {
+        const off = (w.rng() * 2 - 1) * G.laneWidth * 0.5;
+        w.fire(u, u.x + bs.dx * bs.dist + px * off, u.y + bs.dy * bs.dist + py * off, 1.0, w.isBlinded(u) ? 0.01 * FLASH.spreadMult : 0.01);
+        u.fireCd = 1 / u.stats.rof;
+      }
+      // quien se queda en el pasillo queda clavado (los compañeros con IA; al jugador lo clava el propio fuego)
+      for (const e of w.entities) {
+        if (!e.alive || e.team !== 'ally' || e.isPlayer || e.downed) continue;
+        const rx = e.x - u.x, ry = e.y - u.y;
+        const along = rx * bs.dx + ry * bs.dy;
+        if (along > 0 && along < bs.len && Math.abs(rx * px + ry * py) < G.laneWidth * 0.5 + e.radius) e.pinnedUntil = w.time + 0.5;
+      }
+      if (u.mag <= 0 || u.reloading > 0 || w.time >= bs.until) {
+        bs.phase = 'reload'; bs.until = w.time + G.reload;
+        if (u.reloading <= 0) w.startReload(u);
+        u.exposedUntil = bs.until;
+        this.say(u, 'enemy.reloading');
+      }
+      return;
+    }
+    if (bs.phase === 'reload') {
+      u.aiState = 'recarga';
+      if (b.belief) b.faceYaw = Math.atan2(b.belief.y - u.y, b.belief.x - u.x);
+      if (w.time >= bs.until) { bs.phase = 'idle'; bs.nextAt = w.time + G.gap; }
+      return;
+    }
+    u.aiState = tgt ? 'ametrallador' : 'acecha';
+    if (w.isBlinded(u)) { u.aiState = 'cegado'; return; }
+    this.bossApproach(u, b, tgt, sp, 16);
+    if (!tgt || w.time < bs.nextAt || w.time < b.reactAt || u.reloading > 0 || u.mag < u.magSize) return;
+    const d = Math.hypot(tgt.x - u.x, tgt.y - u.y);
+    if (d < 2.5 || d > G.maxDist || w.shotLine(u, tgt) < 0) return;
+    if (Math.abs(angDiff(Math.atan2(tgt.y - u.y, tgt.x - u.x), u.yaw)) > 0.35) return; // primero lo encara
+    bs.yaw = Math.atan2(tgt.y - u.y, tgt.x - u.x); bs.dx = Math.cos(bs.yaw); bs.dy = Math.sin(bs.yaw);
+    bs.dist = Math.max(6, d);
+    bs.len = Math.max(2, G.laneLen * w.level.ray(u.x, u.y, 1.0, u.x + bs.dx * G.laneLen, u.y + bs.dy * G.laneLen, 1.0, 'bullet'));
+    bs.phase = 'tele'; bs.until = w.time + G.telegraph;
+    bs.threat = w.addThreat({ kind: 'lane', fx: u.x, fy: u.y, x: u.x + bs.dx * bs.len, y: u.y + bs.dy * bs.len, r: G.laneWidth, at: bs.until, ownerId: u.id });
+    u.wishX = u.wishY = 0; u.path = null;
+  }
+
+  /**
+   * Embestida: aviso 'charge' (pasillo recto, fijado al empezar) → carrera a 9 m/s por ESE pasillo. Si alcanza a
+   * alguien: daño y empujón, y frena. Si no (se acaba el pasillo, choca): aturdido y expuesto. Entre embestidas dispara poco.
+   */
+  private chargerThink(u: Unit, b: Brain, tgt: Unit | null, sp: number, dt: number): void {
+    const w = this.w, C = BOSS_CHARGER, L = w.level;
+    const bs = this.bossAttack(b);
+    if (bs.phase === 'tele') {
+      u.aiState = 'toma carrerilla'; b.faceYaw = bs.yaw;
+      if (w.time >= bs.until) { bs.phase = 'dash'; bs.t0 = w.time; bs.x0 = bs.px = u.x; bs.y0 = bs.py = u.y; bs.stall = 0; bs.threat = null; u.path = null; }
+      return;
+    }
+    if (bs.phase === 'dash') {
+      u.aiState = 'embiste'; b.faceYaw = bs.yaw; u.yaw = bs.yaw;
+      const run = (u.x - bs.x0) * bs.dx + (u.y - bs.y0) * bs.dy;
+      const step = (u.x - bs.px) * bs.dx + (u.y - bs.py) * bs.dy;
+      bs.px = u.x; bs.py = u.y;
+      if (w.time - bs.t0 > 0.2 && step < C.speed * dt * 0.3) bs.stall++; else bs.stall = 0;
+      let hit: Unit | null = null;
+      for (const e of w.entities) {
+        if (!e.alive || e.team !== 'ally' || e.downed) continue;
+        if (Math.hypot(e.x - u.x, e.y - u.y) < u.radius + e.radius + 0.25) { hit = e; break; }
+      }
+      if (hit) {
+        w.damage(hit, C.damage * allyMult(hit), u, 'knife', u.x, u.y);
+        hit.vx += bs.dx * C.push; hit.vy += bs.dy * C.push;
+        w.events.push({ type: 'knife', id: u.id, hit: true });
+        bs.phase = 'recover'; bs.until = w.time + C.recover;
+        u.vx *= 0.2; u.vy *= 0.2;
+      } else if (run >= bs.len - 0.2 || bs.stall >= 3 || w.time - bs.t0 > bs.len / C.speed + 0.6) {
+        // ha fallado (o se ha estampado): la ventana para castigarle
+        bs.phase = 'stun'; bs.until = w.time + C.stun;
+        u.staggerUntil = bs.until; u.exposedUntil = bs.until;
+        u.vx = u.vy = 0;
+      } else { u.wishX = bs.dx * C.speed; u.wishY = bs.dy * C.speed; }
+      return;
+    }
+    if (bs.phase === 'stun' || bs.phase === 'recover') {
+      u.aiState = bs.phase === 'stun' ? 'aturdido' : 'se rehace';
+      if (w.time >= bs.until) bs.phase = 'idle';
+      return;
+    }
+    u.aiState = tgt ? 'embestida' : 'acecha';
+    if (w.isBlinded(u)) { u.aiState = 'cegado'; return; }
+    this.bossApproach(u, b, tgt, sp, 11);
+    if (!tgt) return;
+    const d = Math.hypot(tgt.x - u.x, tgt.y - u.y);
+    const facing = Math.abs(angDiff(Math.atan2(tgt.y - u.y, tgt.x - u.x), u.yaw)) < 0.3;
+    if (w.time >= bs.nextAt && w.time >= b.reactAt && facing && d >= C.minDist && d <= C.maxDist - 1 && w.shotLine(u, tgt) >= 0) {
+      const yaw = Math.atan2(tgt.y - u.y, tgt.x - u.x), dx = Math.cos(yaw), dy = Math.sin(yaw);
+      // hasta dónde hay suelo libre en línea recta (una puerta cerrada cuenta como pared)
+      let len = 0;
+      while (len < C.maxDist && L.walkLine(u.x + dx * len, u.y + dy * len, u.x + dx * (len + 0.5), u.y + dy * (len + 0.5), false)) len += 0.5;
+      if (len >= Math.min(d, 5)) {
+        bs.yaw = yaw; bs.dx = dx; bs.dy = dy; bs.len = len;
+        bs.phase = 'tele'; bs.until = w.time + C.telegraph; bs.nextAt = bs.until + C.cooldown;
+        bs.threat = w.addThreat({ kind: 'charge', fx: u.x, fy: u.y, x: u.x + dx * len, y: u.y + dy * len, r: C.laneWidth, at: bs.until, ownerId: u.id });
+        this.say(u, 'enemy.charge');
+        u.wishX = u.wishY = 0; u.path = null;
+        return;
+      }
+    }
+    this.tryShoot(u, b, tgt, 1.5);
+  }
+
+  /** Jefe de escoltas: dispara como un Veterano con vida de jefe. La curación y el enfado van en escortsUpdate(). */
+  private escortedThink(u: Unit, b: Brain, tgt: Unit | null, sp: number): void {
+    const w = this.w;
+    u.aiState = u.enraged ? 'enfurecido' : tgt ? 'jefe' : 'acecha';
+    if (w.isBlinded(u)) { u.aiState = 'cegado'; return; }
+    // con escoltas vivas no se aleja de ellas; enfurecido, va a por ti
+    let guarded = false;
+    for (const o of w.entities) if (o.alive && o.team === 'enemy' && (o.brain as Brain).escortOf === u.id) { guarded = true; break; }
+    if (guarded && !tgt) b.faceYaw = Math.atan2(b.belief!.y - u.y, b.belief!.x - u.x);
+    else this.bossApproach(u, b, tgt, sp, guarded ? 22 : 12);
+    if (tgt) this.tryShoot(u, b, tgt, 1.8);
+  }
 }
 
 function rank(k: EnemyKind, first: EnemyKind, second: EnemyKind): number { return k === first ? 2 : k === second ? 1 : 0; }
+/** v1.3 — oficios con conducta propia: no entran en el reparto de papeles ni en el repliegue de la escuadra. */
+/** v1.3 — los compañeros con IA no esquivan los ataques con aviso: reciben una fracción (ver V13_ALLY_AI_DAMAGE). */
+function allyMult(t: Unit): number { return t.isPlayer ? 1 : V13_ALLY_AI_DAMAGE; }
+function soloist(u: Unit): boolean { return u.variant === 'asaltante' || u.variant === 'tirador' || u.variant === 'blindado'; }

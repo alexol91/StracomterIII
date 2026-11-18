@@ -173,6 +173,8 @@ export class Fx {
 
   // proyectiles
   private projViews = new Map<number, THREE.Group>();
+  private flashGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
+  private smokeGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
   private grenadeGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
   private rocketGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
   private projMat: SurfaceMat;
@@ -283,8 +285,16 @@ export class Fx {
       rb.box(-0.26, 0, s * 0.08, 0.1, 0.012, 0.08, 0x30343a, { outline: false });
       rb.box(-0.26, s * 0.08, 0, 0.1, 0.08, 0.012, 0x30343a, { outline: false });
     }
+    // granadas tácticas: cilindros de color distinto (cegadora gris claro con banda oscura; humo verde oliva con banda clara)
+    const fb = new GeoBuilder(0.012);
+    fb.tube(-0.08, 0, 0, 0.08, 0, 0, 0.034, 0xcfd3d8); fb.tube(-0.015, 0, 0, 0.015, 0, 0, 0.037, 0x2b2f35, { outline: false }); fb.box(0.075, 0.04, 0, 0.03, 0.02, 0.012, 0x8a8f96, { outline: false });
+    this.flashGeo = fb.build();
+    const sb = new GeoBuilder(0.012);
+    sb.tube(-0.09, 0, 0, 0.09, 0, 0, 0.036, 0x56663a); sb.tube(-0.02, 0, 0, 0.02, 0, 0, 0.039, 0xc4c27a, { outline: false }); sb.box(0.085, 0.04, 0, 0.03, 0.02, 0.012, 0x2b2f35, { outline: false });
+    this.smokeGeo = sb.build();
     this.rocketGeo = rb.build();
     o.add(this.grenadeGeo.geo); if (this.grenadeGeo.hull) o.add(this.grenadeGeo.hull);
+    for (const q of [this.flashGeo, this.smokeGeo]) { o.add(q.geo); if (q.hull) o.add(q.hull); }
     o.add(this.rocketGeo.geo); if (this.rocketGeo.hull) o.add(this.rocketGeo.hull);
   }
 
@@ -430,6 +440,13 @@ export class Fx {
       switch (ev.type) {
         case 'shot': this.onShot(ev, world); break;
         case 'explosion': this.onExplosion(ev, world); break;
+        case 'flash': {   // cegadora: destello blanco muy breve con luz intensa y chispas, sin fuego ni quemado
+          this.real.flashBang(ev.x, Math.max(0.5, ev.z), ev.y, ev.radius);
+          this.explDur = 0.12; this.explPeak = 260; this.explT = this.explDur;
+          this.explLight.color.setHex(0xeaf0ff); this.explLight.position.set(ev.x, Math.max(1, ev.z), ev.y);
+          break;
+        }
+        case 'shieldHit': this.real.shieldSpark(ev.x, ev.z, ev.y); break;
         case 'hurt': {
           const e = world.entityById(ev.id);
           if (e) {
@@ -467,7 +484,10 @@ export class Fx {
     if (len < 1e-3) return;
     _d.divideScalar(len);
     if (realMode) {
-      this.real.muzzle(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, len, muzzleSizeFor(ev.kind, ev.weapon), ev.id === world.player.id, ev.kind === 'enemy1' || ev.weapon === 'secondary', ev.id);
+      let msize = muzzleSizeFor(ev.kind, ev.weapon);
+      const shooter = world.entityById(ev.id);
+      if (shooter?.primaryVariant === 1 && ev.weapon !== 'secondary') msize = ev.kind === 'technic' ? 0.6 : ev.kind === 'explosives' ? 0.85 : ev.kind === 'especialist' ? 0.45 : msize;   // escopeta: fogonazo ancho
+      this.real.muzzle(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, len, msize, ev.id === world.player.id, ev.kind === 'enemy1' || ev.weapon === 'secondary', ev.id);
     } else {
       // trazadora (se anima en update: la cabeza viaja del origen al destino)
       const t = this.tracers.find((x) => x.t <= 0);
@@ -572,6 +592,7 @@ export class Fx {
   update(dt: number, world: IWorld | null, time: number, camera: THREE.Camera): void {
     camera.getWorldQuaternion(this.flashQuat);
     this.real.update(dt, camera);
+    if (world) this.real.updateSmokes(world.smokes, time, dt);
     // trazadoras: quad en el plano que contiene la línea y mira a la cámara
     for (const t of this.tracers) {
       if (t.t <= 0) continue;
@@ -729,7 +750,7 @@ export class Fx {
           this.part(bx, by, bz, rr(-0.2, 0.2), rr(-0.2, 0.2), rr(-0.2, 0.2), 0.16, 0.14, 0xffa030, 0, 2);
         }
       } else {
-        g.rotation.set(time * 7 + p.id, time * 5, time * 3);
+        g.rotation.set(time * 7 + p.id, time * 5, time * 3);   // granadas (también las tácticas) giran en el aire
       }
     }
     if (this.projViews.size !== seen.size) {
@@ -739,7 +760,7 @@ export class Fx {
 
   private makeProjView(p: Projectile): THREE.Group {
     const g = new THREE.Group();
-    const m = p.kind === 'rocket' ? this.rocketGeo : this.grenadeGeo;
+    const m = p.kind === 'rocket' ? this.rocketGeo : p.kind === 'flash' ? this.flashGeo : p.kind === 'smoke' ? this.smokeGeo : this.grenadeGeo;
     g.add(new THREE.Mesh(m.geo, this.projMat));
     if (m.hull) g.add(new THREE.Mesh(m.hull, this.projHullMat));
     return g;

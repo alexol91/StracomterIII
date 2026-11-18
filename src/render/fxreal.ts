@@ -22,6 +22,10 @@ export interface SpriteSpec {
   grav?: number; drag?: number;
   /** chispa: deja un rastro corto de resplandores */
   trail?: boolean;
+  /** fracción inicial de la vida en que el alfa sube desde 0 (entrada suave) */
+  aIn?: number;
+  /** fracción de la vida con alfa constante antes de desvanecerse (0 = lineal a1) */
+  aHold?: number;
 }
 
 const CELLS = 8;
@@ -94,6 +98,7 @@ const VERT = /* glsl */ `
 attribute vec3 iPos; attribute float iSize; attribute float iRot; attribute vec4 iColor; attribute float iCell;
 varying vec2 vUv; varying vec4 vColor;
 void main() {
+  float depth = -(viewMatrix * vec4(iPos, 1.0)).z;
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
   float c = cos(iRot), s = sin(iRot);
@@ -102,7 +107,7 @@ void main() {
   vec3 w = iPos + (right * q.x + up * q.y) * iSize;
   gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
   vUv = vec2((uv.x + iCell) / ${CELLS}.0, uv.y);
-  vColor = iColor;
+  vColor = vec4(iColor.rgb, iColor.a * smoothstep(0.12, 0.45, depth));   // los sprites pegados a la cámara se desvanecen
 }`;
 const FRAG = /* glsl */ `
 uniform sampler2D uMap; varying vec2 vUv; varying vec4 vColor;
@@ -124,7 +129,7 @@ class Sprites {
   private life: Float32Array; private maxLife: Float32Array;
   private s0: Float32Array; private s1: Float32Array; private rot: Float32Array; private rotV: Float32Array;
   private cell: Float32Array; private c0: Float32Array; private c1: Float32Array; private a0: Float32Array; private a1: Float32Array;
-  private grav: Float32Array; private drag: Float32Array; private trail: Uint8Array;
+  private grav: Float32Array; private drag: Float32Array; private trail: Uint8Array; private aIn: Float32Array; private aHold: Float32Array;
   private aPos: THREE.InstancedBufferAttribute; private aSize: THREE.InstancedBufferAttribute; private aRot: THREE.InstancedBufferAttribute;
   private aColor: THREE.InstancedBufferAttribute; private aCell: THREE.InstancedBufferAttribute;
   private next = 0;
@@ -141,7 +146,7 @@ class Sprites {
     this.s0 = new Float32Array(cap); this.s1 = new Float32Array(cap); this.rot = new Float32Array(cap); this.rotV = new Float32Array(cap);
     this.cell = new Float32Array(cap); this.c0 = new Float32Array(cap * 3); this.c1 = new Float32Array(cap * 3);
     this.a0 = new Float32Array(cap); this.a1 = new Float32Array(cap);
-    this.grav = new Float32Array(cap); this.drag = new Float32Array(cap); this.trail = new Uint8Array(cap);
+    this.grav = new Float32Array(cap); this.drag = new Float32Array(cap); this.trail = new Uint8Array(cap); this.aIn = new Float32Array(cap); this.aHold = new Float32Array(cap);
     this.dist = new Float32Array(cap);
     this.aPos = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.aSize = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(THREE.DynamicDrawUsage);
@@ -173,7 +178,7 @@ class Sprites {
     this.c0[i * 3] = o.c0[0]; this.c0[i * 3 + 1] = o.c0[1]; this.c0[i * 3 + 2] = o.c0[2];
     this.c1[i * 3] = c1[0]; this.c1[i * 3 + 1] = c1[1]; this.c1[i * 3 + 2] = c1[2];
     this.a0[i] = o.a0 ?? 1; this.a1[i] = o.a1 ?? 0;
-    this.grav[i] = o.grav ?? 0; this.drag[i] = o.drag ?? 0; this.trail[i] = o.trail ? 1 : 0;
+    this.grav[i] = o.grav ?? 0; this.drag[i] = o.drag ?? 0; this.trail[i] = o.trail ? 1 : 0; this.aIn[i] = o.aIn ?? 0; this.aHold[i] = o.aHold ?? 0;
     return i;
   }
 
@@ -212,7 +217,8 @@ class Sprites {
       this.aColor.array[k4] = this.c0[i3] + (this.c1[i3] - this.c0[i3]) * t;
       this.aColor.array[k4 + 1] = this.c0[i3 + 1] + (this.c1[i3 + 1] - this.c0[i3 + 1]) * t;
       this.aColor.array[k4 + 2] = this.c0[i3 + 2] + (this.c1[i3 + 2] - this.c0[i3 + 2]) * t;
-      this.aColor.array[k4 + 3] = this.a0[i] + (this.a1[i] - this.a0[i]) * t;
+      const tt = this.aHold[i] > 0 ? Math.max(0, (t - this.aHold[i]) / (1 - this.aHold[i])) : t;
+      this.aColor.array[k4 + 3] = (this.a0[i] + (this.a1[i] - this.a0[i]) * tt) * (this.aIn[i] > 0 ? Math.min(1, t / this.aIn[i]) : 1);
       m++;
     }
     this.mesh.count = m;
@@ -248,6 +254,9 @@ export class RealFx {
   private atlas: THREE.CanvasTexture;
   private add: Sprites;
   private alpha: Sprites;
+  /** pool propio del humo táctico: una explosión no se lo quita */
+  private smoke: Sprites;
+  private smokeLives = new Map<number, number[]>();
   private tracers: Tracer[] = [];
   private tracerMat: THREE.MeshBasicMaterial;
   private tracerTex: THREE.CanvasTexture;
@@ -262,8 +271,9 @@ export class RealFx {
   constructor() {
     this.atlas = makeAtlas();
     this.add = new Sprites(700, this.atlas, true);
-    this.alpha = new Sprites(300, this.atlas, false);
-    this.group.add(this.add.mesh, this.alpha.mesh);
+    this.alpha = new Sprites(420, this.atlas, false);
+    this.smoke = new Sprites(240, this.atlas, false);
+    this.group.add(this.add.mesh, this.alpha.mesh, this.smoke.mesh);
     // trazadoras finas: segmento corto que viaja
     const c = document.createElement('canvas'); c.width = 64; c.height = 16;
     const g = c.getContext('2d')!;
@@ -301,10 +311,11 @@ export class RealFx {
   setQuality(q: 'low' | 'medium' | 'high'): void { this.factor = q === 'high' ? 1 : q === 'medium' ? 0.5 : 0.25; }
 
   clear(): void {
-    this.add.clear(); this.alpha.clear();
+    this.add.clear(); this.alpha.clear(); this.smoke.clear();
     for (const t of this.tracers) { t.active = false; t.mesh.visible = false; }
     for (const r of this.rings) { r.t = 0; r.mesh.visible = false; }
     this.autoCount.clear();
+    this.smokeAcc.clear(); this.smokeLives.clear();
   }
 
   private n(base: number, min = 2): number { return Math.max(min, Math.round(base * this.factor)); }
@@ -397,6 +408,62 @@ export class RealFx {
     return R;
   }
 
+  private smokeAcc = new Map<number, number>();
+
+  /**
+   * Nubes de humo activas. La densidad depende del TIEMPO del mundo (no de los frames dibujados): 80 % a los 0,4 s
+   * de `from` y 100 % al segundo; si en un frame faltan sprites para la densidad objetivo, se crean todos de golpe
+   * repartidos por el volumen (cilindro de radio r × 2,2 m). Núcleo casi opaco (alfa 0,9) con el borde exterior difuso.
+   */
+  updateSmokes(smokes: { id: number; x: number; y: number; r: number; from: number; until: number }[] | undefined, time: number, _dt: number): void {
+    if (!smokes) return;
+    const alive = new Set<number>();
+    for (const c of smokes) {
+      if (time < c.from || time >= c.until) continue;
+      alive.add(c.id);
+      const age = time - c.from, rem = c.until - time;
+      const dens = age < 0.4 ? 0.8 * (age / 0.4) : Math.min(1, 0.8 + 0.2 * (age - 0.4) / 0.6);
+      const low = this.factor < 0.5;
+      const N = low ? 16 : this.factor < 1 ? 30 : 40;                 // en baja, menos sprites pero más grandes
+      const sizeK = low ? 1.5 : 1;
+      let lives = this.smokeLives.get(c.id);
+      if (!lives) { lives = []; this.smokeLives.set(c.id, lives); }
+      for (let i = lives.length - 1; i >= 0; i--) if (lives[i] <= time) lives.splice(i, 1);
+      const target = rem < 1 ? 0 : Math.round(N * dens);                 // en el último segundo no se repone: se disipa
+      let missing = target - lives.length;
+      while (missing-- > 0) {
+        const core = Math.random() < 0.7;                                 // núcleo opaco y capa exterior difusa
+        const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * c.r * (core ? 0.62 : 0.98);
+        const life = Math.min(rr(2.2, 3.4), rem + rr(0, 0.9));
+        lives.push(time + life);
+        this.smoke.spawn({ x: c.x + Math.cos(a) * d, y: 0.2 + Math.random() * 2.0, z: c.y + Math.sin(a) * d,
+          vx: rr(-0.1, 0.1), vy: rr(0, 0.08), vz: rr(-0.1, 0.1), life,
+          s0: c.r * (core ? 0.95 : 0.8) * sizeK, s1: c.r * (core ? 1.05 : 0.95) * sizeK, cell: 1 + (Math.random() < 0.5 ? 1 : 0),
+          c0: core ? [0.5, 0.5, 0.52] : [0.56, 0.56, 0.58], c1: [0.5, 0.5, 0.52], a0: core ? 0.92 : 0.55, a1: 0, aIn: 0.08, aHold: 0.7, rotV: rr(-0.15, 0.15) });
+      }
+    }
+    for (const id of [...this.smokeLives.keys()]) if (!alive.has(id)) this.smokeLives.delete(id);
+  }
+
+  /** Cegadora: destello blanco muy breve y chispas, sin fuego ni quemado. */
+  flashBang(x: number, y: number, z: number, radius: number): void {
+    const R = Math.max(1.5, radius);
+    this.add.spawn({ x, y, z, life: 0.05, s0: R * 2.2, s1: R * 3.0, cell: 0, c0: [2.6, 2.6, 2.9], a0: 1, a1: 0.4 });
+    this.add.spawn({ x, y, z, life: 0.09, s0: R * 1.2, s1: R * 2.0, cell: 3, c0: [2.2, 2.3, 2.6], a0: 1, a1: 0 });
+    for (let i = 0, n = this.n(14, 4); i < n; i++) {
+      const a = rr(0, 6.28), sp = rr(4, 10);
+      this.add.spawn({ x, y, z, vx: Math.cos(a) * sp, vy: rr(1, 6), vz: Math.sin(a) * sp, life: rr(0.3, 0.6), s0: 0.07, s1: 0.02, cell: 0, c0: [2.0, 2.0, 2.3], c1: [0.7, 0.8, 1.0], grav: 8, drag: 0.5 });
+    }
+  }
+
+  /** Chispas y destello de un escudo antidisturbios que para una bala. */
+  shieldSpark(x: number, y: number, z: number): void {
+    this.add.spawn({ x, y, z, life: 0.06, s0: 0.5, s1: 0.8, cell: 3, c0: [2.0, 1.8, 1.2], a0: 1, a1: 0 });
+    for (let i = 0; i < this.n(8, 3); i++) {
+      this.add.spawn({ x, y, z, vx: rr(-3, 3), vy: rr(0.5, 3.5), vz: rr(-3, 3), life: rr(0.2, 0.4), s0: 0.04, s1: 0.012, cell: 0, c0: [2.0, 1.6, 0.8], c1: [0.7, 0.3, 0.1], grav: 8 });
+    }
+  }
+
   /** Estela de humo y resplandor de la tobera de un cohete (en la posición de la cola, dir = dirección de vuelo). */
   rocketTrail(x: number, y: number, z: number): void {
     this.alpha.spawn({ x, y, z, vx: rr(-0.2, 0.2), vy: rr(0.1, 0.4), vz: rr(-0.2, 0.2), life: 0.9, s0: 0.14, s1: 0.6, cell: 1 + (Math.random() < 0.5 ? 1 : 0), c0: [0.42, 0.42, 0.44], a0: 0.3, a1: 0, drag: 1.2 });
@@ -419,6 +486,7 @@ export class RealFx {
   update(dt: number, camera: THREE.Camera): void {
     this.add.update(dt, camera.position);
     this.alpha.update(dt, camera.position);
+    this.smoke.update(dt, camera.position);
     // rastro corto de las chispas
     for (const i of this.add.pendingTrail) {
       this.add.trailPos(i, _v);
@@ -458,7 +526,7 @@ export class RealFx {
   }
 
   dispose(): void {
-    this.add.dispose(); this.alpha.dispose();
+    this.add.dispose(); this.alpha.dispose(); this.smoke.dispose();
     this.atlas.dispose(); this.tracerTex.dispose(); this.tracerMat.dispose(); this.tracerGeo.dispose();
     this.ringTex.dispose(); this.ringGeo.dispose();
     for (const r of this.rings) (r.mesh.material as THREE.Material).dispose();

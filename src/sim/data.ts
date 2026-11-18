@@ -2,7 +2,7 @@
 // Lo que el documento no fija (cargadores, tiempos de recarga, alturas…) está marcado con «(nuestro)»
 // y apuntado en DECISIONES.md.
 
-import type { ClassId, EnemyKind, FurnitureType, ItemType, Kind, Theme } from './types';
+import type { BossVariant, ClassId, EnemyKind, EnemyVariant, FurnitureType, ItemType, Kind, Theme } from './types';
 
 export const WALL_HEIGHT = 3.0;
 export const DOOR_HEIGHT = 2.1;
@@ -258,3 +258,106 @@ export const PISTOL_FEEL: GunFeel = { baseSpread: 0.007, perShot: 0.006, maxSpre
 export const DRAW_TIME = { primary: 0.45, secondary: 0.30, knife: 0.25, grenade: 0.30 } as const;
 /** velocidad de movimiento según el arma en la mano (como en CS: con el cuchillo se corre más) */
 export const WEAPON_SPEED = { primary: 1, secondary: 1.05, knife: 1.12, grenade: 1 } as const;
+
+// ───────────────────────── v1.3 (jugador y escuadra): voltereta, granadas tácticas, variantes de arma, derribo ─────────────────────────
+
+export const ROLL = { time: 0.5, dist: 3.5, cooldown: 1.5, halfBlast: 0.25 };
+export const FLASH = { fuse: 1.0, radius: 9, enemyBlind: 3, allyBlind: 2, spreadMult: 4 };
+export const SMOKE = { radius: 3.2, duration: 8 };
+export const TACTICAL_START = { flash: 2, smoke: 1 };
+export const DOWNED = { time: 25, reviveRange: 1.6, reviveTime: 3, reviveHp: 0.3 };
+export const BARK_COOLDOWN = 3;
+export const PING_DOOR_RANGE = 20;
+
+/** Ráfaga del fusil del Capitán (variante 1): 3 balas a 12/s. La pausa se calcula para que el DPS sostenido quede dentro del ±10 % de la variante 0 con +20 % de daño por bala. */
+export const BURST_RIFLE = { bullets: 3, rate: 12, damageMult: 1.2, pause: 0.23 };
+/** Escopeta del Técnico (variante 1): 8 perdigones, cono 0,07 rad. Daño por perdigón tal que a 6 m (todos acertando) iguale el DPS de la variante 0 (7 × 12,5 = 87,5). */
+export const SHOTGUN = { pellets: 8, cone: 0.07, rof: 1.1, magSize: 6, pelletDamage: 87.5 / (1.1 * 8) };
+/** Fusil de tirador (Especialista 1): semiautomático; 5 × 5 = 25 de DPS → 25 / 1,6 por bala. */
+export const SNIPER = { rof: 1.6, magSize: 8, damage: 25 / 1.6, hipSpreadMult: 2.0, aimSpreadMult: 0.35, kickMult: 4 };
+/** Lanzador de rebote (Explosivo 1): granada con parábola que rebota una vez y estalla a 1,3 s. */
+export const BOUNCER = { fuse: 1.3 };
+
+export interface PrimaryVariant { nameKey: string; kickMult: number }
+/** Variantes del arma principal por clase. Nombre i18n `weapon.<clase>.<0|1>`. */
+export const PRIMARY_VARIANTS: Record<ClassId, [PrimaryVariant, PrimaryVariant]> = {
+  captain:     [{ nameKey: 'weapon.captain.0', kickMult: 1 },     { nameKey: 'weapon.captain.1', kickMult: 1.3 }],
+  technic:     [{ nameKey: 'weapon.technic.0', kickMult: 1 },     { nameKey: 'weapon.technic.1', kickMult: 4 }],
+  especialist: [{ nameKey: 'weapon.especialist.0', kickMult: 1 }, { nameKey: 'weapon.especialist.1', kickMult: SNIPER.kickMult }],
+  explosives:  [{ nameKey: 'weapon.explosives.0', kickMult: 1 },  { nameKey: 'weapon.explosives.1', kickMult: 0.6 }],
+};
+
+/** Estadísticas del arma principal según la variante (copia: la tabla CLASS_STATS no se toca). */
+export function variantStats(cls: ClassId, v: 0 | 1, base: UnitStats): UnitStats {
+  if (v !== 1) return base;
+  switch (cls) {
+    case 'captain': {
+      // ritmo sostenido equivalente para la IA aliada (el jugador usa la ráfaga exacta)
+      const cycle = (BURST_RIFLE.bullets - 1) / BURST_RIFLE.rate + BURST_RIFLE.pause;
+      return { ...base, damage: base.damage * BURST_RIFLE.damageMult, rof: BURST_RIFLE.bullets / cycle };
+    }
+    case 'technic': return { ...base, damage: SHOTGUN.pelletDamage, rof: SHOTGUN.rof, magSize: SHOTGUN.magSize };
+    case 'especialist': return { ...base, damage: SNIPER.damage, rof: SNIPER.rof, magSize: SNIPER.magSize };
+    default: return base;
+  }
+}
+
+// ───────────────────────── v1.3: oficios y jefes ─────────────────────────
+// Los oficios SUSTITUYEN enemigos normales (ENEMY_COUNT no cambia). Números (nuestros) calibrados con el bot; ver DECISIONES.md.
+
+/** Parte de los enemigos normales de la planta que lleva oficio. */
+export const VARIANT_SHARE: Record<number, number> = { 1: 0, 2: 0.10, 3: 0.20, 4: 0.20, 5: 0.28, 6: 0.28, 7: 0.35, 8: 0.35, 9: 0.35 };
+/** Planta a partir de la cual aparece cada oficio (el reparto es a partes iguales entre los desbloqueados, en este orden). */
+export const VARIANT_UNLOCK: Record<EnemyVariant, number> = { asaltante: 2, granadero: 3, tirador: 4, blindado: 5 };
+export const VARIANT_ORDER: EnemyVariant[] = ['asaltante', 'granadero', 'tirador', 'blindado'];
+/** Máximo de cada oficio vivo a la vez; el resto espera turno en la cola del director. */
+export const VARIANT_ALIVE_CAP: Record<EnemyVariant, number> = { asaltante: 4, granadero: 2, tirador: 1, blindado: 2 };
+/** De qué tipo base sale cada oficio, por orden de preferencia. */
+export const VARIANT_BASE: Record<EnemyVariant, EnemyKind[]> = {
+  asaltante: ['enemy1', 'enemy2', 'enemy3'], granadero: ['enemy2', 'enemy3', 'enemy1'],
+  tirador: ['enemy3', 'enemy2', 'enemy1'], blindado: ['enemy3', 'enemy2', 'enemy1'],
+};
+
+/**
+ * Los ataques nuevos con aviso (láser, cuchillada del asaltante, embestida, barrido) están pensados para esquivarse.
+ * Los compañeros con IA no esquivan (aún): contra ellos hacen esta fracción del daño. El jugador recibe el daño entero.
+ * Si los compañeros aprenden a salirse de un aviso, súbase a 1.
+ */
+export const V13_ALLY_AI_DAMAGE = 0.4;
+/** Asaltante: no dispara; corre (velocidad × speedMult, y × sprintMult mientras carga) por ruta de flanqueo y acuchilla. */
+export const ASALTANTE = { hpMult: 0.7, speedMult: 1.35, sprintMult: 1.5, knifeDamage: 20, knifePeriod: 0.8, reach: 1.0, directDist: 6 };
+/** Tirador: láser que sigue al blanco con retraso `lag` y una bala al punto apuntado al acabar `aimTime`. */
+export const TIRADOR = {
+  hpMult: 0.8, minDist: 14, maxDist: 24, maxRange: 25, aimTime: 1.4, aimTimeHard: 1.0, lag: 0.35, hitRadius: 0.45, damage: 30,
+  losGrace: 0.3, cooldown: 3.5, shotsPerSpot: 2,
+  /** entre dos disparos de tirador (de cualquiera) al MISMO blanco pasan al menos estos segundos */
+  targetGap: 16,
+};
+/** Granadero: granada al blanco que no se mueve (o agachado tras cobertura). */
+export const GRANADERO = {
+  band: [8, 16] as [number, number], stillTime: 2.5, stillRadius: 2.5, cooldown: 7, friendRadius: 3.5, minDist: 6, maxDist: 17,
+  /** separación mínima entre dos granadas enemigas cualesquiera (s) */
+  squadGap: 3,
+  /** tras tirársela a un compañero con IA (que no la esquiva) el enfriamiento se multiplica */
+  allyCooldownMult: 3,
+};
+/** Blindado: escudo frontal (lo aplica World en el daño); giro limitado para que un flanqueo le gane la espalda. Al recargar baja el escudo. */
+export const BLINDADO = { hpMult: 1.3, speedMult: 0.75, rofMult: 0.35, magMult: 0.34, reloadMult: 1.5, turnRate: Math.PI / 2, stopDist: 6 };
+
+/** Jefe de cada planta (el MegaBoss de la 9 no cambia). */
+export const FLOOR_BOSS: Record<number, BossVariant> = { 2: 'cohetes', 3: 'ametrallador', 4: 'embestida', 5: 'escoltas', 6: 'cohetes', 7: 'ametrallador', 8: 'embestida' };
+/** Segunda vuelta (plantas 6-8): más vida y dos acompañantes de oficio que salen de la cuota normal. */
+export const BOSS_LATE: { fromFloor: number; hpMult: number; companions: Record<number, EnemyVariant> } = {
+  fromFloor: 6, hpMult: 1.15, companions: { 6: 'granadero', 7: 'asaltante', 8: 'blindado' },
+};
+/** Daño recibido mientras el jefe está expuesto (recargando o aturdido tras fallar la embestida). */
+export const BOSS_EXPOSED_MULT = 1.5;
+/** Ametrallador: aviso 'lane' → barrido (vacía el cargador: rof × sweep balas) → recarga expuesto. */
+export const BOSS_GUNNER = { laneWidth: 1.6, laneLen: 26, telegraph: 1.2, sweep: 3, rof: 10, damage: 3, reload: 2.5, gap: 0.8, maxDist: 24 };
+/** Embestida: aviso 'charge' → carrera recta; si no alcanza a nadie, aturdido y expuesto. */
+export const BOSS_CHARGER = {
+  laneWidth: 1.4, maxDist: 14, minDist: 3.5, telegraph: 1.0, speed: 9, damage: 45, push: 10, stun: 2.5, recover: 0.8, cooldown: 6,
+  rof: 1, bulletDamage: 2,
+};
+/** Escoltas: dos enemy2 que curan al jefe mientras vivan y estén cerca; al morir los dos, se enfurece. */
+export const BOSS_ESCORTED = { escorts: 2, healPerSec: 6, healRange: 6, enrageRof: 1.3, stayRadius: 5 };

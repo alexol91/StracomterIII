@@ -66,6 +66,8 @@ export class Sfx {
   private lastStepV = -9;
   private lastSexo = -9;
   private lastGo = -9;
+  private shotgunIds = new Set<number>();
+  private skip = new Set<GameEvent>();
   private lastCasing = -9;
   private lastConfirm = -9;
   /** Capas sintetizadas (transitorio, sub-grave, mecánica, cola de sala, casquillos). Apagable. */
@@ -411,16 +413,24 @@ export class Sfx {
     }
   }
 
-  /** Explosión muy cercana: pitido de oído tenue de 1 s y ducking de 0,4 s del resto. */
-  private stun(world: IWorld): void {
+  /** Pitido de oído tenue y ducking de los efectos (explosión cercana, cegado). */
+  private stun(world: IWorld, ring = 1.0, duckFor = 0.4): void {
     const t = this.ctx.currentTime;
     const g = this.duck.gain;
     g.cancelScheduledValues(t);
     g.setValueAtTime(g.value, t);
     g.linearRampToValueAtTime(0.45, t + 0.05);
-    g.setValueAtTime(0.45, t + 0.4);
-    g.linearRampToValueAtTime(1, t + 0.8);
-    this.play(world, null, 1, (r) => this.osc(r, 'sine', 4000, 3900, 0.05, 1.0, 0.04, 0.05), { prio: true, novar: true });
+    g.setValueAtTime(0.45, t + duckFor);
+    g.linearRampToValueAtTime(1, t + duckFor + 0.4);
+    this.play(world, null, 1, (r) => this.osc(r, 'sine', 4000, 3900, 0.05, ring, 0.04, 0.05), { prio: true, novar: true });
+  }
+
+  /** Estampido único de escopeta: grave y ancho, en lugar de N disparos. */
+  private blast(r: Route, own: boolean): void {
+    if (!this.smp(r, 'pistol', 0.65, 1.1)) this.nz(r, 0, 0.2, 0.8, 'bandpass', 1200, 500, 0.7);
+    this.osc(r, 'sine', 75, 32, 0, 0.3, 0.8, 0.004);
+    this.nz(r, 0, 0.28, 0.7, 'lowpass', 1800, 250, 0.7, 0.003);
+    this.nz(r, 0, 0.008, own ? 0.6 : 0.4, 'highpass', 4500, 4500, 0.7, 0.0005);
   }
 
   /** Sonido de saque por ranura (< 200 ms, discreto). */
@@ -575,6 +585,11 @@ export class Sfx {
         if (hasV('v:pistol') && !explos) {
           return { key: 'shotv', d: pos ? dist(pos) : 0, own, play: () => { this.voice(world, pos, 'v:pistol', 0.9); } };
         }
+        if (this.shotgunIds.has(id) && !hasV('v:pistol')) {
+          const bf = (r: Route) => this.blast(r, own);
+          if (own) return { key: 'shot', d: 0, own: true, play: () => this.play(world, null, 1.4, bf, { prio: true, room: 0.3 }) };
+          return { key: 'shot', d: dist(pos!), own: false, play: () => this.play(world, pos, 1.1, bf, { room: 0.5 }) };
+        }
         const fn = (r: Route) => this.shot(r, kind, own, weapon);
         const gate = () => {
           if (!auto) return true;
@@ -715,6 +730,116 @@ export class Sfx {
         if (e.id !== pid) return null;
         const w = e.weapon as string;
         return { key: 'wswitch', d: 0, own: true, play: () => this.play(world, null, 0.45, (r) => this.weaponSwitchSound(r, w), { prio: true, novar: true }) };
+      }
+      case 'roll':
+        return ent('roll', e.id, 0.4, (r) => {
+          this.nz(r, 0, 0.14, 0.35, 'bandpass', 1500, 800, 1, 0.03); // roce de ropa
+          this.nz(r, 0.1, 0.08, 0.5, 'lowpass', 600, 200);           // golpe sordo
+          this.osc(r, 'sine', 110, 60, 0.1, 0.07, 0.25);
+        }, { maxD: 25 });
+      case 'flash': {
+        const p = { x: e.x, y: e.y }, blind = e.playerBlind;
+        const it = at('flash', e.x, e.y, 1.2, (r) => {
+          this.nz(r, 0, 0.05, 1.0, 'highpass', 4000, 4000, 0.7, 0.0005);
+          this.osc(r, 'square', 3000, 1200, 0, 0.006, 0.2, 0.0005);
+          this.nz(r, 0, 0.18, 0.5, 'bandpass', 2500, 1200, 0.8);
+        });
+        if (blind > 0 && this.layers) {
+          const base = it.play;
+          it.play = () => { base(); this.stun(world, Math.min(4, blind), Math.min(3, blind)); };
+        }
+        void p;
+        return it;
+      }
+      case 'smoke':
+        return at('smoke', e.x, e.y, 0.6, (r) => {
+          this.nz(r, 0, 1.5, 0.45, 'bandpass', 5000, 3500, 0.6, 0.15);
+          this.nz(r, 0, 1.4, 0.3, 'lowpass', 1500, 700, 0.6, 0.1);
+        });
+      case 'downed': {
+        const ally = e.kind === 'captain' || e.kind === 'technic' || e.kind === 'especialist' || e.kind === 'explosives';
+        const k = ally ? 1 : 0.75;
+        return at('downed', e.x, e.y, 0.9, (r) => {
+          this.nz(r, 0, 0.12, 0.6, 'lowpass', 500, 180);           // golpe de caída
+          this.osc(r, 'sine', 100, 50, 0, 0.15, 0.4);
+          this.osc(r, 'triangle', 280 * k, 150 * k, 0.1, 0.28, 0.22, 0.03); // quejido corto
+        });
+      }
+      case 'revived':
+        return ent('revived', e.id, 0.5, (r) => {
+          this.nz(r, 0, 0.25, 0.3, 'bandpass', 800, 1500, 1, 0.1);   // respiro
+          this.nz(r, 0.26, 0.02, 0.4, 'highpass', 3000, 3000);       // clic del equipo
+        }, { maxD: 25 });
+      case 'bark': {
+        const ally = e.team === 'ally';
+        return ent('bark', e.id, 0.22, (r) => {
+          if (ally) { // blip de radio limpio
+            this.nz(r, 0, 0.012, 0.5, 'highpass', 3000, 3000);
+            this.osc(r, 'sine', 1100, 1100, 0.01, 0.05, 0.12);
+          } else {    // radio hostil: más grave y sucia
+            this.nz(r, 0, 0.09, 0.25, 'bandpass', 1600, 1200, 1.5, 0.005);
+            this.osc(r, 'square', 700, 650, 0.01, 0.05, 0.06);
+          }
+        }, { maxD: 30 });
+      }
+      case 'combo': {
+        const n = e.key === 'clavado' ? 2 : e.key === 'conmocion' ? 3 : 4;
+        return global('combo', 0.4, (r) => {
+          for (let i = 0; i < n; i++) this.osc(r, 'triangle', 520 * Math.pow(1.19, i * 2), 520 * Math.pow(1.19, i * 2), i * 0.055, 0.1, 0.18, 0.005);
+        });
+      }
+      case 'ping': {
+        const f = e.what === 'enemy' ? 1800 : e.what === 'door' ? 1200 : e.what === 'item' ? 1400 : 1000;
+        return global('ping', 0.4, (r) => {
+          this.osc(r, 'sine', f, f, 0, 0.07, 0.2, 0.002);
+          this.nz(r, 0, 0.01, 0.2, 'highpass', 4000, 4000);
+        });
+      }
+      case 'threat': {
+        const th = e.threat;
+        const D = Math.max(0.3, Math.min(3, th.at - world.time));
+        if (th.kind === 'laser') {
+          // solo si apunta cerca del jugador (distancia del jugador al segmento)
+          const px = world.player.x - th.fx, py = world.player.y - th.fy;
+          const vx = th.x - th.fx, vy = th.y - th.fy;
+          const l2 = vx * vx + vy * vy;
+          const u = l2 > 0 ? Math.max(0, Math.min(1, (px * vx + py * vy) / l2)) : 0;
+          if (Math.hypot(px - u * vx, py - u * vy) > 3) return null;
+          return at('threat', th.fx, th.fy, 0.7, (r) => {
+            this.osc(r, 'sine', 1200, 3200, 0, D, 0.07, D * 0.8);
+            this.osc(r, 'triangle', 2400, 6400, 0, D, 0.03, D * 0.8);
+          });
+        }
+        if (th.kind === 'charge') {
+          return at('threat', th.fx, th.fy, 0.9, (r) => {
+            this.nz(r, 0, D, 0.8, 'lowpass', 200, 600, 0.8, D * 0.9);
+            this.osc(r, 'sawtooth', 50, 85, 0, D, 0.12, D * 0.9);
+          });
+        }
+        if (th.kind === 'lane') {
+          return at('threat', th.fx, th.fy, 0.8, (r) => { // montaje de arma pesada
+            for (const t of [0, 0.14, 0.34]) this.nz(r, t, 0.03, 0.5, 'bandpass', 2200 - t * 2000, 1500, 2);
+            this.nz(r, 0.34, 0.08, 0.5, 'lowpass', 700, 200);
+            this.osc(r, 'sine', 90, 55, 0.34, 0.12, 0.4);
+          });
+        }
+        return null;
+      }
+      case 'shieldHit':
+        return at('shieldHit', e.x, e.y, 0.7, (r) => {
+          this.nz(r, 0, 0.03, 0.5, 'bandpass', 3000, 2500, 2);
+          this.osc(r, 'triangle', 1800, 1700, 0, 0.25, 0.3, 0.001);
+          this.osc(r, 'sine', 2700, 2650, 0, 0.2, 0.15, 0.001);
+        });
+      case 'lights': {
+        const on = e.on;
+        return global('lights', 0.6, (r) => {
+          this.nz(r, 0, 0.015, 0.6, 'highpass', 3000, 3000);        // clac del disyuntor
+          this.nz(r, 0, 0.08, 0.8, 'lowpass', 600, 200);
+          this.osc(r, 'sine', 90, 50, 0, 0.12, 0.5);
+          if (on) this.osc(r, 'sawtooth', 40, 120, 0.05, 0.5, 0.06, 0.2);   // vuelve el zumbido
+          else this.osc(r, 'sawtooth', 120, 40, 0.05, 0.6, 0.08, 0.01);     // baja el zumbido
+        });
       }
       case 'itemUsed':
         if (hasV('v:sexo') && now - this.lastSexo >= 2) {
@@ -880,8 +1005,20 @@ export class Sfx {
     const evs = world.events;
     if (!evs || evs.length === 0) return;
     try { this.setRoom(world); } catch { /* nada */ }
+    // ≥5 disparos del mismo id en una llamada = escopeta: un solo estampido
+    this.shotgunIds.clear();
+    this.skip.clear();
+    const cnt = new Map<number, number>();
+    for (const e of evs) if (e.type === 'shot') cnt.set(e.id, (cnt.get(e.id) ?? 0) + 1);
+    const seen = new Set<number>();
+    for (const e of evs) {
+      if (e.type !== 'shot' || (cnt.get(e.id) ?? 0) < 5) continue;
+      this.shotgunIds.add(e.id);
+      if (seen.has(e.id)) this.skip.add(e); else seen.add(e.id);
+    }
     const groups = new Map<string, Item[]>();
     for (const e of evs) {
+      if (this.skip.has(e)) continue;
       let it: Item | null = null;
       try { it = this.describe(e, world, chut); } catch { it = null; }
       const add = (x: Item) => {

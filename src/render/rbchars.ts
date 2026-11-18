@@ -43,6 +43,13 @@ export const FADE_TIME = 0.15;
 export const DEATH_PUSH = 0.4;
 export const GUN_KICK_CM = 3;
 export const GUN_KICK_TIME = 0.06;
+/** Escudo antidisturbios, hombreras y bandolera (cm, espacio del modelo: +Z delante, +X izquierda). */
+export const RIOT_SHIELD = { pos: [14, 118, 36] as [number, number, number], size: [55, 85, 4] as [number, number, number], visorY: 28 };
+export const PAD_POS = { x: 26, y: 152, size: [22, 14, 26] as [number, number, number], plate: [0, 128, 24] as [number, number, number], plateSize: [46, 40, 6] as [number, number, number] };
+export const BANDOLIER = { pos: [0, 126, 17] as [number, number, number], rotZ: 0.62 };
+/** Duración (s) de la voltereta y de la transición al levantarse un derribado. */
+export const ROLL_TIME = 0.5;
+export const REVIVE_FADE = 0.4;
 /** Curvatura (rad) de las falanges para el agarre fijo; eje local en el que se curvan los dedos. */
 export const FINGER_CURL = { proximal: 0.55, middle: 0.8, distal: 0.6, thumb: 0.3 };
 export const FINGER_AXIS: 'x' | 'y' | 'z' = 'z';
@@ -56,11 +63,14 @@ export const GUN_GRIP: Record<string, GunGrip> = {
   RocketLauncher: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
   Pistol: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
   Shotgun: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  Sniper: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  Sniper_2: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  GrenadeLauncher: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
   Knife_1: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
   Grenade: { pos: [5, 0, 0], rot: [0, 0, 0], scale: 1 },
 };
 /** Longitud real (m) de cada arma. */
-export const GUN_LEN: Record<string, number> = { AK: 0.85, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 1.1, Pistol: 0.22, Shotgun: 0.95, Knife_1: 0.28, Grenade: 0.1 };
+export const GUN_LEN: Record<string, number> = { Sniper: 1.2, Sniper_2: 1.15, GrenadeLauncher: 0.9, AK: 0.85, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 1.1, Pistol: 0.22, Shotgun: 0.95, Knife_1: 0.28, Grenade: 0.1 };
 
 // ───────────────────────── Configuración por tipo ─────────────────────────
 
@@ -107,6 +117,15 @@ const LEG_BONES = new Set(['Bip01', 'Bip01_Pelvis', 'Bip01_Spine', 'Bip01_L_Thig
 const TORSO_BONES = new Set(['Bip01_Spine1', 'Bip01_Spine2', 'Bip01_Neck', 'Bip01_Head', 'Bip01_L_Clavicle', 'Bip01_R_Clavicle', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm',
   'Bip01_L_Forearm', 'Bip01_R_Forearm', 'Bip01_L_Hand', 'Bip01_R_Hand']);
 /** armas extra de las ranuras del jugador: pistola, cuchillo, granada */
+/** arma alternativa de la clase (primaryVariant 1): el capitán conserva su fusil */
+export const VARIANT_GUN: Partial<Record<Kind, string>> = { technic: 'Shotgun', especialist: 'Sniper_2', explosives: 'GrenadeLauncher' };
+/** tintes sobrios de los oficios de enemigo */
+export const VARIANT_TINT: Record<string, TintSpec> = {
+  asaltante: { tono: 0.0, satMul: 0, satAdd: 0.42, valMul: 0.42 },
+  tirador: { tono: 0.6, satMul: 0, satAdd: 0.03, valMul: 0.5 },
+  granadero: { tono: 0.25, satMul: 0, satAdd: 0.38, valMul: 0.48 },
+  blindado: { tono: 0.62, satMul: 0, satAdd: 0.42, valMul: 0.34 },
+};
 const EXTRA_GUNS = ['Pistol', 'Knife_1', 'Grenade'];
 const SLOT_GUN: Record<string, string> = { secondary: 'Pistol', knife: 'Knife_1', grenade: 'Grenade' };
 const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Idle_Loop', 'Roll']);
@@ -120,13 +139,13 @@ function filterClip(clip: THREE.AnimationClip, bones: Set<string>, suffix: strin
 }
 
 /** Registro de armas en las manos (para reajustar el agarre en vivo con ?armas=1). */
-interface GunEntry { mesh: THREE.Object3D; weapon: string; k: number; maxDim: number }
+interface GunEntry { mesh: THREE.Object3D; weapon: string; k: number; maxDim: number; mul?: number }
 const gunRegistry = new Set<GunEntry>();
 function applyGrip(e: GunEntry): void {
   const g = GUN_GRIP[e.weapon] ?? { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 };
   e.mesh.position.set(g.pos[0], g.pos[1], g.pos[2]);
   e.mesh.rotation.set(THREE.MathUtils.degToRad(g.rot[0]), THREE.MathUtils.degToRad(g.rot[1]), THREE.MathUtils.degToRad(g.rot[2]));
-  const s = ((GUN_LEN[e.weapon] ?? 0.8) / e.maxDim) * e.k * g.scale;
+  const s = ((GUN_LEN[e.weapon] ?? 0.8) / e.maxDim) * e.k * g.scale * (e.mul ?? 1);
   e.mesh.scale.setScalar(s);
 }
 try {
@@ -147,6 +166,9 @@ export class RbTemplate {
   /** copia en reposo, nunca animada, con la misma escala: origen/destino del retargeteo */
   ref!: THREE.Object3D;
   variants: (THREE.Material | THREE.Material[])[][] = [];
+  /** materiales originales (sin tinte) en el orden de las mallas */
+  base: (THREE.Material | THREE.Material[])[] = [];
+  private sets = new Map<string, (THREE.Material | THREE.Material[])[]>();
   dead: (THREE.Material | THREE.Material[])[] = [];
   height = 1.8;
   barW = 0.7;
@@ -155,6 +177,19 @@ export class RbTemplate {
   private layers = new Map<string, THREE.AnimationClip | null>();
 
   constructor(public kind: Kind, private lib: RbLibrary) {}
+
+  /** Materiales con el tinte de un oficio de enemigo (se crean una vez y se comparten). */
+  tintSet(key: string, spec: TintSpec): (THREE.Material | THREE.Material[])[] {
+    let r = this.sets.get(key);
+    if (!r) {
+      const each = (m: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] =>
+        Array.isArray(m) ? m.map((x) => (isTintable(x.name) ? tintMaterial(x, spec) : x)) : (isTintable(m.name) ? tintMaterial(m, spec) : m);
+      r = this.base.map(each);
+      this.sets.set(key, r);
+      this.lib.fixNormals(r);
+    }
+    return r;
+  }
 
   /** Clip retargeteado entero (perezoso). */
   fullClip(name: string): THREE.AnimationClip | null {
@@ -217,6 +252,25 @@ export class RbLibrary {
   private cbLast = false;
   warmed = new Set<Kind>();
   private extrasDone = false;
+  /** se llama cuando llega una arma pedida bajo demanda (las vistas se recrean para incluirla) */
+  onChange: (() => void) | null = null;
+  private extraNeed = new Set<string>();
+  fixNormals(sets: (THREE.Material | THREE.Material[])[]): void {
+    for (const m of sets) for (const mat of Array.isArray(m) ? m : [m]) {
+      const sm = mat as THREE.MeshStandardMaterial;
+      if (!this.normalOf.has(sm)) this.normalOf.set(sm, sm.normalMap);
+      const want = this.useNormals ? this.normalOf.get(sm) ?? null : null;
+      if (sm.normalMap !== want) { sm.normalMap = want; sm.needsUpdate = true; }
+    }
+  }
+  gunGeo(name: string): { geo: THREE.BufferGeometry; maxDim: number } | null { return this.guns.get(name) ?? null; }
+  /** Pide un arma que solo usa esta planta (variantes de arma y de enemigo). */
+  needGun(name: string): void {
+    this.extraNeed.add(name);
+    if (this.guns.has(name) || this.gunPromises.has(name)) return;
+    const p = this.loadGun(name).then(() => { this.onChange?.(); });
+    this.gunPromises.set(name, p);
+  }
 
   /** Los cuatro operadores de la escuadra (la vista previa y todas las partidas los necesitan). */
   static readonly SQUAD: Kind[] = ['captain', 'technic', 'especialist', 'explosives'];
@@ -273,6 +327,7 @@ export class RbLibrary {
     if (this.failed) return 1;
     let done = this.ualReady ? 1 : 0, total = 1;
     total += 1; if (this.extrasDone) done++;          // pistola, cuchillo y granada del jugador
+    for (const g of this.extraNeed) { total++; if (this.guns.has(g)) done++; }   // armas de variantes, solo si la planta las usa
     for (const k of kinds) {
       total += 2;
       if (this.avatars.has(CFG[k].avatar)) done++;
@@ -395,6 +450,7 @@ export class RbLibrary {
     model.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
     const each = (m: THREE.Material | THREE.Material[], f: (x: THREE.Material) => THREE.Material): THREE.Material | THREE.Material[] =>
       (Array.isArray(m) ? m.map(f) : f(m));
+    t.base = meshes.map((m) => m.material);
     const variants = cfg.tints.length ? cfg.tints : [null];
     for (const tint of variants) {
       t.variants.push(meshes.map((m) => each(m.material, (mat) => (tint && isTintable(mat.name) ? tintMaterial(mat, tint) : mat))));
@@ -450,6 +506,8 @@ export class RbLibrary {
     });
   }
 
+  gunMaterial(): THREE.Material { return this.gunMat; }
+
   ghostMaterial(): THREE.Material {
     if (!this.ghost) this.ghost = new THREE.MeshStandardMaterial({ color: 0x9db4d6, transparent: true, opacity: 0.22, depthWrite: false, roughness: 1 });
     return this.ghost;
@@ -473,6 +531,75 @@ export class RbLibrary {
     this.gunMat.dispose();
     gunRegistry.clear();
   }
+}
+
+// ───────────────────────── Accesorios por código (cm, espacio del modelo) ─────────────────────────
+
+let propMat: THREE.MeshStandardMaterial | null = null;
+let visorMat: THREE.MeshStandardMaterial | null = null;
+let oliveMat: THREE.MeshStandardMaterial | null = null;
+function props(): { dark: THREE.MeshStandardMaterial; visor: THREE.MeshStandardMaterial; olive: THREE.MeshStandardMaterial } {
+  propMat ??= new THREE.MeshStandardMaterial({ color: 0x1f2429, roughness: 0.5, metalness: 0.45 });
+  visorMat ??= new THREE.MeshStandardMaterial({ color: 0x35506a, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.5, depthWrite: false });
+  oliveMat ??= new THREE.MeshStandardMaterial({ color: 0x4a5238, roughness: 0.7, metalness: 0.1 });
+  return { dark: propMat, visor: visorMat, olive: oliveMat };
+}
+const boxMesh = (w: number, h: number, d: number, mat: THREE.Material): THREE.Mesh => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.frustumCulled = false; return m; };
+
+/** Escudo antidisturbios: placa rectangular oscura con visor translúcido. */
+function makeRiotShield(): THREE.Group {
+  const { dark, visor } = props();
+  const g = new THREE.Group();
+  const [w, h, d] = RIOT_SHIELD.size;
+  g.add(boxMesh(w, h, d, dark));
+  const v = boxMesh(w * 0.66, h * 0.15, d + 0.6, visor); v.position.y = RIOT_SHIELD.visorY; g.add(v);
+  const rim = boxMesh(w + 2, 3, d + 1, dark); rim.position.y = h / 2; g.add(rim);
+  g.position.set(...RIOT_SHIELD.pos);
+  return g;
+}
+/** Hombreras y placa frontal de la embestida. */
+function makeRamArmor(): THREE.Group {
+  const { dark } = props();
+  const g = new THREE.Group();
+  for (const sx of [-1, 1]) { const p = boxMesh(...PAD_POS.size, dark); p.position.set(sx * PAD_POS.x, PAD_POS.y, 0); g.add(p); }
+  const plate = boxMesh(...PAD_POS.plateSize, dark); plate.position.set(...PAD_POS.plate); g.add(plate);
+  return g;
+}
+/** Bandolera con granadas del granadero. */
+function makeBandolier(): THREE.Group {
+  const { dark, olive } = props();
+  const g = new THREE.Group();
+  const band = boxMesh(6, 70, 3, dark); band.rotation.z = BANDOLIER.rotZ; g.add(band);
+  for (let i = -1; i <= 1; i++) {
+    const gr = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 9, 8), olive); gr.frustumCulled = false;
+    gr.position.set(-Math.sin(BANDOLIER.rotZ) * i * 22 - 1, Math.cos(BANDOLIER.rotZ) * i * 22, 4); g.add(gr);
+  }
+  g.position.set(...BANDOLIER.pos);
+  return g;
+}
+
+/** Aro azul pulsante del derribado: se rellena con la reanimación. */
+function makeReviveRing(): THREE.Mesh {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uProg: { value: 0 }, uTime: { value: 0 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float uProg; uniform float uTime; varying vec2 vUv;
+    void main(){
+      vec2 p = vUv - 0.5; float r = length(p) * 2.0;
+      float ring = smoothstep(0.62, 0.7, r) * (1.0 - smoothstep(0.92, 1.0, r));
+      float a = (atan(p.y, p.x) + 3.14159) / 6.28318;
+      float pulse = 0.5 + 0.5 * sin(uTime * 5.0);
+      float fill = step(a, uProg) * step(0.001, uProg);
+      float al = ring * mix(0.28 + 0.25 * pulse, 0.95, fill);
+      gl_FragColor = vec4(vec3(0.25, 0.6, 1.0) * 1.4, al);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7).rotateX(-Math.PI / 2), mat);
+  m.position.y = 0.06; m.renderOrder = 5; m.frustumCulled = false;
+  return m;
 }
 
 // ───────────────────────── Vista de un personaje ─────────────────────────
@@ -510,6 +637,16 @@ export class RbView {
   private slot = 'primary';
   private hand: THREE.Object3D | null = null;
   private drawDur = 0.35;
+  private full: THREE.AnimationAction | null = null;
+  private fullName = '';
+  private fadeOverride = 0;
+  private throwUntil = 0;
+  private throwNew = false;
+  private normalSet: (THREE.Material | THREE.Material[])[] = [];
+  private riot: THREE.Group | null = null;
+  private riotDown = 0;
+  private reviveRing: THREE.Mesh | null = null;
+  private wasDowned = false;
   mark: THREE.Mesh | null = null;
   shield: THREE.Mesh | null = null;
   ring: THREE.Mesh | null = null;
@@ -517,7 +654,7 @@ export class RbView {
   pendingDt = 0;
   height: number; barW: number;
 
-  constructor(private tpl: RbTemplate, id: number, private lib: RbLibrary) {
+  constructor(private tpl: RbTemplate, id: number, private lib: RbLibrary, ent?: Entity) {
     this.inner = SkeletonUtils.clone(tpl.holder);
     this.root.add(this.inner);
     this.inner.traverse((o) => {
@@ -532,12 +669,86 @@ export class RbView {
       const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim };
       this.slotGuns.set(slot, e); gunRegistry.add(e);
     }
+    this.normalSet = tpl.variants[this.variant];
+    if (ent) this.setupFor(ent);
     this.mixer = new THREE.AnimationMixer(this.inner);
     for (const [name, k] of [['Bip01_Spine1', 0.45], ['Bip01_Spine2', 0.55]] as [string, number][]) {
       const b = this.inner.getObjectByName(name);
       if (b) this.tilt.push({ bone: b, saved: new THREE.Quaternion(), k, has: false });
     }
     this.height = tpl.height; this.barW = tpl.barW;
+  }
+
+  /** Oficio, variante de jefe y variante de arma de esta entidad: tinte, arma en la mano y accesorios por código. */
+  private setupFor(e: Entity): void {
+    const kind = this.tpl.kind;
+    if (e.variant && VARIANT_TINT[e.variant]) this.normalSet = this.tpl.tintSet(e.variant, VARIANT_TINT[e.variant]);
+    const hand = this.hand;
+    const add = (name: string, mul = 1): GunEntry | null => {
+      const g = this.lib.gunGeo(name);
+      if (!g) { this.lib.needGun(name); return null; }
+      if (!hand) return null;
+      const m = new THREE.Mesh(g.geo, this.lib.gunMaterial());
+      m.name = 'arma_x'; m.frustumCulled = false;
+      this.extra.push(m);
+      hand.add(m);
+      const entry: GunEntry = { mesh: m, weapon: name, k: 1 / this.inner.scale.y, maxDim: g.maxDim, mul };
+      applyGrip(entry);
+      gunRegistry.add(entry);
+      return entry;
+    };
+    let main: GunEntry | null = null;
+    if (e.primaryVariant === 1 && VARIANT_GUN[kind]) main = add(VARIANT_GUN[kind]!);
+    else if (e.variant === 'tirador') main = add('Sniper');
+    else if (e.variant === 'asaltante') main = add('Knife_1');
+    else if (e.bossVariant === 'ametrallador') main = add('ShortCannon', 1.25);
+    if (main) {
+      const old = this.slotGuns.get('primary');
+      if (old) old.mesh.visible = false;
+      this.slotGuns.set('primary', main);
+    }
+    // accesorios por código (cm, espacio del modelo)
+    const attach = (g: THREE.Group): void => { this.inner.add(g); g.traverse((o) => { if ((o as THREE.Mesh).isMesh) this.extra.push(o); }); };
+    if (e.variant === 'blindado') { this.riot = makeRiotShield(); attach(this.riot); }
+    if (e.bossVariant === 'embestida') attach(makeRamArmor());
+    if (e.variant === 'granadero') attach(makeBandolier());
+  }
+
+  private glowMats: (THREE.Material | THREE.Material[])[] | null = null;
+  /** Copia de los materiales de esta vista con emisivo (se conserva el tinte); solo la crean los jefes expuestos o enfurecidos. */
+  private glowSet(): (THREE.Material | THREE.Material[])[] {
+    if (!this.glowMats) {
+      const cl = (m: THREE.Material): THREE.Material => {
+        const c = m.clone();
+        c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey;
+        return c;
+      };
+      this.glowMats = this.normalSet.map((m) => (Array.isArray(m) ? m.map(cl) : cl(m)));
+    }
+    return this.glowMats;
+  }
+
+  /** El granadero lanza: el torso hace un movimiento de brazo. */
+  triggerThrow(time: number): void { this.throwUntil = time + 0.7; this.throwNew = true; }
+
+  /** Animación de cuerpo entero (voltereta, derribado): las capas de piernas y torso se apartan. */
+  private playFull(name: string, once: boolean, ts: number, frozenAt?: number, fade = FADE_TIME): void {
+    if (this.fullName === name) { this.full?.setEffectiveTimeScale(ts); return; }
+    const a = this.action(name, 'full');
+    if (!a) return;
+    this.legs?.fadeOut(fade); this.torso?.fadeOut(fade);
+    this.legsName = ''; this.torsoName = '';
+    a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); a.clampWhenFinished = once;
+    a.setEffectiveWeight(1); a.fadeIn(fade); a.play(); a.setEffectiveTimeScale(ts);
+    if (frozenAt !== undefined) { a.time = frozenAt * a.getClip().duration; a.paused = true; } else a.paused = false;
+    this.full = a; this.fullName = name;
+  }
+  private endFull(fade: number): void {
+    if (!this.full) return;
+    this.full.paused = false;
+    this.full.fadeOut(fade);
+    this.full = null; this.fullName = '';
+    this.fadeOverride = fade;
   }
 
   /** Posición del tirador que dio el golpe final (para orientar y empujar la caída). */
@@ -555,7 +766,8 @@ export class RbView {
     return a;
   }
 
-  private setLayer(layer: Layer, name: string, once: boolean, ts: number, fade = FADE_TIME, restart = false): void {
+  private setLayer(layer: Layer, name: string, once: boolean, ts: number, fade0 = FADE_TIME, restart = false): void {
+    const fade = this.fadeOverride > 0 ? this.fadeOverride : fade0;
     const cur = layer === 'legs' ? this.legs : this.torso;
     const curName = layer === 'legs' ? this.legsName : this.torsoName;
     if (curName !== name || restart) {
@@ -579,7 +791,7 @@ export class RbView {
       if (!this.death) {
         const a = this.action('Death01', 'full');
         if (a) {
-          this.legs?.fadeOut(0.1); this.torso?.fadeOut(0.1);
+          this.legs?.fadeOut(0.1); this.torso?.fadeOut(0.1); this.full?.fadeOut(0.1);
           a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.fadeIn(0.1); a.play();
           const dur = a.getClip().duration;
           const el = e.deadAt < 0 ? dur : Math.max(0, time - e.deadAt);
@@ -589,20 +801,31 @@ export class RbView {
       }
       return;
     }
+    // derribado: pose tumbada (la muerte congelada al 60 %); al reanimarlo se levanta en 0,4 s
+    if (e.downed) { this.playFull('Death01', true, 1, 0.6, 0.25); return; }
+    if (this.fullName === 'Death01') this.endFull(REVIVE_FADE);
+    // voltereta: clip de cuerpo entero, 0,5 s
+    if ((e.rollUntil ?? 0) > time) {
+      const dur = this.tpl.fullClip('Roll')?.duration ?? 1.47;
+      this.playFull('Roll', true, dur / ROLL_TIME, undefined, 0.08);
+      return;
+    }
+    if (this.fullName === 'Roll') this.endFull(0.15);
     const sp = this.speed;
     const moving = sp > MOVE_MIN_SPEED;
+    const rushing = e.sprinting || e.variant === 'asaltante';       // el asaltante corre siempre con cuchillo
     // piernas
     let legName: string, ref: number;
     if (e.crouch) { legName = moving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop'; ref = CROUCH_REF_SPEED; }
     else if (!moving) { legName = 'Pistol_Idle_Loop'; ref = 1; }
-    else if (e.sprinting) { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
+    else if (rushing) { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
     else if (sp < WALK_MAX_SPEED) { legName = 'Walk_Loop'; ref = WALK_REF_SPEED; }
     else if (sp < JOG_MAX_SPEED) { legName = 'Jog_Fwd_Loop'; ref = JOG_REF_SPEED; }
     else { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
     const ts = moving ? Math.min(TIMESCALE_MAX, Math.max(TIMESCALE_MIN, sp / ref)) : 1;
     this.setLayer('legs', legName, false, ts);
     const slot = e.isPlayer ? (e.weapon ?? 'primary') : 'primary';
-    const armed = slot === 'primary' || slot === 'secondary';
+    const armed = (slot === 'primary' || slot === 'secondary') && e.variant !== 'asaltante';
     // torso
     const staggered = (e.staggerUntil ?? 0) > time;
     if (staggered) {
@@ -612,13 +835,16 @@ export class RbView {
       if (e.staggerUntil !== this.lastStagger) { this.lastStagger = e.staggerUntil ?? 0; this.kick = 1; }
     } else if (e.lastKnifeAt !== this.lastKnife && time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       this.lastKnife = e.lastKnifeAt; this.punchAlt = !this.punchAlt;
-      const stab = slot === 'knife' && this.tpl.fullClip('Sword_Attack');
+      const stab = (slot === 'knife' || e.variant === 'asaltante') && this.tpl.fullClip('Sword_Attack');
       this.setLayer('torso', stab ? 'Sword_Attack' : this.punchAlt ? 'Punch_Jab' : 'Punch_Cross', true, stab ? 1.5 : 1.3, 0.08, true);
     } else if (time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       // sigue el golpe
+    } else if (this.throwUntil > time) {
+      this.setLayer('torso', 'Punch_Jab', true, 1.1, 0.08, this.throwNew);      // el granadero lanza
+      this.throwNew = false;
     } else if (!armed) {
       this.setLayer('torso', legName, false, ts);              // cuchillo o granada: brazo bajado, sin apuntar
-    } else if (e.sprinting && moving) {
+    } else if (rushing && moving) {
       this.setLayer('torso', legName, false, ts);              // esprintando: el torso del propio clip, arma baja
     } else if (e.reloading > 0) {
       this.setLayer('torso', 'Pistol_Reload', false, 1);
@@ -630,6 +856,7 @@ export class RbView {
     } else {
       this.setLayer('torso', legName, false, ts);
     }
+    this.fadeOverride = 0;
     // golpe recibido: Hit_Chest mezclado al 60 %
     if (!staggered && e.lastHurtAt !== this.lastHurt && time - e.lastHurtAt < 0.3 && time >= e.lastHurtAt) {
       this.lastHurt = e.lastHurtAt;
@@ -641,7 +868,14 @@ export class RbView {
   update(e: Entity, time: number, dt: number, host: CharHost, animate: boolean, animDt: number): void {
     const k = 1 - Math.exp(-dt * (e.isPlayer ? 30 : 24));
     if (!this.init || Math.hypot(e.x - this.x, e.y - this.y) > 3) { this.x = e.x; this.y = e.y; this.yaw = e.yaw; this.init = true; }
-    else { this.x += (e.x - this.x) * k; this.y += (e.y - this.y) * k; this.yaw = lerpAngle(this.yaw, e.yaw, 1 - Math.exp(-dt * 18)); }
+    else {
+      this.x += (e.x - this.x) * k; this.y += (e.y - this.y) * k;
+      // voltereta: el cuerpo se orienta en la dirección de movimiento (parado, hacia atrás)
+      const rolling = e.alive && !e.downed && (e.rollUntil ?? 0) > time;
+      const sp0 = Math.hypot(e.vx, e.vy);
+      const target = rolling ? (sp0 > 0.3 ? Math.atan2(e.vy, e.vx) : e.yaw + Math.PI) : e.yaw;
+      this.yaw = lerpAngle(this.yaw, target, 1 - Math.exp(-dt * (rolling ? 40 : 18)));
+    }
     const alive = e.alive;
     let px = this.x, pz = this.y;
     if (!alive && this.deathFrom) {
@@ -690,16 +924,29 @@ export class RbView {
       }
     }
 
+    this.speed += ((alive ? Math.hypot(e.vx, e.vy) : 0) - this.speed) * (1 - Math.exp(-dt * 12));
+    this.crouchK += ((alive && e.crouch ? 1 : 0) - this.crouchK) * (1 - Math.exp(-dt * 14));
+
     // materiales: normal (con tinte), muerto, fantasma o destello (compartidos)
     const hurt = alive && !this.ghost && time - e.lastHurtAt < 0.12 && time >= e.lastHurtAt;
-    const state = !alive ? 'dead' : this.ghost ? 'ghost' : hurt ? 'flash' : 'norm' + this.variant;
+    // jefe expuesto: emisivo ámbar pulsante (la ventana para pegarle); enfurecido: rojo tenue permanente
+    const glow = alive && (e.exposedUntil ?? 0) > time ? 'a' : alive && e.enraged ? 'r' : '';
+    const state = !alive ? 'dead' : this.ghost ? 'ghost' : hurt ? 'flash' : 'norm' + this.variant + glow;
     if (state !== this.matState) {
       this.matState = state;
-      const set = state === 'dead' ? this.tpl.dead : state === 'norm' + this.variant ? this.tpl.variants[this.variant] : null;
+      const set = state === 'dead' ? this.tpl.dead : state === 'norm' + this.variant + glow ? (glow ? this.glowSet() : this.normalSet) : null;
       this.meshes.forEach((m, i) => { m.material = set ? set[i] : state === 'flash' ? host.matFlash : this.lib.ghostMaterial(); });
       const cast = host.shadowsOn && state !== 'ghost';
       for (const m of this.meshes) m.castShadow = cast;
       for (const o of this.extra) o.castShadow = cast;
+    }
+    if (glow && this.glowMats) {
+      const amber = glow === 'a';
+      for (const m of this.glowMats) for (const mat of Array.isArray(m) ? m : [m]) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        sm.emissive.setHex(amber ? 0xffa000 : 0xc01010);
+        sm.emissiveIntensity = amber ? 0.45 + 0.35 * Math.sin(time * 8) : 0.12;
+      }
     }
 
     if (animate) {
@@ -713,7 +960,7 @@ export class RbView {
         if (tiltOn) { t.saved.copy(t.bone.quaternion); this.tiltBone(t.bone, -e.pitch * RB_PITCH_FACTOR * t.k); }
       }
     }
-    this.overlays(e, time, host, alive);
+    this.overlays(e, time, host, alive, dt);
   }
 
   /** Giro de un hueso alrededor del eje lateral del modelo, compuesto sobre la animación. */
@@ -725,7 +972,26 @@ export class RbView {
     bone.quaternion.premultiply(_q).premultiply(_q2).premultiply(_q.clone().invert());
   }
 
-  private overlays(e: Entity, time: number, host: CharHost, alive: boolean): void {
+  private overlays(e: Entity, time: number, host: CharHost, alive: boolean, dt = 0.016): void {
+    // escudo antidisturbios: se baja al ser aturdido o cegado
+    if (this.riot) {
+      const want = alive && (((e.staggerUntil ?? 0) > time) || ((e.blindedUntil ?? 0) > time) || e.reloading > 0) ? 1 : 0;
+      this.riotDown += (want - this.riotDown) * (1 - Math.exp(-dt * 10));
+      this.riot.visible = alive;
+      this.riot.rotation.x = this.riotDown * 1.1;
+      this.riot.position.set(RIOT_SHIELD.pos[0], RIOT_SHIELD.pos[1] - this.riotDown * 30, RIOT_SHIELD.pos[2] - this.riotDown * 8);
+    }
+    // aro azul del derribado (y su relleno al reanimarlo)
+    const downed = alive && !!e.downed;
+    if (downed && !this.reviveRing) { this.reviveRing = makeReviveRing(); this.root.add(this.reviveRing); }
+    if (this.reviveRing) {
+      this.reviveRing.visible = downed;
+      if (downed) {
+        const u = (this.reviveRing.material as THREE.ShaderMaterial).uniforms;
+        u.uTime.value = time; u.uProg.value = Math.min(1, Math.max(0, e.reviveProgress ?? 0));
+      }
+    }
+    this.wasDowned = downed;
     const h = THREE.MathUtils.lerp(this.height, RB_CROUCH_HEIGHT, this.crouchK);
     const wantMark = alive && e.marked;
     if (wantMark && !this.mark) { this.mark = new THREE.Mesh(host.markGeo, host.markMat); this.mark.scale.set(1, 1.5, 1); this.root.add(this.mark); }
@@ -755,6 +1021,7 @@ export class RbView {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.inner);
     for (const e of this.slotGuns.values()) gunRegistry.delete(e);
+    if (this.glowMats) for (const m of this.glowMats) for (const mat of Array.isArray(m) ? m : [m]) mat.dispose();
     for (const m of this.meshes) (m as THREE.SkinnedMesh).skeleton?.dispose();
   }
 }

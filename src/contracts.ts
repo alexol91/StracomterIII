@@ -3,7 +3,7 @@
 
 import type {
   AiDebugInfo, ClassId, Door, Entity, FurnitureInst, GameEvent, ItemType, MapDef, OrderKind,
-  Pickup, PlayerInput, Projectile, Theme, WallRect, WorldStatus, ZoneStats,
+  Pickup, PlayerInput, Projectile, SmokeCloud, Theme, Threat, WallRect, WorldStatus, ZoneStats,
 } from './sim/types';
 
 // ───────────────────────── Simulación (src/sim) ─────────────────────────
@@ -61,6 +61,13 @@ export interface IWorld {
   cheats: { god: boolean; noclip: boolean; aiDebug: boolean; chutaos: boolean };
   /** v1.2 — true en cuanto se usa cualquier truco en esta zona: la partida no puntúa para récords */
   cheated: boolean;
+  /** v1.3 — avisos de ataques inminentes (para dibujar en el suelo) y nubes de humo activas */
+  threats: Threat[];
+  smokes: SmokeCloud[];
+  /** v1.3 — luces de la planta apagadas por el Hackeo (los enemigos ven la mitad) hasta world.time; 0 si encendidas */
+  lightsOffUntil: number;
+  /** v1.3 — compañero derribado que se puede reanimar ahora (id) o -1 */
+  interactRevive: number;
   /** v1.2 — tutorial: mientras sea true el director no suelta oleadas y los enemigos presentes no detectan a nadie */
   hold: boolean;
   /** Avanza la simulación dt segundos (usa paso fijo 1/60). Consume los flancos de input. */
@@ -86,6 +93,8 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D';
 export interface RecordEntry { grade: Grade; score: number; time: number; date: string }
 
 export interface CampaignState {
+  /** v1.3 — variante de arma principal elegida por clase (0 por defecto) */
+  loadout?: Partial<Record<ClassId, 0 | 1>>;
   /** v1.2 — mejoras elegidas en esta campaña */
   upgrades?: UpgradeId[];
   /** v1.2 — se usaron trucos en algún momento de la campaña */
@@ -153,6 +162,8 @@ export interface ICampaign {
   completeZone(state: CampaignState, world: IWorld): ZoneSummary;
   /** Llamar al morir (world.status === 'dead'): el ajuste dinámico baja un escalón y se guarda. No toca nada más. */
   failZone(state: CampaignState): void;
+  /** v1.3 — elige la variante del arma principal de una clase (0 o 1) y guarda */
+  setLoadout(state: CampaignState, cls: ClassId, variant: 0 | 1): void;
   /** v1.2 — aplica la mejora elegida tras completeZone (debe ser una de summary.upgradeChoices) y guarda */
   chooseUpgrade(state: CampaignState, id: UpgradeId): void;
   /** v1.2 — mejores marcas guardadas en el dispositivo: clave `${dificultad}:${planta}` */
@@ -177,6 +188,7 @@ export interface ConsoleHost {
 export type Action =
   | 'sprint' | 'aim'
   // v1.2 — armas al estilo Counter-Strike: ranuras 1-4, última arma (Q) y rueda
+  | 'roll' | 'ping'
   | 'slot1' | 'slot2' | 'slot3' | 'slot4' | 'lastWeapon'
   | 'forward' | 'back' | 'left' | 'right' | 'fire' | 'knife' | 'reload' | 'grenade' | 'ability'
   | 'interact' | 'useItem' | 'cycleItem' | 'crouch' | 'orderFollow' | 'orderGoto' | 'orderFocus'
@@ -199,6 +211,9 @@ export interface Settings {
    * alta = todo; media = personajes realistas sin sombras ni posprocesado; baja = personajes ligeros de reserva.
    */
   graphics?: 'auto' | 'high' | 'medium' | 'low';
+  /** v1.3 — vibración del mando y destellos reducidos (cegadora, fogonazos) */
+  vibration?: boolean;
+  reduceFlashes?: boolean;
 }
 
 // ───────────────────────── Dibujo (src/render) ─────────────────────────

@@ -6,17 +6,18 @@ import {
   ALLY_ITEM_THRESHOLDS, AMMO_CAP, AMMO_START, AURA_RADIUS, BLAST_RADIUS, CLASS_STATS, CROUCH_HEIGHT, ENEMY_AMMO,
   ENEMY_STATS, GRENADE_COOLDOWN, GRENADE_COUNT, GRENADE_DAMAGE, HEAD_MULT, INVENTORY_SLOTS, ITEM_EFFECT,
   KNIFE_DAMAGE, KNIFE_PERIOD, KNIFE_RANGE, LIMB_MULT, STAND_HEIGHT, UnitStats, VISION, WEAPON_RANGE, isClass, statsOf,
+  BARK_COOLDOWN, BOUNCER, BURST_RIFLE, DOWNED, FLASH, PING_DOOR_RANGE, PRIMARY_VARIANTS, ROLL, SHOTGUN, SMOKE, SNIPER, TACTICAL_START, variantStats,
   AIM_SPEED_MULT, CAM_DIST_AIM, FOV_AIM, FOV_NORMAL, GUN_FEEL, RECOIL_MAX_PITCH, RECOIL_MAX_YAW, RECOIL_RECOVER, SHOULDER_AIM,
   SHOULDER_NORMAL, SPRINT_MULT, DRAW_TIME, PISTOL, PISTOL_FEEL, WEAPON_SPEED, SPRINT_RAISE, STAGGER_COOLDOWN, STAGGER_TIME, computeMods, type Mods,
 } from './data';
 import { allyThink } from './ai_ally';
-import { EnemyAI } from './ai_enemy';
+import { EnemyAI, damageTakenMult } from './ai_enemy';
 import { Director, DirectorConfig } from './director';
 import { Level, NAV_RADIUS } from './level';
 import { Nav } from './nav';
 import type {
   AiDebugInfo, ClassId, EnemyKind, Entity, GameEvent, HitZone, ItemType, Kind, MapDef, OrderKind, Pickup,
-  PlayerInput, Projectile, Team, Vec2, WeaponSlot, WorldStatus, ZoneStats,
+  GrenadeType, PlayerInput, Projectile, SmokeCloud, Team, Threat, Vec2, WeaponSlot, WorldStatus, ZoneStats,
 } from './types';
 import { WEAPON_SLOTS } from './types';
 
@@ -44,6 +45,10 @@ export interface Unit extends Entity {
   spawnAt: number;
   /** v1.2 — world.time del último aturdimiento (máx. uno cada STAGGER_COOLDOWN) */
   staggerAt: number;
+  /** v1.3 — la recarga en curso conserva una bala en la recámara (había balas en el cargador al empezarla) */
+  reloadChamber: boolean;
+  /** v1.3 — instante del último intento de reanimación (para reiniciar el progreso si se interrumpe) */
+  reviveAt: number;
 }
 
 export interface Noise { x: number; y: number; loud: number; team: Team; id: number; kind: 'shot' | 'blast' | 'door' | 'step' }
@@ -79,6 +84,8 @@ export interface WorldConfig {
   baseScore?: number;
   /** v1.2 — mejoras de campaña elegidas (ids de UPGRADES) */
   upgrades?: string[];
+  /** v1.3 — variante del arma principal por clase (0 si falta) */
+  loadout?: Partial<Record<ClassId, 0 | 1>>;
 }
 
 const _v: Vec2 = [0, 0];
@@ -110,6 +117,17 @@ export class World implements IWorld {
   cheats = { god: false, noclip: false, aiDebug: false, chutaos: false };
   cheated = false;
   hold = false;
+  /** v1.3 — avisos de ataques inminentes, nubes de humo, luces apagadas y compañero reanimable */
+  threats: Threat[] = [];
+  smokes: SmokeCloud[] = [];
+  lightsOffUntil = 0;
+  interactRevive = -1;
+  private loadout: Partial<Record<ClassId, 0 | 1>> = {};
+  private threatId = 1;
+  private projMeta = new Map<number, { threat?: number; dmg?: number; bounces?: number; radius?: number }>();
+  private lastBark: Record<Team, number> = { ally: -99, enemy: -99 };
+  private burstLeft = 0;
+  private lastHackAt = -99;
   /** v1.2 — efectos de las mejoras de campaña, calculados al construir el mundo */
   mods: Mods;
   /** v1.2 — desplazamiento de la cámara por retroceso (radianes); se recupera solo */
@@ -143,9 +161,11 @@ export class World implements IWorld {
   onUnstuck: ((u: Unit) => void) | null = null;
   private dryAt = -1;
   private prevFire = false;
+  private fireBufferUntil = 0;
 
   constructor(cfg: WorldConfig) {
     this.mods = computeMods(cfg.upgrades);
+    this.loadout = cfg.loadout ?? {};
     this.rng = mulberry32(cfg.seed ?? (cfg.floor * 1000 + cfg.zone * 37 + 7));
     this.floor = cfg.floor; this.zone = cfg.zone;
     this.score = cfg.baseScore ?? 0;
@@ -205,7 +225,8 @@ export class World implements IWorld {
     if (cls) {
       // v1.2: las mejoras de campaña modifican una COPIA de las estadísticas de los aliados (la tabla del documento no se toca)
       const m = this.mods;
-      stats = { ...stats, hp: stats.hp + m.hpBonus, speed: stats.speed * m.speedMult, magSize: Math.max(1, Math.round(stats.magSize * m.magMult)), reloadTime: stats.reloadTime * m.reloadMult };
+      const vs = variantStats(cls, this.loadout[cls] ?? 0, stats);
+      stats = { ...vs, hp: stats.hp + m.hpBonus, speed: stats.speed * m.speedMult, magSize: Math.max(1, Math.round(vs.magSize * m.magMult)), reloadTime: vs.reloadTime * m.reloadMult };
     }
     const u: Unit = {
       id: this.nextId++, kind, team: cls ? 'ally' : 'enemy', isPlayer: false,
@@ -213,6 +234,9 @@ export class World implements IWorld {
       hp: stats.hp, maxHp: stats.hp, alive: true, deadAt: -1, crouch: false,
       mag: stats.magSize, magSize: stats.magSize, ammo: cls ? AMMO_START - Math.min(stats.magSize, AMMO_START) : ENEMY_AMMO - stats.magSize,
       reloading: 0, grenades: cls ? GRENADE_COUNT + this.mods.extraGrenades : 0,
+      flashes: cls ? TACTICAL_START.flash + this.mods.extraGrenades : 0, smokes: cls ? TACTICAL_START.smoke + this.mods.extraGrenades : 0, grenadeType: 'frag',
+      rollUntil: 0, rollCd: 0, downed: false, downedUntil: 0, reviveProgress: 0, blindedUntil: 0,
+      primaryVariant: cls ? (this.loadout[cls] ?? 0) : 0, variant: null, bossVariant: null, bossName: '', reloadChamber: false, reviveAt: -99,
       abilityCd: 0, abilityCdMax: (cls === 'captain' || cls === 'technic' ? 20 : 25) * (cls ? this.mods.abilityCdMult : 1), abilityActive: 0,
       inventory: [null, null, null, null, null], invSel: 0,
       lastShotAt: -9, lastKnifeAt: -9, lastHurtAt: -9, aiState: '', bossPhase: kind === 'megaboss' ? 1 : 0,
@@ -251,6 +275,8 @@ export class World implements IWorld {
 
   /** ¿`a` tiene línea de visión con `b`? (cabeza o pecho). Sin cono: solo geometría. */
   canSee(a: Entity, b: Entity): boolean {
+    if (this.isBlinded(a)) return false;                      // cegado: no ve (restrictivo por defecto)
+    if (this.smokeBlocks(a.x, a.y, b.x, b.y)) return false;  // el humo tapa la vista, no las balas
     const ez = this.eyeZ(a), h = this.height(b);
     return this.level.clear(a.x, a.y, ez, b.x, b.y, h - 0.15, 'sight') || this.level.clear(a.x, a.y, ez, b.x, b.y, h * 0.55, 'sight');
   }
@@ -260,6 +286,49 @@ export class World implements IWorld {
     if (this.level.clear(a.x, a.y, mz, b.x, b.y, h * 0.6, 'bullet')) return h * 0.6;
     if (this.level.clear(a.x, a.y, mz, b.x, b.y, h - 0.15, 'bullet')) return h - 0.15;
     return -1;
+  }
+
+  // ───────────────────────── v1.3: ganchos públicos (avisos, humo, cegado, barks, granada enemiga) ─────────────────────────
+
+  /** Anuncia un ataque inminente (se dibuja en el suelo). Se purga solo 0,1 s después de `at`. Emite `threat`. */
+  addThreat(t: Omit<Threat, 'id' | 'from'>): Threat {
+    const th: Threat = { ...t, id: this.threatId++, from: this.time };
+    this.threats.push(th);
+    this.events.push({ type: 'threat', threat: th });
+    return th;
+  }
+  removeThreat(id: number): void {
+    const i = this.threats.findIndex(t => t.id === id);
+    if (i >= 0) this.threats.splice(i, 1);
+  }
+  isBlinded(e: Entity): boolean { return this.time < e.blindedUntil; }
+
+  /** ¿El humo vivo corta el segmento a-b? (pasa a menos de r del centro de una nube) */
+  smokeBlocks(ax: number, ay: number, bx: number, by: number): boolean {
+    for (const c of this.smokes) {
+      if (this.time >= c.until) continue;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      const k = l2 > 1e-9 ? Math.max(0, Math.min(1, ((c.x - ax) * dx + (c.y - ay) * dy) / l2)) : 0;
+      if (Math.hypot(ax + dx * k - c.x, ay + dy * k - c.y) < c.r) return true;
+    }
+    return false;
+  }
+  /** Visión bloqueada entre dos puntos del plano: pared (rayo 'sight' a 1,5 m) O humo. Las balas NO las para el humo. */
+  sightBlocked(ax: number, ay: number, bx: number, by: number): boolean {
+    return !this.level.clear(ax, ay, 1.5, bx, by, 1.5, 'sight') || this.smokeBlocks(ax, ay, bx, by);
+  }
+
+  /** Granada enemiga en parábola (misma física que la del jugador). Sin inventario ni enfriamiento: lo gestiona quien la llama. */
+  enemyThrow(owner: Unit, _kind: 'grenade', tx: number, ty: number): void {
+    this.launch(owner, 'grenade', tx, ty, 18);
+  }
+
+  /** Frase corta de un personaje (clave i18n `bark.<key>`). Como mucho una cada 3 s por bando. */
+  bark(e: Entity, key: string): boolean {
+    if (this.time - this.lastBark[e.team] < BARK_COOLDOWN) return false;
+    this.lastBark[e.team] = this.time;
+    this.events.push({ type: 'bark', id: e.id, team: e.team, key });
+    return true;
   }
 
   // ───────────────────────── paso ─────────────────────────
@@ -275,15 +344,16 @@ export class World implements IWorld {
 
     const p = this.player;
     if (p.alive) this.updatePlayer(dt, input);
-    else { p.wishX = 0; p.wishY = 0; p.sprinting = false; p.aiming = false; }
+    else { p.wishX = 0; p.wishY = 0; p.sprinting = false; p.aiming = false; this.interactRevive = -1; }
     this.smoothCamera(dt, input);
     // consumir flancos
     input.reload = input.grenade = input.ability = input.interact = input.useItem = input.cycleItem = false;
-    input.order = null; input.weaponSlot = null; input.weaponLast = false; input.weaponCycle = 0;
+    input.order = null; input.weaponSlot = null; input.weaponLast = false; input.weaponCycle = 0; input.roll = false; input.ping = false;
 
     for (const u of this.entities) {
       if (!u.alive) continue;
       this.tickTimers(u, dt);
+      if (u.downed) { u.wishX = u.wishY = 0; continue; }
       if (u.team === 'ally' && !u.isPlayer) allyThink(this, u, dt);
     }
     this.enemyAI.update(dt);
@@ -296,6 +366,7 @@ export class World implements IWorld {
       if (d.anim !== target) d.anim += Math.sign(target - d.anim) * Math.min(Math.abs(target - d.anim), dt * 5);
     }
     this.director.update(dt);
+    this.updateV13(dt);
     this.updatePlayerField(false);
     this.computeCam(input.yaw, input.pitch, this.camDistEff);
     this.computeAim(input);
@@ -305,33 +376,52 @@ export class World implements IWorld {
     if (this.order.kind === 'focus' && (!ft || !ft.alive)) { this.order = this.prevOrder ? { ...this.prevOrder } : { kind: 'follow', x: p.x, y: p.y, targetId: -1 }; this.prevOrder = null; }
   }
 
+  /** Mantenimiento v1.3 de cada paso: avisos y humo caducados, luces, derribados (reanimación, plazo, zona limpia). */
+  private updateV13(dt: number): void {
+    void dt;
+    if (this.threats.length > 0) this.threats = this.threats.filter(t => this.time <= t.at + 0.1);
+    if (this.smokes.length > 0) this.smokes = this.smokes.filter(c => this.time < c.until);
+    if (this.lightsOffUntil > 0 && this.time >= this.lightsOffUntil) { this.lightsOffUntil = 0; this.events.push({ type: 'lights', on: true }); }
+    for (const u of this.entities) {
+      if (!u.alive || !u.downed) continue;
+      if (this.status === 'cleared') { this.revive(u, null, 1); continue; }   // zona limpia: se levanta solo con 1 de vida
+      if (this.time - u.reviveAt > 0.08) u.reviveProgress = 0;                // interrumpida: vuelve a empezar
+      if (this.time >= u.downedUntil) this.kill(u, null);                      // venció el plazo: muere como siempre
+    }
+  }
+
   private tickTimers(u: Unit, dt: number): void {
     if (u.fireCd > 0) u.fireCd -= dt;
     if (u.knifeCd > 0) u.knifeCd -= dt;
     if (u.grenadeCd > 0) u.grenadeCd -= dt;
     if (u.abilityCd > 0) u.abilityCd = Math.max(0, u.abilityCd - dt);
     if (u.abilityActive > 0) u.abilityActive = Math.max(0, u.abilityActive - dt);
-    if (u.reloading > 0) {
+    if (u.rollCd > 0) u.rollCd = Math.max(0, u.rollCd - dt);
+    if (u.reloading > 0 && !(this.time < u.rollUntil)) { // rodando, la recarga se pausa
       u.reloading -= dt;
       if (u.reloading <= 0) {
         u.reloading = 0;
-        if (u.weapon === 'secondary') u.mag2 = u.magSize2;
-        else { const n = Math.min(u.magSize - u.mag, u.ammo); u.mag += n; u.ammo -= n; }
+        if (u.weapon === 'secondary') u.mag2 = u.magSize2 + (u.reloadChamber ? 1 : 0);
+        else { const n = Math.min(u.magSize + (u.reloadChamber ? 1 : 0) - u.mag, u.ammo); u.mag += n; u.ammo -= n; }
       }
     }
   }
 
   startReload(u: Unit): boolean {
-    if (u.weapon === 'knife' || u.weapon === 'grenade') return false;
+    if (u.weapon === 'knife' || u.weapon === 'grenade' || u.downed) return false;
     if (u.weapon === 'secondary') {
       if (u.reloading > 0 || u.mag2 >= u.magSize2) return false;   // reserva infinita
       u.reloading = PISTOL.reloadTime * this.mods.reloadMult;
+      u.reloadChamber = u.mag2 > 0; // recarga con peso: una bala se queda en la recámara
       this.events.push({ type: 'reload', id: u.id });
       return true;
     }
     if (u.reloading > 0 || u.mag >= u.magSize || u.ammo <= 0) return false;
+    // recarga con peso (v1.3): con balas en el cargador se conserva una en recámara (aliados, no explosivos)
+    u.reloadChamber = u.team === 'ally' && !u.stats.explosive && u.mag > 0;
     u.reloading = u.stats.reloadTime; // las mejoras ya vienen aplicadas en stats (copia de los aliados)
     this.events.push({ type: 'reload', id: u.id });
+    if (u.team === 'ally' && !u.isPlayer) this.bark(u, 'ally.reload');
     return true;
   }
 
@@ -357,17 +447,23 @@ export class World implements IWorld {
     if (p.crouch) sp *= 0.75;
     if (p.aiming) sp *= 0.45;
     if (p.cls === 'especialist' && p.abilityActive > 0) sp *= 1.3;
+    // fusil de tirador: muy preciso apuntando y malo desde la cadera
+    if (p.cls === 'especialist' && p.primaryVariant === 1 && p.weapon === 'primary') sp *= p.aiming ? SNIPER.aimSpreadMult : SNIPER.hipSpreadMult;
     return sp;
   }
 
   /** Cambia el arma en la mano del jugador (v1.2). Devuelve false si no hace nada. */
   switchWeapon(u: Unit, slot: WeaponSlot): boolean {
     if (slot === u.weapon) return false;
-    if (slot === 'grenade' && u.grenades <= 0) return false;
+    if (slot === 'grenade') {
+      if (this.grenadeTotal(u) <= 0) return false;                    // vacía solo si no queda de ningún tipo
+      if (this.grenadeStock(u, u.grenadeType) <= 0) this.cycleGrenadeType(u);
+    }
     u.lastWeapon = u.weapon;
     u.weapon = slot;
     u.drawUntil = this.time + DRAW_TIME[slot];
     u.reloading = 0;            // la recarga en curso se cancela; la munición no se pierde (se reparte al terminar)
+    this.burstLeft = 0;
     this.bloom = 0;
     this.events.push({ type: 'weaponSwitch', id: u.id, weapon: slot });
     return true;
@@ -380,42 +476,67 @@ export class World implements IWorld {
     for (let k = 0; k < n; k++) {
       i = (i + dir + n) % n;
       const s = WEAPON_SLOTS[i];
-      if (s === 'grenade' && u.grenades <= 0) continue;
+      if (s === 'grenade' && this.grenadeTotal(u) <= 0) continue;
       return this.switchWeapon(u, s);
     }
     return false;
   }
 
+  private rollDir: [number, number] = [1, 0];
+
   private updatePlayer(dt: number, input: PlayerInput): void {
     const p = this.player;
     p.yaw = input.yaw; p.pitch = input.pitch;
     // cambio de arma (flancos): antes de leer fire, para que el saque cuente en este mismo paso
-    if (input.weaponSlot) this.switchWeapon(p, input.weaponSlot);
+    if (input.weaponSlot) {
+      // volver a elegir la ranura de granada estando en ella pasa al siguiente tipo con existencias
+      if (input.weaponSlot === 'grenade' && p.weapon === 'grenade') this.cycleGrenadeType(p);
+      else this.switchWeapon(p, input.weaponSlot);
+    }
     if (input.weaponLast) this.switchWeapon(p, p.lastWeapon);
     if (input.weaponCycle) this.cycleWeapon(p, input.weaponCycle > 0 ? 1 : -1);
     const g = p.weapon === 'secondary' ? PISTOL_FEEL : GUN_FEEL[p.cls ?? 'captain'];
     const firePressed = input.fire && !this.prevFire;
     this.prevFire = input.fire;
+    if (firePressed) this.fireBufferUntil = this.time + 0.15;
     const slotAim = p.weapon === 'primary' || p.weapon === 'secondary';
     let f = input.moveF, r = input.moveR;
     const m = Math.hypot(f, r);
     if (m > 1) { f /= m; r /= m; }
+    const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
+
+    // voltereta (v1.3): 0,5 s, 3,5 m en la dirección de movimiento (parado, hacia atrás); no dispara ni recarga
+    let rolling = this.time < p.rollUntil;
+    if (input.roll && !rolling && p.rollCd <= 0 && !p.sprinting) {
+      let dx = cy * f - sy * r, dy = sy * f + cy * r;
+      const dl = Math.hypot(dx, dy);
+      if (dl < 0.1) { dx = -cy; dy = -sy; } else { dx /= dl; dy /= dl; }
+      this.rollDir = [dx, dy];
+      p.rollUntil = this.time + ROLL.time; p.rollCd = ROLL.cooldown;
+      rolling = true;
+      this.events.push({ type: 'roll', id: p.id });
+    }
 
     // esprint (v1.2): hacia delante, sin apuntar; cancela agacharse y no deja disparar
     const wasSprinting = p.sprinting;
-    const wantAim = input.aim && p.reloading <= 0 && slotAim;
-    let sprint = input.sprint && f > 0.5 && !wantAim;
+    const wantAim = input.aim && p.reloading <= 0 && slotAim && !rolling;
+    let sprint = input.sprint && f > 0.5 && !wantAim && !rolling;
     if (sprint && input.fire) sprint = false;      // pulsar fuego saca del esprint
-    p.crouch = input.crouch && !(input.sprint && f > 0.5);
+    p.crouch = input.crouch && !(input.sprint && f > 0.5) && !rolling;
     if (sprint) p.crouch = false;
     p.sprinting = sprint;
     p.aiming = wantAim && !sprint;
+    if (sprint && p.reloading > 0) p.reloading = 0;   // v1.3: esprintar cancela la recarga
     if (wasSprinting && !sprint) this.raiseUntil = this.time + SPRINT_RAISE;
 
     const sp = p.stats.speed * WEAPON_SPEED[p.weapon] * (p.crouch ? 0.5 : 1) * (sprint ? SPRINT_MULT : 1) * (p.aiming ? AIM_SPEED_MULT : 1);
-    const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
     p.wishX = (cy * f - sy * r) * sp;
     p.wishY = (sy * f + cy * r) * sp;
+    if (rolling) {
+      const rs = ROLL.dist / ROLL.time;
+      p.wishX = this.rollDir[0] * rs; p.wishY = this.rollDir[1] * rs;
+      p.vx = p.wishX; p.vy = p.wishY;
+    }
 
     // retroceso: se recupera de forma exponencial; calor: baja tras 0,12 s sin disparar
     const decay = Math.exp(-RECOIL_RECOVER * dt);
@@ -425,11 +546,17 @@ export class World implements IWorld {
     this.computeCam(input.yaw, input.pitch, this.camDistEff);
     this.computeAim(input);
 
+    // reanimación: con un derribado a ≤ 1,6 m, mantener `interact` 3 s (gana al aviso de puerta)
+    const dn = this.downedNear(p.x, p.y, DOWNED.reviveRange);
+    this.interactRevive = dn ? dn.id : -1;
+    if (dn && (input.interact || input.interactHold) && !rolling) { this.reviveTick(dn, p, dt); this.bark(p, 'ally.reviving'); }
+
     // habilidad Supresión: fuego sostenido automático (con el arma principal)
     const suppressing = p.cls === 'especialist' && p.abilityActive > 0;
     const supFire = suppressing && p.weapon === 'primary';
     p.spread = this.playerSpread();
-    const listo = !p.sprinting && this.time >= this.raiseUntil && this.time >= p.drawUntil;
+    const listo = !p.sprinting && !rolling && this.time >= this.raiseUntil && this.time >= p.drawUntil;
+    const variant = p.weapon === 'primary' ? p.primaryVariant : 0;
     const disparaBala = (suppress: boolean) => {
       let tx = this.aim.x, ty = this.aim.y, tz = this.aim.z;
       if (input.aimAssist && this.assistId >= 0) {
@@ -442,21 +569,29 @@ export class World implements IWorld {
       if (input.aimAssist) sd = Math.max(sd * 0.8, 0.010);
       this.fire(p, tx, ty, tz, sd, suppress, p.weapon);
       p.fireCd = 1 / ((p.weapon === 'secondary' ? PISTOL.rof : p.stats.rof) * (suppress ? 2 : 1));
+      // fusil de ráfagas del Capitán (variante 1): 3 balas a 12/s y una pausa
+      if (p.cls === 'captain' && variant === 1) {
+        if (this.burstLeft <= 0) { this.burstLeft = BURST_RIFLE.bullets - 1; p.fireCd = 1 / BURST_RIFLE.rate; }
+        else { this.burstLeft--; p.fireCd = this.burstLeft > 0 ? 1 / BURST_RIFLE.rate : BURST_RIFLE.pause; }
+      }
       // calor y retroceso de la bala
       const rm = this.mods.recoilMult;
       this.bloom = Math.min(Math.max(0, g.maxSpread - g.baseSpread), this.bloom + g.perShot * rm);
-      const km = rm * (p.aiming ? 0.7 : 1) * (p.crouch ? 0.85 : 1);
+      const km = rm * (p.aiming ? 0.7 : 1) * (p.crouch ? 0.85 : 1) * (p.cls && p.weapon === 'primary' ? PRIMARY_VARIANTS[p.cls][variant].kickMult : 1);
       this.recoil.pitch = Math.min(RECOIL_MAX_PITCH, this.recoil.pitch + g.kickPitch * km);
       this.recoil.yaw = Math.max(-RECOIL_MAX_YAW, Math.min(RECOIL_MAX_YAW, this.recoil.yaw + (this.rng() < 0.5 ? -1 : 1) * g.kickYaw * km * (0.5 + this.rng())));
       p.spread = this.playerSpread();
     };
     if (p.weapon === 'primary') {
-      if ((input.fire || supFire) && p.reloading <= 0 && listo) {
+      const semi = p.cls === 'especialist' && variant === 1 && !supFire;   // fusil de tirador: un disparo por pulsación
+      const pulled = semi ? (firePressed || this.time < this.fireBufferUntil) : input.fire;
+      const midBurst = p.cls === 'captain' && variant === 1 && this.burstLeft > 0 && p.mag > 0;
+      if ((pulled || supFire || midBurst) && p.reloading <= 0 && listo) {
         if (p.mag > 0 || supFire) {
           if (p.fireCd <= 0 && p.stats.explosive && Math.hypot(this.aim.x - p.x, this.aim.y - p.y) < 2.6) {
             // Seguro del lanzador: no dispara contra algo que tiene a menos de 2,6 m (estallaría en la cara).
             if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
-          } else if (p.fireCd <= 0) disparaBala(supFire);
+          } else if (p.fireCd <= 0) { disparaBala(supFire); this.fireBufferUntil = 0; }
         } else if (p.ammo > 0) this.startReload(p);
         else if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
       }
@@ -469,18 +604,21 @@ export class World implements IWorld {
     } else if (p.weapon === 'knife') {
       if (input.fire && listo && p.knifeCd <= 0) this.knife(p);
     } else if (p.weapon === 'grenade') {
-      if (firePressed && listo) this.throwGrenade(p, this.aim.x, this.aim.y);
+      if (firePressed && listo) {
+        if (this.throwTyped(p, p.grenadeType, this.aim.x, this.aim.y) && this.grenadeStock(p, p.grenadeType) <= 0) this.cycleGrenadeType(p);
+      }
     }
     if (suppressing) this.applySuppression(p);
-    if (input.reload) this.startReload(p);
-    if (!p.sprinting) {
+    if (input.reload && !rolling && !p.sprinting) this.startReload(p);
+    if (!p.sprinting && !rolling) {
       if (input.knife && p.knifeCd <= 0 && this.time >= p.drawUntil) this.knife(p);
       if (input.grenade) this.throwGrenade(p, this.aim.x, this.aim.y);
     }
-    // sin granadas en la mano de granada: vuelve sola a la anterior
-    if (p.weapon === 'grenade' && p.grenades <= 0) this.switchWeapon(p, p.lastWeapon === 'grenade' ? 'primary' : p.lastWeapon);
+    // sin granadas de ningún tipo en la mano de granada: vuelve sola a la anterior
+    if (p.weapon === 'grenade' && this.grenadeTotal(p) <= 0) this.switchWeapon(p, p.lastWeapon === 'grenade' ? 'primary' : p.lastWeapon);
     if (input.ability) this.useAbility(p);
-    if (input.interact && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
+    // (si hay un derribado al alcance, `interact` es para reanimar y no abre la puerta)
+    if (input.interact && !dn && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
     if (input.cycleItem) {
       for (let k = 1; k <= INVENTORY_SLOTS; k++) {
         const i = (p.invSel + k) % INVENTORY_SLOTS;
@@ -489,6 +627,73 @@ export class World implements IWorld {
     }
     if (input.useItem) this.useItem(p, p.invSel);
     if (input.order) this.giveOrder(input.order);
+    if (input.ping) this.ping(p);
+  }
+
+  /** Orden contextual (v1.3): según a qué apunte la mira. */
+  ping(p: Unit): void {
+    const L = this.level;
+    const ally = (): Unit | null => {
+      let best: Unit | null = null, bd = Infinity;
+      for (const a of this.entities) if (a.alive && !a.downed && a.team === 'ally' && !a.isPlayer) { const d = Math.hypot(a.x - p.x, a.y - p.y); if (d < bd) { bd = d; best = a; } }
+      return best;
+    };
+    const roger = () => { const a = ally(); if (a) this.bark(a, 'ally.roger'); };
+    // 1) enemigo a la vista: enfocar
+    if (this.aim.entityId >= 0) {
+      const t = this.entityById(this.aim.entityId);
+      if (t && t.alive && t.team === 'enemy' && this.canSee(p, t)) {
+        this.giveOrder('focus');
+        this.events.push({ type: 'ping', what: 'enemy', x: t.x, y: t.y, targetId: t.id });
+        roger();
+        return;
+      }
+    }
+    // 2) puerta cerrada a ≤ 20 m: ir al otro lado y que el primer aliado la abra
+    let door = -1, bd = 1.2;
+    for (const d of L.doors) {
+      if (d.open) continue;
+      const k = Math.hypot(d.cx - this.aim.x, d.cy - this.aim.y);
+      if (k < bd && Math.hypot(d.cx - p.x, d.cy - p.y) <= PING_DOOR_RANGE) { bd = k; door = d.id; }
+    }
+    if (door >= 0) {
+      const d = L.doors[door];
+      let nx = 0, ny = 0;
+      if (d.vertical) nx = Math.sign(d.cx - p.x) || 1; else ny = Math.sign(d.cy - p.y) || 1;
+      let gx = d.cx + nx * 1.8, gy = d.cy + ny * 1.8;
+      const c = L.nearestFree(gx, gy, true, 4);
+      if (c >= 0) { gx = L.cellX(c); gy = L.cellY(c); }
+      this.order = { kind: 'goto', x: gx, y: gy, targetId: -1 };
+      this.events.push({ type: 'order', order: 'goto', x: gx, y: gy });
+      const a = ally();
+      if (a && a.brain) a.brain.openDoor = { id: door, until: this.time + 8 };
+      this.events.push({ type: 'ping', what: 'door', x: d.cx, y: d.cy, targetId: door });
+      roger();
+      return;
+    }
+    // 3) objeto: el aliado más cercano al que le sirva va a cogerlo y vuelve a seguir
+    let item: Pickup | null = null; let ib = 1.5;
+    for (const pk of this.pickups) { if (pk.taken) continue; const d = Math.hypot(pk.x - this.aim.x, pk.y - this.aim.y); if (d < ib) { ib = d; item = pk; } }
+    if (item) {
+      const e = ITEM_EFFECT[item.type];
+      let who: Unit | null = null, wd = Infinity;
+      for (const a of this.entities) {
+        if (!a.alive || a.downed || a.team !== 'ally' || a.isPlayer || !a.brain) continue;
+        const useful = (e.hp > 0 && a.hp < a.maxHp) || (e.ammo > 0 && a.ammo + a.mag < AMMO_CAP) || a.inventory.includes(null);
+        const d = Math.hypot(a.x - item.x, a.y - item.y);
+        if (useful && d < wd) { wd = d; who = a; }
+      }
+      if (who) {
+        who.brain.fetch = { id: item.id, until: this.time + 8 };
+        this.events.push({ type: 'ping', what: 'item', x: item.x, y: item.y, targetId: item.id });
+        this.bark(who, 'ally.roger');
+        return;
+      }
+    }
+    // 4) suelo: ir allí
+    this.giveOrder('goto');
+    this.events.push({ type: 'ping', what: 'ground', x: this.order.x, y: this.order.y, targetId: -1 });
+    roger();
   }
 
   giveOrder(kind: OrderKind): void {
@@ -605,7 +810,7 @@ export class World implements IWorld {
     if (a < 1e-9) return null;
     let best: { u: Unit; t: number; zone: HitZone } | null = null;
     for (const u of this.entities) {
-      if (!u.alive || u === ignore || (team !== 'any' && u.team !== team)) continue;
+      if (!u.alive || u.downed || u === ignore || (team !== 'any' && u.team !== team)) continue;
       const r = u.radius * 0.9;
       const fx = ox - u.x, fy = oy - u.y;
       const b = 2 * (dx * fx + dy * fy);
@@ -637,14 +842,40 @@ export class World implements IWorld {
    */
   fire(u: Unit, tx: number, ty: number, tz: number, spread: number, free = false, weapon: WeaponSlot = 'primary'): void {
     const pistol = weapon === 'secondary';
+    const variant = weapon === 'primary' && u.cls ? u.primaryVariant : 0;
     if (!free) { if (pistol) u.mag2--; else u.mag--; }
     u.lastShotAt = this.time;
     if (u.isPlayer) this.stats.shotsFired++;
+    if (this.isBlinded(u)) spread *= FLASH.spreadMult;       // cegado: puntería malísima
+    if (this.time - u.noiseAt > 0.35) { u.noiseAt = this.time; this.noises.push({ x: u.x, y: u.y, loud: 30, team: u.team, id: u.id, kind: 'shot' }); }
+    // lanzador de rebote (Explosivo, variante 1): una granada que rebota una vez y estalla a 1,3 s
+    if (u.cls === 'explosives' && variant === 1) { this.launchBounce(u, tx, ty); return; }
+    const pellets = u.cls === 'technic' && variant === 1 ? SHOTGUN.pellets : 1;
+    const ctx = { hit: false, head: false };
+    for (let i = 0; i < pellets; i++) this.shootRay(u, tx, ty, tz, spread, pistol, pellets > 1, weapon, ctx);
+  }
+
+  /** Factor de daño de una bala contra `t` disparada por `shooter`: 0 = la para el escudo del blindado; 0,3 = arco frontal de la Embestida. */
+  private bulletFactor(t: Unit, shooter: Unit): number {
+    if (t.variant !== 'blindado' && t.bossVariant !== 'embestida') return 1;
+    const front = Math.abs(angDiff(Math.atan2(shooter.y - t.y, shooter.x - t.x), t.yaw)) <= Math.PI / 3;
+    if (!front) return 1;
+    if (t.variant === 'blindado') {
+      if (this.time < t.staggerUntil || this.isBlinded(t)) return 1;       // escudo bajado por aturdimiento o cegadora
+      this.events.push({ type: 'shieldHit', id: t.id, x: t.x, y: t.y, z: this.height(t) * 0.6 });
+      return 0;
+    }
+    if (this.time < t.staggerUntil) return 1; // v1.3-jefes: la Embestida aturdida (tras fallar) no se cubre: es la ventana para pegarle
+    return 0.3;
+  }
+
+  private shootRay(u: Unit, tx: number, ty: number, tz: number, spread: number, pistol: boolean, cone: boolean, weapon: WeaponSlot, ctx: { hit: boolean; head: boolean }): void {
     const oz = this.muzzleZ(u);
     let dx = tx - u.x, dy = ty - u.y, dz = tz - oz;
     const hd = Math.hypot(dx, dy) || 1e-6;
     let yaw = Math.atan2(dy, dx), pitch = Math.atan2(dz, hd);
     yaw += this.gauss() * spread; pitch += this.gauss() * spread * 0.6;
+    if (cone) { const r = SHOTGUN.cone * Math.sqrt(this.rng()), a = this.rng() * Math.PI * 2; yaw += r * Math.cos(a); pitch += r * Math.sin(a); }
     dx = Math.cos(yaw) * Math.cos(pitch); dy = Math.sin(yaw) * Math.cos(pitch); dz = Math.sin(pitch);
     const R = WEAPON_RANGE;
     const ex = u.x + dx * R, ey = u.y + dy * R, ez = oz + dz * R;
@@ -659,28 +890,34 @@ export class World implements IWorld {
     if (hit) { t = hit.t; kind = 'entity'; surface = 'body'; const hl = Math.hypot(dx, dy) || 1; nx = -dx / hl; ny = -dy / hl; }
     const ix = u.x + (ex - u.x) * t, iy = u.y + (ey - u.y) * t, iz = Math.max(0, oz + (ez - oz) * t);
     this.events.push({ type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + dx * 0.5, fy: u.y + dy * 0.5, fz: oz, tx: ix, ty: iy, tz: iz, hit: kind, surface, nx, ny, weapon });
-    if (this.time - u.noiseAt > 0.35) { u.noiseAt = this.time; this.noises.push({ x: u.x, y: u.y, loud: 30, team: u.team, id: u.id, kind: 'shot' }); }
     if (u.stats.explosive && !pistol) {
       // retrocede un poco del muro para que la explosión no nazca dentro
       const bk = Math.min(0.2, t * R);
       this.explode(ix - dx * bk, iy - dy * bk, Math.max(0.2, iz - dz * bk), BLAST_RADIUS + (u.isPlayer ? this.mods.blastBonus : 0), u.stats.damage, u, hit ? hit.u : null);
-      if (hit && u.isPlayer) this.stats.shotsHit++;
+      if (hit && u.isPlayer && !ctx.hit) { ctx.hit = true; this.stats.shotsHit++; }
       return;
     }
     if (hit) {
       // «Apuntar importa» (§13) premia a quien apunta: la escuadra. Los enemigos no multiplican por zona
       // (un ×2,5 fortuito de 40 tiradores a la vez mataba sin que el jugador pudiera hacer nada). Ver DECISIONES.
+      const base = pistol ? PISTOL.damage : u.stats.damage;
       const headMult = HEAD_MULT + (u.team === 'ally' ? this.mods.headBonus : 0);
-      const mult = u.team === 'enemy' ? 1 : hit.zone === 'head' ? headMult : hit.zone === 'limb' ? LIMB_MULT : 1;
-      if (u.isPlayer) { this.stats.shotsHit++; if (hit.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1; }
-      this.damage(hit.u, (pistol ? PISTOL.damage : u.stats.damage) * mult, u, hit.zone, u.x, u.y);
+      const zmult = (z: HitZone) => u.team === 'enemy' ? 1 : z === 'head' ? headMult : z === 'limb' ? LIMB_MULT : 1;
+      if (u.isPlayer && !ctx.hit) { ctx.hit = true; this.stats.shotsHit++; }
+      if (u.isPlayer && hit.zone === 'head' && !ctx.head) { ctx.head = true; this.stats.headshots = (this.stats.headshots ?? 0) + 1; }
+      const f = this.bulletFactor(hit.u, u);
+      if (f <= 0) return;                                    // el escudo la para (tampoco hay perforante)
+      // Daño directo de una bala: this.damage(objetivo, cantidad, zona, atacante, desdeX, desdeY) — ver damage().
+      this.damage(hit.u, base * zmult(hit.zone) * f, u, hit.zone, u.x, u.y);
       // munición perforante: la bala del jugador atraviesa a un enemigo y sigue hasta el siguiente cuerpo (si no hay muro antes)
       if (u.isPlayer && this.mods.pierce) {
         const h2 = this.rayUnits(u.x, u.y, oz, ex, ey, ez, other, tWall, hit.t, hit.u);
         if (h2 && h2.u !== hit.u) {
-          this.stats.shotsHit++;
-          if (h2.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1;
-          this.damage(h2.u, (pistol ? PISTOL.damage : u.stats.damage) * (h2.zone === 'head' ? headMult : h2.zone === 'limb' ? LIMB_MULT : 1), u, h2.zone, u.x, u.y);
+          const f2 = this.bulletFactor(h2.u, u);
+          if (f2 > 0) {
+            if (h2.zone === 'head' && !ctx.head) { ctx.head = true; this.stats.headshots = (this.stats.headshots ?? 0) + 1; }
+            this.damage(h2.u, base * zmult(h2.zone) * f2, u, h2.zone, u.x, u.y);
+          }
         }
       }
     }
@@ -691,7 +928,7 @@ export class World implements IWorld {
     this.events.push({ type: 'explosion', x, y, z, radius });
     this.noises.push({ x, y, loud: 42, team: owner ? owner.team : 'ally', id: owner ? owner.id : -1, kind: 'blast' });
     for (const e of this.entities) {
-      if (!e.alive) continue;
+      if (!e.alive || e.downed) continue;
       const d = e === direct ? 0 : Math.max(0, Math.hypot(e.x - x, e.y - y) - e.radius * 0.5);
       if (d >= radius) continue;
       if (e !== direct) {
@@ -699,7 +936,12 @@ export class World implements IWorld {
         const zz = Math.max(0.3, z);
         if (!this.level.clear(x, y, zz, e.x, e.y, h * 0.5, 'bullet') && !this.level.clear(x, y, zz, e.x, e.y, h - 0.15, 'bullet')) continue;
       }
-      this.damage(e, maxDmg * (1 - d / radius), owner, 'blast', x, y);
+      // el escudo del blindado baja 2,5 s con una explosión (las explosiones no las para)
+      if (e.variant === 'blindado') e.staggerUntil = Math.max(e.staggerUntil, this.time + 2.5);
+      let dmg = maxDmg * (1 - d / radius);
+      // voltereta: durante los primeros 0,25 s las explosiones le hacen la mitad al jugador
+      if (e.isPlayer && this.time < e.rollUntil && this.time >= e.rollUntil - ROLL.time && this.time < e.rollUntil - ROLL.time + ROLL.halfBlast) dmg *= 0.5;
+      this.damage(e, dmg, owner, 'blast', x, y);
     }
   }
 
@@ -722,15 +964,30 @@ export class World implements IWorld {
     }
   }
 
-  throwGrenade(u: Unit, tx: number, ty: number): boolean {
-    if (u.grenades <= 0 || u.grenadeCd > 0) return false;
-    u.grenades--; u.grenadeCd = GRENADE_COOLDOWN;
-    this.launch(u, 'grenade', tx, ty, 18);
+  /** Granada explosiva (la rápida, `input.grenade`). */
+  throwGrenade(u: Unit, tx: number, ty: number): boolean { return this.throwTyped(u, 'frag', tx, ty); }
+
+  /** Lanza una granada del tipo dado si quedan y no hay enfriamiento. */
+  throwTyped(u: Unit, type: GrenadeType, tx: number, ty: number): boolean {
+    if (u.grenadeCd > 0) return false;
+    if (type === 'frag') { if (u.grenades <= 0) return false; u.grenades--; }
+    else if (type === 'flash') { if (u.flashes <= 0) return false; u.flashes--; }
+    else { if (u.smokes <= 0) return false; u.smokes--; }
+    u.grenadeCd = GRENADE_COOLDOWN;
+    this.launch(u, type === 'frag' ? 'grenade' : type, tx, ty, 18);
     return true;
   }
+  grenadeStock(u: Unit, type: GrenadeType): number { return type === 'frag' ? u.grenades : type === 'flash' ? u.flashes : u.smokes; }
+  grenadeTotal(u: Unit): number { return u.grenades + u.flashes + u.smokes; }
+  /** Siguiente tipo con existencias (frag → flash → smoke); deja el actual si no hay otro. */
+  cycleGrenadeType(u: Unit): void {
+    const order: GrenadeType[] = ['frag', 'flash', 'smoke'];
+    const i = order.indexOf(u.grenadeType);
+    for (let k = 1; k <= 3; k++) { const t = order[(i + k) % 3]; if (this.grenadeStock(u, t) > 0) { u.grenadeType = t; return; } }
+  }
 
-  /** Lanza un proyectil en parábola hacia (tx,ty). */
-  launch(u: Unit, kind: 'grenade' | 'rocket', tx: number, ty: number, maxDist: number): void {
+  /** Lanza un proyectil en parábola hacia (tx,ty). Toda granada o cohete anuncia un Threat 'blast' en su punto de caída previsto. */
+  launch(u: Unit, kind: 'grenade' | 'rocket' | 'flash' | 'smoke', tx: number, ty: number, maxDist: number, opts: { bounce?: boolean; fuse?: number; dmg?: number } = {}): void {
     let dx = tx - u.x, dy = ty - u.y;
     let d = Math.hypot(dx, dy);
     if (d > maxDist) { dx *= maxDist / d; dy *= maxDist / d; d = maxDist; }
@@ -738,16 +995,52 @@ export class World implements IWorld {
     const z0 = this.muzzleZ(u);
     const T = kind === 'rocket' ? Math.max(0.6, d / 9) : Math.max(0.45, Math.min(1.2, d / 13));
     const g = kind === 'rocket' ? 2 : 9.8;
+    let fuse = T + (kind === 'grenade' ? 0.3 : kind === 'rocket' ? 0.02 : kind === 'smoke' ? 0.05 : 0);
+    if (kind === 'flash') fuse = FLASH.fuse;
+    if (opts.fuse !== undefined) fuse = opts.fuse;
+    const id = this.nextId++;
     this.projectiles.push({
-      id: this.nextId++, kind, ownerId: u.id, team: u.team, x: u.x, y: u.y, z: z0,
-      vx: dx / T, vy: dy / T, vz: (0.1 - z0 + 0.5 * g * T * T) / T, fuse: T + (kind === 'grenade' ? 0.3 : 0.02), dead: false,
+      id, kind, ownerId: u.id, team: u.team, x: u.x, y: u.y, z: z0,
+      vx: dx / T, vy: dy / T, vz: (0.1 - z0 + 0.5 * g * T * T) / T, fuse, dead: false,
     });
+    const meta: { threat?: number; dmg?: number; bounces?: number; radius?: number } = {};
+    if (opts.dmg !== undefined) meta.dmg = opts.dmg;
+    if (opts.bounce) meta.bounces = 1;
+    if (kind === 'grenade' || kind === 'rocket') {
+      const r = BLAST_RADIUS + (u.isPlayer ? this.mods.blastBonus : 0);
+      meta.radius = r;
+      // punto de caída previsto: donde llega la parábola (con rebote, el sitio del primer impacto; es un aviso aproximado)
+      meta.threat = this.addThreat({ kind: 'blast', fx: u.x, fy: u.y, x: u.x + dx, y: u.y + dy, r, at: this.time + fuse, ownerId: u.id }).id;
+    }
+    this.projMeta.set(id, meta);
     this.events.push({ type: 'throw', id: u.id, kind });
+  }
+
+  /** Lanzador de rebote del Explosivo (variante 1): la granada rebota una vez en pared o suelo y estalla a 1,3 s. */
+  private launchBounce(u: Unit, tx: number, ty: number): void {
+    this.launch(u, 'grenade', tx, ty, 30, { bounce: true, fuse: BOUNCER.fuse, dmg: u.stats.damage });
+  }
+
+  private flashBang(x: number, y: number, owner: Unit | null): void {
+    let playerBlind = 0;
+    for (const e of this.entities) {
+      if (!e.alive || e.downed) continue;
+      if (Math.hypot(e.x - x, e.y - y) > FLASH.radius) continue;
+      if (!this.level.clear(x, y, 1.0, e.x, e.y, this.height(e) * 0.7, 'sight')) continue;
+      const secs = e.team === 'ally' ? FLASH.allyBlind : FLASH.enemyBlind;
+      e.blindedUntil = Math.max(e.blindedUntil, this.time + secs);
+      if (e.variant === 'blindado') e.staggerUntil = Math.max(e.staggerUntil, this.time + 2.5);
+      if (e.isPlayer) playerBlind = secs;
+    }
+    void owner;
+    this.events.push({ type: 'flash', x, y, z: 1.0, radius: FLASH.radius, playerBlind });
+    this.noises.push({ x, y, loud: 30, team: owner ? owner.team : 'ally', id: owner ? owner.id : -1, kind: 'blast' });
   }
 
   private updateProjectiles(dt: number): void {
     for (const pr of this.projectiles) {
       if (pr.dead) continue;
+      const meta = this.projMeta.get(pr.id);
       const g = pr.kind === 'rocket' ? 2 : 9.8;
       const moving = pr.vx !== 0 || pr.vy !== 0 || pr.vz !== 0;
       let boom = false;
@@ -755,19 +1048,28 @@ export class World implements IWorld {
         const nx = pr.x + pr.vx * dt, ny = pr.y + pr.vy * dt;
         let nz = pr.z + pr.vz * dt;
         pr.vz -= g * dt;
-        const t = this.level.ray(pr.x, pr.y, Math.max(0.05, pr.z), nx, ny, Math.max(0.05, nz), 'bullet');
+        const ri = this.level.rayInfo(pr.x, pr.y, Math.max(0.05, pr.z), nx, ny, Math.max(0.05, nz), 'bullet');
+        const t = ri.t;
         if (t < 1) {
-          // choca: se queda ahí (la granada cae al suelo; el cohete estalla)
+          // choca: se queda ahí (la granada cae al suelo; el cohete estalla); el lanzador de rebote rebota una vez
           pr.x += (nx - pr.x) * Math.max(0, t - 0.1); pr.y += (ny - pr.y) * Math.max(0, t - 0.1);
-          pr.vx = pr.vy = 0;
+          if (meta?.bounces && pr.kind === 'grenade') {
+            const dot = pr.vx * ri.nx + pr.vy * ri.ny;
+            pr.vx = (pr.vx - 2 * dot * ri.nx) * 0.5; pr.vy = (pr.vy - 2 * dot * ri.ny) * 0.5;
+            meta.bounces--;
+          } else pr.vx = pr.vy = 0;
           if (pr.kind === 'rocket') boom = true;
         } else { pr.x = nx; pr.y = ny; }
-        if (nz <= 0.1) { nz = 0.1; pr.vx = pr.vy = pr.vz = 0; if (pr.kind === 'rocket') boom = true; }
+        if (nz <= 0.1) {
+          nz = 0.1;
+          if (meta?.bounces && pr.kind === 'grenade' && pr.vz < -1) { pr.vz = -pr.vz * 0.5; meta.bounces--; }
+          else { pr.vx = pr.vy = pr.vz = 0; if (pr.kind === 'rocket') boom = true; }
+        }
         pr.z = nz;
         if (pr.kind === 'rocket') {
           // el cohete estalla al tocar a alguien del otro bando
           for (const e of this.entities) {
-            if (e.alive && e.team !== pr.team && Math.hypot(e.x - pr.x, e.y - pr.y) < e.radius + 0.15 && pr.z < this.height(e)) { boom = true; break; }
+            if (e.alive && !e.downed && e.team !== pr.team && Math.hypot(e.x - pr.x, e.y - pr.y) < e.radius + 0.15 && pr.z < this.height(e)) { boom = true; break; }
           }
         }
       }
@@ -775,21 +1077,34 @@ export class World implements IWorld {
       if (pr.fuse <= 0 || boom) {
         pr.dead = true;
         const owner = this.entityById(pr.ownerId) ?? null;
-        const dmg = pr.kind === 'grenade' ? GRENADE_DAMAGE : 30;
-        this.explode(pr.x, pr.y, Math.max(0.3, pr.z), BLAST_RADIUS + (owner && owner.isPlayer ? this.mods.blastBonus : 0), dmg, owner);
+        if (meta?.threat !== undefined) this.removeThreat(meta.threat);
+        this.projMeta.delete(pr.id);
+        if (pr.kind === 'flash') { this.flashBang(pr.x, pr.y, owner); continue; }
+        if (pr.kind === 'smoke') {
+          this.smokes.push({ id: this.threatId++, x: pr.x, y: pr.y, r: SMOKE.radius, from: this.time, until: this.time + SMOKE.duration });
+          this.events.push({ type: 'smoke', x: pr.x, y: pr.y, z: Math.max(0.3, pr.z), radius: SMOKE.radius, duration: SMOKE.duration });
+          continue;
+        }
+        const dmg = meta?.dmg ?? (pr.kind === 'grenade' ? GRENADE_DAMAGE : 30);
+        this.explode(pr.x, pr.y, Math.max(0.3, pr.z), meta?.radius ?? BLAST_RADIUS, dmg, owner);
       }
     }
     if (this.projectiles.length > 0 && this.projectiles[0].dead) this.projectiles = this.projectiles.filter(p => !p.dead);
   }
 
+  /**
+   * Daño a una unidad: damage(objetivo, cantidad, atacante, zona, desdeX, desdeY). Los compañeros (no el jugador) que
+   * llegan a 0 de vida no mueren: quedan derribados 25 s y se pueden reanimar (v1.3).
+   */
   damage(t: Unit, amount: number, attacker: Unit | null, zone: HitZone | 'blast' | 'knife', fromX: number, fromY: number): void {
-    if (!t.alive || amount <= 0) return;
+    if (!t.alive || t.downed || amount <= 0) return;
     if (t.isPlayer && this.cheats.god) return;
     if (t.team === 'ally' && this.status === 'cleared') return; // zona limpia: un cohete rezagado ya no te quita la victoria
     if (t.shielded) return;
     if (t.isPlayer && this.time < this.invulnUntil) return; // último aliento: 1,5 s de invulnerabilidad
     if (t.kind === 'megaboss') amount = this.director.bossDamageGate(t, amount);
     if (amount <= 0) return;
+    amount *= damageTakenMult(t, this); // TODO(v1.3-jefes) YA CONECTADO por el agente de enemigos: jefe expuesto ×1,5 (no aplicarlo otra vez)
     if (t.team === 'ally') amount *= this.mods.damageTaken; // chaleco
     // Último aliento: una vez por zona, un golpe mortal al jugador lo deja a 1 de vida
     if (t.isPlayer && this.mods.lastBreath && !this.lastBreathUsed && t.hp - amount <= 0) {
@@ -811,12 +1126,52 @@ export class World implements IWorld {
       }
     }
     else if (t.brain) { t.brain.hurtAt = this.time; t.brain.hurtBy = attacker ? attacker.id : -1; }
-    if (t.hp <= 0) this.kill(t, attacker, zone === 'head', fromX, fromY);
+    if (t.hp <= 0) {
+      if (t.team === 'ally' && !t.isPlayer && t.cls) this.goDown(t);
+      else this.kill(t, attacker, zone === 'head', fromX, fromY);
+    }
+  }
+
+  /** Derriba a un compañero (v1.3): sigue `alive`, no actúa ni recibe daño, y los enemigos lo ignoran. */
+  private goDown(t: Unit): void {
+    t.hp = 0; t.downed = true; t.downedUntil = this.time + DOWNED.time; t.reviveProgress = 0; t.reviveAt = -99;
+    t.wishX = t.wishY = 0; t.vx = t.vy = 0; t.marked = false; t.reloading = 0; t.aiState = 'derribado';
+    if (this.order.targetId === t.id) this.order.targetId = -1;
+    this.events.push({ type: 'downed', id: t.id, kind: t.kind, x: t.x, y: t.y });
+    this.bark(t, 'ally.downed');
+  }
+
+  /** Levanta a un derribado con el 30 % de vida (o `hp` si se da). */
+  revive(t: Unit, by: Unit | null, hp?: number): void {
+    if (!t.downed) return;
+    t.downed = false; t.reviveProgress = 0; t.downedUntil = 0;
+    t.hp = Math.max(1, hp ?? Math.round(t.maxHp * DOWNED.reviveHp));
+    t.aiState = '';
+    this.events.push({ type: 'revived', id: t.id, byId: by ? by.id : -1 });
+  }
+
+  /** Un paso de reanimación de `t` por `by` (3 s seguidos). Si se interrumpe, el progreso vuelve a 0. */
+  reviveTick(t: Unit, by: Unit, dt: number): void {
+    if (!t.downed) return;
+    t.reviveAt = this.time;
+    t.reviveProgress += dt / DOWNED.reviveTime;
+    if (t.reviveProgress >= 1) this.revive(t, by);
+  }
+
+  /** Derribado más cercano al punto (dentro de `range`), o null. */
+  downedNear(x: number, y: number, range: number): Unit | null {
+    let best: Unit | null = null, bd = range;
+    for (const e of this.entities) {
+      if (!e.alive || !e.downed) continue;
+      const d = Math.hypot(e.x - x, e.y - y);
+      if (d <= bd) { bd = d; best = e; }
+    }
+    return best;
   }
 
   kill(t: Unit, attacker: Unit | null = null, headshot = false, fromX?: number, fromY?: number): void {
     if (!t.alive) return;
-    t.hp = 0; t.alive = false; t.deadAt = this.time; t.wishX = t.wishY = 0; t.vx = t.vy = 0; t.marked = false; t.shielded = false;
+    t.hp = 0; t.alive = false; t.downed = false; t.deadAt = this.time; t.wishX = t.wishY = 0; t.vx = t.vy = 0; t.marked = false; t.shielded = false;
     this.events.push({ type: 'death', id: t.id, kind: t.kind, team: t.team, x: t.x, y: t.y,
       killerId: attacker ? attacker.id : -1, headshot, fromX: fromX ?? t.x, fromY: fromY ?? t.y });
     if (t.team === 'enemy') {
@@ -889,7 +1244,13 @@ export class World implements IWorld {
         const s = a * 15 + dist;
         if (s < bs) { bs = s; best = d.id; }
       }
-      if (best >= 0) { this.toggleDoor(best, true, u); ok = true; ax = this.level.doors[best].cx; ay = this.level.doors[best].cy; }
+      // Combo «apagón» (v1.3): sin puerta a la vista, o un segundo uso seguido (< 8 s), apaga las luces 10 s
+      if (best < 0 || this.time - this.lastHackAt < 8) {
+        this.lightsOffUntil = this.time + 10; ok = true;
+        this.events.push({ type: 'lights', on: false });
+        this.events.push({ type: 'combo', key: 'apagon', x: u.x, y: u.y });
+      } else if (best >= 0) { this.toggleDoor(best, true, u); ok = true; ax = this.level.doors[best].cx; ay = this.level.doors[best].cy; }
+      if (ok) this.lastHackAt = this.time;
       this.events.push({ type: 'ability', id: u.id, ability: 'hack', ok, x: ax, y: ay });
     } else if (u.cls === 'especialist') {
       u.abilityActive = 6; ok = true;
@@ -910,6 +1271,15 @@ export class World implements IWorld {
           const d = Math.hypot(e.x - ax, e.y - ay);
           if (d < 2.2 && e.team !== u.team) this.damage(e, 40 * (1 - d / 2.2), u, 'blast', ax, ay);
         }
+        // Combo «conmoción» (v1.3): los enemigos a ≤ 4 m del boquete por el otro lado quedan aturdidos 2 s
+        let conm = false;
+        for (const e of this.entities) {
+          if (!e.alive || e.downed || e.team === u.team || e.kind === 'miniboss' || e.kind === 'megaboss') continue;
+          if (Math.hypot(e.x - ax, e.y - ay) > 4) continue;
+          if ((e.x - ax) * (ax - u.x) + (e.y - ay) * (ay - u.y) <= 0) continue;   // del lado del que demuele: no
+          e.staggerAt = this.time; e.staggerUntil = Math.max(e.staggerUntil, this.time + 2); e.aiState = 'aturdido'; conm = true;
+        }
+        if (conm) this.events.push({ type: 'combo', key: 'conmocion', x: ax, y: ay });
         this.doorVer++;
         this.updatePlayerField(true);
       }
@@ -927,7 +1297,11 @@ export class World implements IWorld {
       if (d > 28) continue;
       if (Math.abs(angDiff(Math.atan2(e.y - u.y, e.x - u.x), u.yaw)) > 0.6) continue;
       if (!this.level.clear(u.x, u.y, 1.4, e.x, e.y, 1.5, 'sight')) continue;
-      e.pinnedUntil = this.time + 1.2;
+      // Combo «clavado» (v1.3): la Supresión sobre un enemigo marcado lo deja clavado 3 s
+      if (e.marked) {
+        if (this.time >= e.pinnedUntil) this.events.push({ type: 'combo', key: 'clavado', x: e.x, y: e.y });
+        e.pinnedUntil = Math.max(e.pinnedUntil, this.time + 3);
+      } else e.pinnedUntil = this.time + 1.2;
     }
   }
 
@@ -980,7 +1354,7 @@ export class World implements IWorld {
     for (const pk of this.pickups) {
       if (pk.taken) continue;
       for (const u of this.entities) {
-        if (!u.alive || u.team !== 'ally') continue;
+        if (!u.alive || u.downed || u.team !== 'ally') continue;
         if (Math.abs(u.x - pk.x) > 0.85 || Math.abs(u.y - pk.y) > 0.85 || Math.hypot(u.x - pk.x, u.y - pk.y) > 0.85) continue;
         const free = u.inventory.indexOf(null);
         if (free >= 0) { u.inventory[free] = pk.type; if (!u.inventory[u.invSel]) u.invSel = free; }
@@ -994,7 +1368,7 @@ export class World implements IWorld {
 
   private updateAuras(dt: number): void {
     this.auraHpAcc += dt; this.auraAmmoAcc += dt;
-    const allies = this.entities.filter(e => e.alive && e.team === 'ally');
+    const allies = this.entities.filter(e => e.alive && !e.downed && e.team === 'ally');
     if (this.auraHpAcc >= 2) {
       this.auraHpAcc -= 2;
       const cap = allies.find(a => a.cls === 'captain');

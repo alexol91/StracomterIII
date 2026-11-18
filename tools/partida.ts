@@ -38,13 +38,17 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
     console.log(`     ATASCO t=${world.time.toFixed(1)} ${u.kind}#${u.id} ${u.aiState} (${u.x.toFixed(2)},${u.y.toFixed(2)}) vecinos=${near} celdaOk=${world.level.walkableAt(u.x, u.y, true)} wp=${w ? w[0].toFixed(2) + ',' + w[1].toFixed(2) + ' ' + u.pathI + '/' + u.path!.length : '-'} meta=(${u.goalX.toFixed(2)},${u.goalY.toFixed(2)}) v=(${u.vx.toFixed(2)},${u.vy.toFixed(2)}) quiere=(${u.wishX.toFixed(1)},${u.wishY.toFixed(1)})`);
   };
   let lastProgress = 0, lastKills = 0, playerKills = 0;
+  // v1.3: cegadora antes de cruzar una puerta con enemigos conocidos detrás (1 vez por zona); secuencia de teclas
+  let flashUsed = false;
+  let flashSeq: { stage: number; at: number; door: number } | null = null;
   const lastHit = new Map<number, number>();
   const dmgLog: Record<string, number> = {};
   const pDmg: Record<string, number> = {};
   const pasivo = process.env.PASIVO === '1';
+  let revivePos: [number, number] | null = null;
   while (world.status === 'playing' && world.time < maxTime) {
     // ── bot ──
-    input.fire = false; input.knife = false; input.moveF = 0; input.moveR = 0;
+    input.fire = false; input.knife = false; input.moveF = 0; input.moveR = 0; input.roll = false; input.interact = false; input.weaponSlot = null;
     let tgt: Unit | null = null, td = Infinity;
     for (const e of world.entities) {
       if (!e.alive || e.team !== 'enemy' || e.shielded) continue;
@@ -76,6 +80,21 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       input.moveR = Math.sin(world.time * 1.3) > 0 ? 0.7 : -0.7;
       if (p.cls === 'especialist' && p.abilityCd <= 0) input.ability = true;
     } else {
+      // v1.3: reanima a un compañero derribado cuando no ve enemigos (mantiene `interact` a menos de 1,4 m)
+      const downed = world.entities.find(e => e.alive && e.downed);
+      if (downed) {
+        const dd = Math.hypot(downed.x - p.x, downed.y - p.y);
+        if (dd < 1.4) { input.interact = true; revivePos = null; }
+        else revivePos = [downed.x, downed.y];
+      } else revivePos = null;
+      // v1.3: antes de cruzar una puerta con enemigos conocidos detrás, una cegadora (una vez por zona)
+      if (!process.env.NOFLASH && !flashUsed && !flashSeq && p.flashes > 0 && !downed && world.interactDoor >= 0) {
+        const d = world.level.doors[world.interactDoor];
+        if (!d.open) {
+          const back = world.entities.some(e => e.alive && e.team === 'enemy' && Math.hypot(e.x - d.cx, e.y - d.cy) < 9 && (e.x - d.cx) * (d.cx - p.x) + (e.y - d.cy) * (d.cy - p.y) > 0);
+          if (back) { flashUsed = true; flashSeq = { stage: 0, at: world.time, door: d.id }; }
+        }
+      }
       // ir hacia el enemigo vivo más cercano (el bot «sabe» dónde están: es un bot de pruebas)
       let goal: Unit | null = null, gd = Infinity;
       for (const e of world.entities) { if (e.alive && e.team === 'enemy') { const d = Math.hypot(e.x - p.x, e.y - p.y) + (e.shielded ? 1000 : 0); if (d < gd) { gd = d; goal = e; } } }
@@ -83,6 +102,7 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       // como haría una persona: si va tocado o seco y hay botín, primero a por él
       let gx = goal ? goal.x : p.x, gy = goal ? goal.y : p.y;
       const needHp = p.hp < p.maxHp * 0.75, needAmmo = total < 40;
+      if (revivePos) { gx = revivePos[0]; gy = revivePos[1]; goal = goal ?? p; }
       if (needHp || needAmmo) {
         let bd = 30;
         for (const pk of world.pickups) {
@@ -124,6 +144,39 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if (e.alive && e.kind === 'megaboss' && Math.hypot(e.x - p.x, e.y - p.y) < 9) {
         const away = Math.atan2(p.y - e.y, p.x - e.x) - input.yaw;
         input.moveF = Math.cos(away); input.moveR = Math.sin(away);
+      }
+    }
+    // secuencia de la cegadora: abrir la puerta, elegir la ranura de granada y el tipo, lanzar y volver al arma principal
+    if (flashSeq) {
+      const d = world.level.doors[flashSeq.door];
+      input.moveF = 0; input.moveR = 0; input.fire = false;
+      const wantYaw = Math.atan2(d.cy - p.y, d.cx - p.x);
+      input.yaw += Math.max(-0.15, Math.min(0.15, angDiff(wantYaw, input.yaw)));
+      input.pitch *= 0.9;
+      if (flashSeq.stage === 0) { if (!d.open) input.interact = true; else { flashSeq.stage = 1; flashSeq.at = world.time; } }
+      else if (flashSeq.stage === 1) { if (p.weapon !== 'grenade') input.weaponSlot = 'grenade'; else if (p.grenadeType !== 'flash') input.weaponSlot = 'grenade'; else { flashSeq.stage = 2; flashSeq.at = world.time; } }
+      else if (flashSeq.stage === 2) { if (world.time >= p.drawUntil + 0.1 && Math.abs(angDiff(wantYaw, input.yaw)) < 0.1) { input.fire = true; flashSeq.stage = 3; flashSeq.at = world.time; } }
+      else if (flashSeq.stage === 3) { if (world.time - flashSeq.at > 0.3) { input.weaponSlot = 'primary'; flashSeq = null; } }
+      if (flashSeq && world.time - flashSeq.at > 4) { input.weaponSlot = 'primary'; flashSeq = null; }
+    }
+    // v1.3: voltereta si tiene un aviso de explosión o de embestida encima
+    if (p.rollCd <= 0 && !process.env.NOROLL) {
+      for (const th of world.threats) {
+        const left = th.at - world.time;
+        if (left > 0.5 || left < 0.1) continue;
+        let ax = 0, ay = 0, hit = false;
+        if (th.kind === 'blast' && Math.hypot(th.x - p.x, th.y - p.y) < th.r + 0.4) { hit = true; ax = p.x - th.x; ay = p.y - th.y; }
+        else if (th.kind === 'charge') {
+          const dx = th.x - th.fx, dy = th.y - th.fy, l2 = dx * dx + dy * dy || 1;
+          const k = Math.max(0, Math.min(1, ((p.x - th.fx) * dx + (p.y - th.fy) * dy) / l2));
+          const px = th.fx + dx * k, py = th.fy + dy * k;
+          if (Math.hypot(p.x - px, p.y - py) < th.r / 2 + 0.8) { hit = true; ax = p.x - px; ay = p.y - py; if (Math.hypot(ax, ay) < 0.2) { ax = -dy; ay = dx; } }
+        }
+        if (hit) {
+          const away = Math.atan2(ay, ax) - input.yaw;
+          input.moveF = Math.cos(away); input.moveR = Math.sin(away); input.roll = true; flashSeq = null;
+          break;
+        }
       }
     }
     world.step(1 / 60, input);

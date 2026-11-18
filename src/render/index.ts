@@ -15,7 +15,8 @@ import { FurnitureLayer, PickupLayer } from './furniture';
 import { disposeRamp, Owned } from './geo';
 import { assetsDone, getAssets, loadAssets, type AssetPart, type Assets } from './assets';
 import { ENEMY_MIX } from '../sim/data';
-import { RbLibrary, sharedRbLibrary } from './rbchars';
+import { RbLibrary, sharedRbLibrary, VARIANT_GUN } from './rbchars';
+import { ThreatLayer } from './threats';
 import { FOG, LevelLayer, makeStars, pbrIdsFor, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
@@ -122,7 +123,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   const rb = sharedRbLibrary;
   const fx = new Fx();
   const pickups = new PickupLayer();
-  scene.add(chars.group, fx.group, pickups.group);
+  const threats = new ThreatLayer();
+  scene.add(chars.group, fx.group, pickups.group, threats.group);
 
   let disposed = false;
   let world: IWorld | null = null;
@@ -162,12 +164,14 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (debugLayer) { scene.remove(debugLayer.group); debugLayer.dispose(); debugLayer = null; }
     if (stars) { scene.remove(stars); stars = null; }
     worldOwned.disposeAll();
-    chars.clear(); pickups.clear(); fx.clear();
+    chars.clear(); pickups.clear(); fx.clear(); threats.clear();
+    darkK = 1; darkApplied = false;
     camInit = false;
   }
 
   /** Luz y tono según estilo, tema y calidad. */
   function applyLighting(theme: Theme, th = THEMES[theme] ?? THEMES.recepcion): void {
+    darkApplied = false; darkK = 1;
     if (getStyleMode() === 'realista') {
       const L = REAL_LIGHT[theme];
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -180,6 +184,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
         void loadEnvironment(renderer, L.hdri).then((env) => {
           if (disposed || currentTheme !== theme || quality === 'low' || getStyleMode() !== 'realista') return;
           scene.environment = env; scene.environmentIntensity = L.env;
+          darkApplied = false;
         });
       } else { scene.environment = null; hemi.intensity = theme === 'azotea' ? 0.7 : 2.4; }   // sin HDRI en calidad baja
     } else {
@@ -206,6 +211,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     scene.background = new THREE.Color(th.bg);
     currentTheme = lv.theme;
     lastLevelVersion = lv.version;
+    for (const e of w.entities) scanVariantGuns(e);
     extraKinds.clear();
     applyLighting(lv.theme, th);
     const [fogNear, fogFar] = FOG[lv.theme];
@@ -259,6 +265,15 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     return ks;
   }
 
+  /** Pide las armas que usan las variantes de esta entidad (solo si Rocketbox está en uso). */
+  function scanVariantGuns(e: { kind: Kind; primaryVariant?: number; variant?: string | null; bossVariant?: string | null } | undefined): void {
+    if (!e || !rbWanted()) return;
+    if (e.primaryVariant === 1 && VARIANT_GUN[e.kind]) rb.needGun(VARIANT_GUN[e.kind]!);
+    if (e.variant === 'tirador') rb.needGun('Sniper');
+    if (e.variant === 'asaltante') rb.needGun('Knife_1');
+    if (e.bossVariant === 'ametrallador') rb.needGun('ShortCannon');
+  }
+
   function ensureOffice(): void {
     if (getStyleMode() !== 'realista' || officeState !== 'idle' || disposed) return;
     officeState = 'loading';
@@ -307,6 +322,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (!world) return;
     fx.handle(events, world);
     chars.onEvents(events);
+    for (const ev of events) if (ev.type === 'ping') threats.ping(ev.what, ev.x, ev.y, world.entityById(ev.targetId));
+    for (const ev of events) if (ev.type === 'spawn') scanVariantGuns(world.entityById(ev.id));
     for (const ev of events) if (ev.type === 'spawn' && rbWanted() && !rb.has(ev.kind) && !extraKinds.has(ev.kind)) { extraKinds.add(ev.kind); ensureRb(); }
   }
 
@@ -427,6 +444,31 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (stars) stars.position.copy(camPos);
   }
 
+  // ── apagón: baja la luz ambiente, la direccional, el entorno y un poco la exposición (transición de ~0,4 s)
+  let darkK = 1;
+  let darkApplied = false;
+  const lb = { hemi: 1, dir: 1, fill: 0.3, env: 1, exp: 1 };
+  function captureBase(): void {
+    lb.hemi = hemi.intensity; lb.dir = dir.intensity; lb.fill = fill.intensity;
+    lb.env = scene.environment ? scene.environmentIntensity : 1; lb.exp = renderer.toneMappingExposure;
+  }
+  function applyBlackout(w: IWorld, dt: number): void {
+    const off = (w.lightsOffUntil ?? 0) > w.time;
+    if (!off && darkK >= 0.999 && !darkApplied) return;
+    darkK += ((off ? 0.35 : 1) - darkK) * (1 - Math.exp(-dt / 0.12));
+    if (!darkApplied) captureBase();
+    darkApplied = true;
+    hemi.intensity = lb.hemi * darkK; dir.intensity = lb.dir * darkK; fill.intensity = lb.fill * darkK;
+    if (scene.environment) scene.environmentIntensity = lb.env * darkK;
+    renderer.toneMappingExposure = lb.exp * (0.88 + 0.12 * darkK);
+    if (!off && darkK >= 0.999) {       // vuelve a los valores base exactos
+      darkK = 1; darkApplied = false;
+      hemi.intensity = lb.hemi; dir.intensity = lb.dir; fill.intensity = lb.fill;
+      if (scene.environment) scene.environmentIntensity = lb.env;
+      renderer.toneMappingExposure = lb.exp;
+    }
+  }
+
   function render(dt: number): void {
     dt = Math.min(Math.max(dt, 0), 0.1);
     const w = world;
@@ -438,6 +480,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     chars.update(w, dt, camera);
     pickups.update(w, w.time);
     fx.update(dt, w, w.time, camera);
+    threats.update(w, w.time, camera, dt);
+    applyBlackout(w, dt);
 
     if (w.cheats.aiDebug) {
       if (!debugLayer) { debugLayer = new AiDebugLayer(); scene.add(debugLayer.group); }
@@ -472,7 +516,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     clearWorld();
     world = null;
     composer?.dispose(); composer = null;
-    chars.dispose(); fx.dispose(); pickups.dispose();
+    chars.dispose(); fx.dispose(); pickups.dispose(); threats.dispose();
     disposeRamp();
     renderer.dispose();
   }
