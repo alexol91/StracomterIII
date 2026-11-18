@@ -214,6 +214,69 @@ export class Level implements ILevel {
     return best;
   }
 
+  /**
+   * v1.2 — Igual que `ray` (misma t, mismas reglas) pero además dice qué ha parado el rayo y la normal aproximada
+   * en planta de la cara golpeada (unidad, apuntando hacia el origen del rayo). `ray` no se toca.
+   */
+  rayInfo(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, mode: 'sight' | 'bullet'):
+    { t: number; surface: 'wall' | 'door' | 'furniture' | 'floor' | 'none'; nx: number; ny: number } {
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+    const dl = Math.hypot(dx, dy) || 1;
+    const back = { nx: -dx / dl, ny: -dy / dl };
+    if (!(dx === dx && dy === dy && dz === dz)) return { t: 0, surface: 'wall', ...back };
+    const minx = Math.min(x0, x1), maxx = Math.max(x0, x1), miny = Math.min(y0, y1), maxy = Math.max(y0, y1);
+    let best = 1;
+    let bo: Obst | null = null, bFace = -1, bTop = false;
+    const obst = this.obst;
+    for (let i = 0; i < obst.length; i++) {
+      const o = obst[i];
+      if (o.maxx < minx || o.minx > maxx || o.maxy < miny || o.miny > maxy) continue;
+      const H = mode === 'sight' ? o.sightH : o.bulletH;
+      if (H <= 0) continue;
+      if (o.type === OT.Door && this.doors[o.ref].open) continue;
+      // recorte propio para saber por qué cara entra el rayo
+      let te = 0, tx = 1, face = -1, ok = true;
+      const n = o.px.length;
+      for (let k = 0; k < n; k++) {
+        const ax = o.px[k], ay = o.py[k];
+        const ex = o.px[(k + 1) % n] - ax, ey = o.py[(k + 1) % n] - ay;
+        const N = ex * (y0 - ay) - ey * (x0 - ax);
+        const D = ex * dy - ey * dx;
+        if (D === 0) { if (N < 0) { ok = false; break; } continue; }
+        const t = -N / D;
+        if (D > 0) { if (t > te) { te = t; face = k; } } else { if (t < tx) tx = t; }
+        if (te > tx) { ok = false; break; }
+      }
+      if (!ok || te >= best) continue;
+      let t: number, top = false;
+      if (H === Infinity) t = te;
+      else {
+        const ze = z0 + dz * te, zx = z0 + dz * tx;
+        if (ze < H) t = te;
+        else if (zx < H) { t = dz !== 0 ? (H - z0) / dz : te; top = true; }
+        else continue;
+      }
+      if (t < best) { best = t; bo = o; bFace = face; bTop = top; }
+    }
+    let surface: 'wall' | 'door' | 'furniture' | 'floor' | 'none' = 'none';
+    let nx = back.nx, ny = back.ny;
+    if (bo) {
+      surface = bo.type === OT.Door ? 'door' : bo.type === OT.Furn ? 'furniture' : 'wall';
+      if (bFace >= 0 && !bTop) {
+        const n = bo.px.length;
+        const ax = bo.px[bFace], ay = bo.py[bFace];
+        const ex = bo.px[(bFace + 1) % n] - ax, ey = bo.py[(bFace + 1) % n] - ay;
+        const l = Math.hypot(ex, ey) || 1;
+        let fx = ey / l, fy = -ex / l; // normal exterior de un polígono antihorario
+        if (fx * back.nx + fy * back.ny < 0) { fx = -fx; fy = -fy; }
+        nx = fx; ny = fy;
+      }
+    }
+    // suelo
+    if (z1 < 0 && dz < 0) { const tf = -z0 / dz; if (tf < best) { best = tf; surface = 'floor'; nx = back.nx; ny = back.ny; } }
+    return { t: best, surface, nx, ny };
+  }
+
   /** ¿Hay línea limpia? Por defecto NO (restrictivo) si algo no cuadra. */
   clear(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, mode: 'sight' | 'bullet'): boolean {
     return this.ray(x0, y0, z0, x1, y1, z1, mode) >= 0.9999;

@@ -6,6 +6,8 @@ import {
   ALLY_ITEM_THRESHOLDS, AMMO_CAP, AMMO_START, AURA_RADIUS, BLAST_RADIUS, CLASS_STATS, CROUCH_HEIGHT, ENEMY_AMMO,
   ENEMY_STATS, GRENADE_COOLDOWN, GRENADE_COUNT, GRENADE_DAMAGE, HEAD_MULT, INVENTORY_SLOTS, ITEM_EFFECT,
   KNIFE_DAMAGE, KNIFE_PERIOD, KNIFE_RANGE, LIMB_MULT, STAND_HEIGHT, UnitStats, VISION, WEAPON_RANGE, isClass, statsOf,
+  AIM_SPEED_MULT, CAM_DIST_AIM, FOV_AIM, FOV_NORMAL, GUN_FEEL, RECOIL_MAX_PITCH, RECOIL_MAX_YAW, RECOIL_RECOVER, SHOULDER_AIM,
+  SHOULDER_NORMAL, SPRINT_MULT, SPRINT_RAISE, STAGGER_COOLDOWN, STAGGER_TIME, computeMods, type Mods,
 } from './data';
 import { allyThink } from './ai_ally';
 import { EnemyAI } from './ai_enemy';
@@ -39,6 +41,8 @@ export interface Unit extends Entity {
   brain: any;
   /** multiplicador de velocidad de giro, etc. */
   spawnAt: number;
+  /** v1.2 — world.time del último aturdimiento (máx. uno cada STAGGER_COOLDOWN) */
+  staggerAt: number;
 }
 
 export interface Noise { x: number; y: number; loud: number; team: Team; id: number; kind: 'shot' | 'blast' | 'door' | 'step' }
@@ -72,6 +76,8 @@ export interface WorldConfig {
   seed?: number;
   /** puntuación acumulada de la campaña (para que el HUD la enseñe sumada) */
   baseScore?: number;
+  /** v1.2 — mejoras de campaña elegidas (ids de UPGRADES) */
+  upgrades?: string[];
 }
 
 const _v: Vec2 = [0, 0];
@@ -91,8 +97,8 @@ export class World implements IWorld {
   zone: number;
   score = 0;
   morale = 60;
-  stats: ZoneStats = { time: 0, kills: 0, shotsFired: 0, shotsHit: 0, damageTaken: 0, alliesLost: 0, scoreGained: 0 };
-  cam = { x: 0, y: 0, z: 2, yaw: 0, pitch: 0 };
+  stats: ZoneStats = { time: 0, kills: 0, shotsFired: 0, shotsHit: 0, damageTaken: 0, alliesLost: 0, scoreGained: 0, headshots: 0, bestStreak: 0 };
+  cam: { x: number; y: number; z: number; yaw: number; pitch: number; fov: number } = { x: 0, y: 0, z: 2, yaw: 0, pitch: 0, fov: FOV_NORMAL };
   aim = { x: 0, y: 0, z: 0, entityId: -1 };
   interactDoor = -1;
   assist: { yaw: number; pitch: number } | null = null;
@@ -101,6 +107,21 @@ export class World implements IWorld {
   private prevOrder: { kind: OrderKind; x: number; y: number; targetId: number } | null = null;
   pacing: 'ascenso' | 'pico' | 'alivio' | 'descanso' = 'ascenso';
   cheats = { god: false, noclip: false, aiDebug: false, chutaos: false };
+  cheated = false;
+  hold = false;
+  /** v1.2 — efectos de las mejoras de campaña, calculados al construir el mundo */
+  mods: Mods;
+  /** v1.2 — desplazamiento de la cámara por retroceso (radianes); se recupera solo */
+  recoil = { pitch: 0, yaw: 0 };
+  /** v1.2 — calor del arma del jugador: dispersión añadida por la ráfaga (0..max-base) */
+  bloom = 0;
+  /** v1.2 — hasta cuándo el jugador no puede disparar tras esprintar (levantar el arma) */
+  raiseUntil = 0;
+  private camDistEff = 4.2;
+  private shoulderEff = SHOULDER_NORMAL;
+  private lastPlayerKillAt = -99; private streak = 0;
+  private lastBreathUsed = false;
+  private invulnUntil = -1;
 
   rng: () => number;
   director: Director;
@@ -122,6 +143,7 @@ export class World implements IWorld {
   private dryAt = -1;
 
   constructor(cfg: WorldConfig) {
+    this.mods = computeMods(cfg.upgrades);
     this.rng = mulberry32(cfg.seed ?? (cfg.floor * 1000 + cfg.zone * 37 + 7));
     this.floor = cfg.floor; this.zone = cfg.zone;
     this.score = cfg.baseScore ?? 0;
@@ -176,18 +198,23 @@ export class World implements IWorld {
   // ───────────────────────── entidades ─────────────────────────
 
   spawnUnit(kind: Kind, x: number, y: number, emit = true): Unit {
-    const stats = statsOf(kind);
+    let stats = statsOf(kind);
     const cls = isClass(kind) ? kind : null;
+    if (cls) {
+      // v1.2: las mejoras de campaña modifican una COPIA de las estadísticas de los aliados (la tabla del documento no se toca)
+      const m = this.mods;
+      stats = { ...stats, hp: stats.hp + m.hpBonus, speed: stats.speed * m.speedMult, magSize: Math.max(1, Math.round(stats.magSize * m.magMult)), reloadTime: stats.reloadTime * m.reloadMult };
+    }
     const u: Unit = {
       id: this.nextId++, kind, team: cls ? 'ally' : 'enemy', isPlayer: false,
       x, y, vx: 0, vy: 0, yaw: 0, pitch: 0, radius: stats.radius,
       hp: stats.hp, maxHp: stats.hp, alive: true, deadAt: -1, crouch: false,
       mag: stats.magSize, magSize: stats.magSize, ammo: cls ? AMMO_START - Math.min(stats.magSize, AMMO_START) : ENEMY_AMMO - stats.magSize,
-      reloading: 0, grenades: cls ? GRENADE_COUNT : 0,
-      abilityCd: 0, abilityCdMax: cls === 'captain' || cls === 'technic' ? 20 : 25, abilityActive: 0,
+      reloading: 0, grenades: cls ? GRENADE_COUNT + this.mods.extraGrenades : 0,
+      abilityCd: 0, abilityCdMax: (cls === 'captain' || cls === 'technic' ? 20 : 25) * (cls ? this.mods.abilityCdMult : 1), abilityActive: 0,
       inventory: [null, null, null, null, null], invSel: 0,
       lastShotAt: -9, lastKnifeAt: -9, lastHurtAt: -9, aiState: '', bossPhase: kind === 'megaboss' ? 1 : 0,
-      shielded: false, marked: false,
+      shielded: false, marked: false, sprinting: false, aiming: false, spread: 0, staggerUntil: 0, staggerAt: -99,
       stats, cls, ekind: cls ? null : (kind as EnemyKind),
       wishX: 0, wishY: 0, fireCd: 0, knifeCd: 0, grenadeCd: 0, stepAcc: 0,
       path: null, pathI: 0, goalX: x, goalY: y, repathAt: 0, navVer: -1, doorWait: 0,
@@ -245,7 +272,8 @@ export class World implements IWorld {
 
     const p = this.player;
     if (p.alive) this.updatePlayer(dt, input);
-    else { p.wishX = 0; p.wishY = 0; }
+    else { p.wishX = 0; p.wishY = 0; p.sprinting = false; p.aiming = false; }
+    this.smoothCamera(dt, input);
     // consumir flancos
     input.reload = input.grenade = input.ability = input.interact = input.useItem = input.cycleItem = false;
     input.order = null;
@@ -266,7 +294,7 @@ export class World implements IWorld {
     }
     this.director.update(dt);
     this.updatePlayerField(false);
-    this.computeCam(input.yaw, input.pitch, input.camDist);
+    this.computeCam(input.yaw, input.pitch, this.camDistEff);
     this.computeAim(input);
     this.interactDoor = p.alive ? this.level.nearestDoor(p.x, p.y, 1.5) : -1;
     const ft = this.order.targetId >= 0 ? this.entityById(this.order.targetId) : undefined;
@@ -292,31 +320,72 @@ export class World implements IWorld {
 
   startReload(u: Unit): boolean {
     if (u.reloading > 0 || u.mag >= u.magSize || u.ammo <= 0) return false;
-    u.reloading = u.stats.reloadTime;
+    u.reloading = u.stats.reloadTime; // las mejoras ya vienen aplicadas en stats (copia de los aliados)
     this.events.push({ type: 'reload', id: u.id });
     return true;
   }
 
   // ───────────────────────── jugador ─────────────────────────
 
+  /** Distancia efectiva de cámara, hombro y campo de visión: se acercan suavemente (~10/s) a su valor objetivo. */
+  private smoothCamera(dt: number, input: PlayerInput): void {
+    const k = Math.min(1, dt * 10);
+    const aim = this.player.aiming;
+    const dTarget = aim ? CAM_DIST_AIM : (input.camDist || 4.2);
+    this.camDistEff += (dTarget - this.camDistEff) * k;
+    this.shoulderEff += ((aim ? SHOULDER_AIM : SHOULDER_NORMAL) - this.shoulderEff) * k;
+    this.cam.fov += ((aim ? FOV_AIM : FOV_NORMAL) - this.cam.fov) * k;
+  }
+
+  /** Dispersión efectiva del jugador ahora mismo (sigma, rad). Es la que lee la retícula (p.spread). */
+  private playerSpread(): number {
+    const p = this.player;
+    const g = GUN_FEEL[p.cls ?? 'captain'];
+    const vmax = Math.max(0.1, p.stats.speed);
+    const mv = Math.min(1, Math.hypot(p.vx, p.vy) / vmax);
+    let sp = g.baseSpread + this.bloom + g.moveSpread * mv;
+    if (p.crouch) sp *= 0.75;
+    if (p.aiming) sp *= 0.45;
+    if (p.cls === 'especialist' && p.abilityActive > 0) sp *= 1.3;
+    return sp;
+  }
+
   private updatePlayer(dt: number, input: PlayerInput): void {
     const p = this.player;
+    const g = GUN_FEEL[p.cls ?? 'captain'];
     p.yaw = input.yaw; p.pitch = input.pitch;
-    p.crouch = input.crouch;
     let f = input.moveF, r = input.moveR;
     const m = Math.hypot(f, r);
     if (m > 1) { f /= m; r /= m; }
-    const sp = p.stats.speed * (p.crouch ? 0.5 : 1);
+
+    // esprint (v1.2): hacia delante, sin apuntar; cancela agacharse y no deja disparar
+    const wasSprinting = p.sprinting;
+    const wantAim = input.aim && p.reloading <= 0;
+    let sprint = input.sprint && f > 0.5 && !wantAim;
+    if (sprint && input.fire) sprint = false;      // pulsar fuego saca del esprint
+    p.crouch = input.crouch && !(input.sprint && f > 0.5);
+    if (sprint) p.crouch = false;
+    p.sprinting = sprint;
+    p.aiming = wantAim && !sprint;
+    if (wasSprinting && !sprint) this.raiseUntil = this.time + SPRINT_RAISE;
+
+    const sp = p.stats.speed * (p.crouch ? 0.5 : 1) * (sprint ? SPRINT_MULT : 1) * (p.aiming ? AIM_SPEED_MULT : 1);
     const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
     p.wishX = (cy * f - sy * r) * sp;
     p.wishY = (sy * f + cy * r) * sp;
 
-    this.computeCam(input.yaw, input.pitch, input.camDist);
+    // retroceso: se recupera de forma exponencial; calor: baja tras 0,12 s sin disparar
+    const decay = Math.exp(-RECOIL_RECOVER * dt);
+    this.recoil.pitch *= decay; this.recoil.yaw *= decay;
+    if (this.time - p.lastShotAt > 0.12) this.bloom = Math.max(0, this.bloom - g.recover * dt);
+
+    this.computeCam(input.yaw, input.pitch, this.camDistEff);
     this.computeAim(input);
 
     // habilidad Supresión: fuego sostenido automático
     const suppressing = p.cls === 'especialist' && p.abilityActive > 0;
-    if ((input.fire || suppressing) && p.reloading <= 0) {
+    p.spread = this.playerSpread();
+    if ((input.fire || suppressing) && p.reloading <= 0 && !p.sprinting && this.time >= this.raiseUntil) {
       if (p.mag > 0 || suppressing) {
         if (p.fireCd <= 0 && p.stats.explosive && Math.hypot(this.aim.x - p.x, this.aim.y - p.y) < 2.6) {
           // Seguro del lanzador: no dispara contra algo que tiene a menos de 2,6 m (estallaría en la cara).
@@ -327,16 +396,29 @@ export class World implements IWorld {
             const t = this.entityById(this.assistId);
             if (t && t.alive) { tx = t.x; ty = t.y; tz = this.height(t) * 0.62; }
           }
-          this.fire(p, tx, ty, tz, input.aimAssist ? 0.012 : 0.004, suppressing);
+          // dispersión de ESTA bala (la de la mejora «primera bala» es nula si llevaba > 1 s sin disparar)
+          let sd = p.spread;
+          if (this.mods.firstBullet && this.time - p.lastShotAt > 1) sd = 0;
+          if (input.aimAssist) sd = Math.max(sd * 0.8, 0.010);
+          this.fire(p, tx, ty, tz, sd, suppressing);
           p.fireCd = 1 / (p.stats.rof * (suppressing ? 2 : 1));
+          // calor y retroceso de la bala
+          const rm = this.mods.recoilMult;
+          this.bloom = Math.min(Math.max(0, g.maxSpread - g.baseSpread), this.bloom + g.perShot * rm);
+          const km = rm * (p.aiming ? 0.7 : 1) * (p.crouch ? 0.85 : 1);
+          this.recoil.pitch = Math.min(RECOIL_MAX_PITCH, this.recoil.pitch + g.kickPitch * km);
+          this.recoil.yaw = Math.max(-RECOIL_MAX_YAW, Math.min(RECOIL_MAX_YAW, this.recoil.yaw + (this.rng() < 0.5 ? -1 : 1) * g.kickYaw * km * (0.5 + this.rng())));
+          p.spread = this.playerSpread();
         }
       } else if (p.ammo > 0) this.startReload(p);
       else if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
     }
     if (suppressing) this.applySuppression(p);
     if (input.reload) this.startReload(p);
-    if (input.knife && p.knifeCd <= 0) this.knife(p);
-    if (input.grenade) this.throwGrenade(p, this.aim.x, this.aim.y);
+    if (!p.sprinting) {
+      if (input.knife && p.knifeCd <= 0) this.knife(p);
+      if (input.grenade) this.throwGrenade(p, this.aim.x, this.aim.y);
+    }
     if (input.ability) this.useAbility(p);
     if (input.interact && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
     if (input.cycleItem) {
@@ -391,12 +473,15 @@ export class World implements IWorld {
 
   private computeCam(yaw: number, pitch: number, dist: number): void {
     const p = this.player, L = this.level;
+    // el retroceso mueve la cámara y, con ella, el rayo de la mira (input no se toca)
+    yaw += this.recoil.yaw; pitch += this.recoil.pitch;
+    const sh = this.shoulderEff;
     const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
     const headZ = this.height(p) - 0.2;
     // pivote sobre el hombro derecho
-    let px = p.x - sy * 0.55, py = p.y + cy * 0.55;
+    let px = p.x - sy * sh, py = p.y + cy * sh;
     const ts = L.ray(p.x, p.y, headZ, px, py, headZ, 'bullet');
-    if (ts < 1) { const k = Math.max(0, ts - 0.35); px = p.x - sy * 0.55 * k; py = p.y + cy * 0.55 * k; }
+    if (ts < 1) { const k = Math.max(0, ts - 0.35); px = p.x - sy * sh * k; py = p.y + cy * sh * k; }
     const pz = headZ + 0.5; // por encima de las cabezas de la escuadra, que va detrás
     const d = Math.max(1, Math.min(9, dist || 4.2));
     let cx = px - cy * cp * d, cyy = py - sy * cp * d, cz = pz - sp * d;
@@ -410,7 +495,8 @@ export class World implements IWorld {
     }
     // Arrinconada contra una pared: en vez de meterse en la nuca del personaje, sube y mira por encima.
     const da = Math.hypot(cx - px, cyy - py, cz - pz);
-    if (da < 2.2) cz += (2.2 - da) * 0.55;
+    const near = Math.min(2.2, d * 0.9);
+    if (da < near) cz += (near - da) * 0.55;
     this.cam.x = cx; this.cam.y = cyy; this.cam.z = cz; this.cam.yaw = yaw; this.cam.pitch = pitch;
   }
 
@@ -501,27 +587,41 @@ export class World implements IWorld {
     dx = Math.cos(yaw) * Math.cos(pitch); dy = Math.sin(yaw) * Math.cos(pitch); dz = Math.sin(pitch);
     const R = WEAPON_RANGE;
     const ex = u.x + dx * R, ey = u.y + dy * R, ez = oz + dz * R;
-    let t = this.level.ray(u.x, u.y, oz, ex, ey, ez, 'bullet');
+    const ri = this.level.rayInfo(u.x, u.y, oz, ex, ey, ez, 'bullet');
+    let t = ri.t;
+    const tWall = t;
     const other: Team = u.team === 'ally' ? 'enemy' : 'ally';
     const hit = this.rayUnits(u.x, u.y, oz, ex, ey, ez, other, t);
     let kind: 'none' | 'wall' | 'entity' = t < 1 ? 'wall' : 'none';
-    if (hit) { t = hit.t; kind = 'entity'; }
+    let surface: 'wall' | 'door' | 'furniture' | 'floor' | 'body' | 'none' = t < 1 ? ri.surface : 'none';
+    let nx = ri.nx, ny = ri.ny;
+    if (hit) { t = hit.t; kind = 'entity'; surface = 'body'; const hl = Math.hypot(dx, dy) || 1; nx = -dx / hl; ny = -dy / hl; }
     const ix = u.x + (ex - u.x) * t, iy = u.y + (ey - u.y) * t, iz = Math.max(0, oz + (ez - oz) * t);
-    this.events.push({ type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + dx * 0.5, fy: u.y + dy * 0.5, fz: oz, tx: ix, ty: iy, tz: iz, hit: kind });
+    this.events.push({ type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + dx * 0.5, fy: u.y + dy * 0.5, fz: oz, tx: ix, ty: iy, tz: iz, hit: kind, surface, nx, ny });
     if (this.time - u.noiseAt > 0.35) { u.noiseAt = this.time; this.noises.push({ x: u.x, y: u.y, loud: 30, team: u.team, id: u.id, kind: 'shot' }); }
     if (u.stats.explosive) {
       // retrocede un poco del muro para que la explosión no nazca dentro
       const bk = Math.min(0.2, t * R);
-      this.explode(ix - dx * bk, iy - dy * bk, Math.max(0.2, iz - dz * bk), BLAST_RADIUS, u.stats.damage, u, hit ? hit.u : null);
+      this.explode(ix - dx * bk, iy - dy * bk, Math.max(0.2, iz - dz * bk), BLAST_RADIUS + (u.isPlayer ? this.mods.blastBonus : 0), u.stats.damage, u, hit ? hit.u : null);
       if (hit && u.isPlayer) this.stats.shotsHit++;
       return;
     }
     if (hit) {
       // «Apuntar importa» (§13) premia a quien apunta: la escuadra. Los enemigos no multiplican por zona
       // (un ×2,5 fortuito de 40 tiradores a la vez mataba sin que el jugador pudiera hacer nada). Ver DECISIONES.
-      const mult = u.team === 'enemy' ? 1 : hit.zone === 'head' ? HEAD_MULT : hit.zone === 'limb' ? LIMB_MULT : 1;
-      if (u.isPlayer) this.stats.shotsHit++;
+      const headMult = HEAD_MULT + (u.team === 'ally' ? this.mods.headBonus : 0);
+      const mult = u.team === 'enemy' ? 1 : hit.zone === 'head' ? headMult : hit.zone === 'limb' ? LIMB_MULT : 1;
+      if (u.isPlayer) { this.stats.shotsHit++; if (hit.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1; }
       this.damage(hit.u, u.stats.damage * mult, u, hit.zone, u.x, u.y);
+      // munición perforante: la bala del jugador atraviesa a un enemigo y sigue hasta el siguiente cuerpo (si no hay muro antes)
+      if (u.isPlayer && this.mods.pierce) {
+        const h2 = this.rayUnits(u.x, u.y, oz, ex, ey, ez, other, tWall, hit.t, hit.u);
+        if (h2 && h2.u !== hit.u) {
+          this.stats.shotsHit++;
+          if (h2.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1;
+          this.damage(h2.u, u.stats.damage * (h2.zone === 'head' ? headMult : h2.zone === 'limb' ? LIMB_MULT : 1), u, h2.zone, u.x, u.y);
+        }
+      }
     }
   }
 
@@ -549,14 +649,14 @@ export class World implements IWorld {
     for (const e of this.entities) {
       if (!e.alive || e.team === u.team) continue;
       const d = Math.hypot(e.x - u.x, e.y - u.y);
-      if (d > u.radius + KNIFE_RANGE + e.radius * 0.5) continue;
+      if (d > u.radius + KNIFE_RANGE + (u.team === 'ally' ? this.mods.knifeRange : 0) + e.radius * 0.5) continue;
       if (Math.abs(angDiff(Math.atan2(e.y - u.y, e.x - u.x), u.yaw)) > 1.1) continue;
       if (!this.level.clear(u.x, u.y, 1.1, e.x, e.y, Math.min(1.1, this.height(e) * 0.7), 'bullet')) continue;
       if (d < bd) { bd = d; best = e; }
     }
     this.events.push({ type: 'knife', id: u.id, hit: !!best });
     if (best) {
-      const dmg = u.team === 'ally' ? KNIFE_DAMAGE : (u.ekind === 'enemy1' ? 6 : u.ekind === 'enemy2' ? 8 : 10);
+      const dmg = u.team === 'ally' ? KNIFE_DAMAGE * this.mods.knifeMult : (u.ekind === 'enemy1' ? 6 : u.ekind === 'enemy2' ? 8 : 10);
       this.damage(best, dmg, u, 'knife', u.x, u.y);
     }
   }
@@ -615,7 +715,7 @@ export class World implements IWorld {
         pr.dead = true;
         const owner = this.entityById(pr.ownerId) ?? null;
         const dmg = pr.kind === 'grenade' ? GRENADE_DAMAGE : 30;
-        this.explode(pr.x, pr.y, Math.max(0.3, pr.z), BLAST_RADIUS, dmg, owner);
+        this.explode(pr.x, pr.y, Math.max(0.3, pr.z), BLAST_RADIUS + (owner && owner.isPlayer ? this.mods.blastBonus : 0), dmg, owner);
       }
     }
     if (this.projectiles.length > 0 && this.projectiles[0].dead) this.projectiles = this.projectiles.filter(p => !p.dead);
@@ -626,23 +726,45 @@ export class World implements IWorld {
     if (t.isPlayer && this.cheats.god) return;
     if (t.team === 'ally' && this.status === 'cleared') return; // zona limpia: un cohete rezagado ya no te quita la victoria
     if (t.shielded) return;
+    if (t.isPlayer && this.time < this.invulnUntil) return; // último aliento: 1,5 s de invulnerabilidad
     if (t.kind === 'megaboss') amount = this.director.bossDamageGate(t, amount);
     if (amount <= 0) return;
+    if (t.team === 'ally') amount *= this.mods.damageTaken; // chaleco
+    // Último aliento: una vez por zona, un golpe mortal al jugador lo deja a 1 de vida
+    if (t.isPlayer && this.mods.lastBreath && !this.lastBreathUsed && t.hp - amount <= 0) {
+      this.lastBreathUsed = true;
+      this.invulnUntil = this.time + 1.5;
+      amount = Math.max(0, t.hp - 1);
+      if (amount <= 0) return;
+    }
     t.hp -= amount;
     t.lastHurtAt = this.time;
     if (t.isPlayer) this.stats.damageTaken += amount;
     this.events.push({ type: 'hurt', id: t.id, amount, zone, fromX, fromY, attackerId: attacker ? attacker.id : -1 });
-    if (t.team === 'enemy') this.enemyAI.onHurt(t, attacker, fromX, fromY);
+    if (t.team === 'enemy') {
+      this.enemyAI.onHurt(t, attacker, fromX, fromY);
+      // aturdimiento: golpe fuerte (≥ 18), cabeza de un aliado o explosión ≥ 20; no los jefes, y como mucho uno cada 1,2 s
+      if (t.hp > 0 && t.kind !== 'miniboss' && t.kind !== 'megaboss' && this.time - t.staggerAt >= STAGGER_COOLDOWN) {
+        const strong = (zone !== 'blast' && amount >= 18) || (zone === 'head' && !!attacker && attacker.team === 'ally') || (zone === 'blast' && amount >= 20);
+        if (strong) { t.staggerAt = this.time; t.staggerUntil = this.time + STAGGER_TIME; t.aiState = 'aturdido'; }
+      }
+    }
     else if (t.brain) { t.brain.hurtAt = this.time; t.brain.hurtBy = attacker ? attacker.id : -1; }
-    if (t.hp <= 0) this.kill(t, attacker);
+    if (t.hp <= 0) this.kill(t, attacker, zone === 'head', fromX, fromY);
   }
 
-  kill(t: Unit, attacker: Unit | null = null): void {
+  kill(t: Unit, attacker: Unit | null = null, headshot = false, fromX?: number, fromY?: number): void {
     if (!t.alive) return;
     t.hp = 0; t.alive = false; t.deadAt = this.time; t.wishX = t.wishY = 0; t.vx = t.vy = 0; t.marked = false; t.shielded = false;
-    this.events.push({ type: 'death', id: t.id, kind: t.kind, team: t.team, x: t.x, y: t.y });
+    this.events.push({ type: 'death', id: t.id, kind: t.kind, team: t.team, x: t.x, y: t.y,
+      killerId: attacker ? attacker.id : -1, headshot, fromX: fromX ?? t.x, fromY: fromY ?? t.y });
     if (t.team === 'enemy') {
       this.score += t.stats.points; this.stats.scoreGained += t.stats.points; this.stats.kills++;
+      if (attacker && attacker.isPlayer) {
+        this.streak = this.time - this.lastPlayerKillAt < 4 ? this.streak + 1 : 1;
+        this.lastPlayerKillAt = this.time;
+        this.stats.bestStreak = Math.max(this.stats.bestStreak ?? 0, this.streak);
+      }
       this.enemyAI.onDeath(t);
       // botín ocasional (ver DECISIONES): evita quedarse sin munición si cae el Especialista
       const boss = t.kind === 'miniboss' || t.kind === 'megaboss';
@@ -653,7 +775,7 @@ export class World implements IWorld {
       let squadAmmo = 0;
       for (const e of this.entities) if (e.alive && e.team === 'ally') squadAmmo += e.mag + e.ammo;
       if (squadAmmo < 40) pAmmo = 1;
-      if (boss || r < pAmmo + 0.1) {
+      if (boss || r < pAmmo + 0.1 + this.mods.dropBonus) {
         this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : r < pAmmo ? 'municion_20' : 'vida_20', x: t.x, y: t.y, taken: false });
       }
     } else if (t.isPlayer) {
@@ -782,12 +904,13 @@ export class World implements IWorld {
   /** Aplica el efecto. La vida no pasa del máximo de la clase. Devuelve false si no serviría de nada. */
   applyItem(u: Unit, it: ItemType): boolean {
     const e = ITEM_EFFECT[it];
+    const lm = u.team === 'ally' ? this.mods.lootMult : 1; // carroñero
     if (e.hp > 0) {
       if (u.hp >= u.maxHp) return false;
-      u.hp = Math.min(u.maxHp, u.hp + e.hp);
+      u.hp = Math.min(u.maxHp, u.hp + Math.round(e.hp * lm));
     } else {
       if (u.ammo + u.mag >= AMMO_CAP) return false;
-      u.ammo = Math.min(AMMO_CAP - u.mag, u.ammo + e.ammo);
+      u.ammo = Math.min(AMMO_CAP - u.mag, u.ammo + Math.round(e.ammo * lm));
     }
     return true;
   }
@@ -818,7 +941,7 @@ export class World implements IWorld {
         // la moral sube con el aura del Capitán; con la moral hundida el aura no cura
         this.morale = Math.min(100, this.morale + 1);
         if (this.morale >= 20) {
-          for (const a of allies) if (Math.hypot(a.x - cap.x, a.y - cap.y) <= AURA_RADIUS) a.hp = Math.min(a.maxHp, a.hp + 1);
+          for (const a of allies) if (Math.hypot(a.x - cap.x, a.y - cap.y) <= AURA_RADIUS + this.mods.auraBonus) a.hp = Math.min(a.maxHp, a.hp + 1 + this.mods.medicAura);
         }
       }
     }
@@ -826,7 +949,7 @@ export class World implements IWorld {
       this.auraAmmoAcc -= 4;
       const sp = allies.find(a => a.cls === 'especialist');
       if (sp) for (const a of allies) {
-        if (Math.hypot(a.x - sp.x, a.y - sp.y) <= AURA_RADIUS) a.ammo = Math.min(AMMO_CAP - a.mag, a.ammo + 10);
+        if (Math.hypot(a.x - sp.x, a.y - sp.y) <= AURA_RADIUS + this.mods.auraBonus) a.ammo = Math.min(AMMO_CAP - a.mag, a.ammo + 10 + this.mods.ammoAura);
       }
     }
     // los compañeros usan su inventario solos (§5.2)
@@ -896,7 +1019,9 @@ export class World implements IWorld {
     for (const u of ents) {
       if (!u.alive) continue;
       const k = Math.min(1, dt * 14);
-      u.vx += (u.wishX - u.vx) * k; u.vy += (u.wishY - u.vy) * k;
+      // aturdido: se mueve al 40 %
+      const sl = u.team === 'enemy' && this.time < u.staggerUntil ? 0.4 : 1;
+      u.vx += (u.wishX * sl - u.vx) * k; u.vy += (u.wishY * sl - u.vy) * k;
       u.x += u.vx * dt; u.y += u.vy * dt;
     }
     // separación entre cuerpos
@@ -949,10 +1074,11 @@ export class World implements IWorld {
       const sp = Math.hypot(u.vx, u.vy);
       if (sp > 0.5 && !u.crouch) {
         u.stepAcc += sp * dt;
-        if (u.stepAcc > 1.7) {
+        const sprintLoud = u.sprinting && !this.mods.quietSprint; // esprintar: paso cada 1,3 m y más ruido (salvo «sigilo»)
+        if (u.stepAcc > (u.sprinting ? 1.3 : 1.7)) {
           u.stepAcc = 0;
           this.events.push({ type: 'step', id: u.id, x: u.x, y: u.y });
-          if (u.team === 'ally') this.noises.push({ x: u.x, y: u.y, loud: u.isPlayer ? 6 : 4, team: 'ally', id: u.id, kind: 'step' });
+          if (u.team === 'ally') this.noises.push({ x: u.x, y: u.y, loud: u.isPlayer ? (sprintLoud ? 9 : 6) : 4, team: 'ally', id: u.id, kind: 'step' });
         }
       }
     }

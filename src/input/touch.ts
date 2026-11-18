@@ -17,7 +17,11 @@ import { Core, clamp } from './shared';
 
 const STICK_R = 60;      // radio del stick (px a escala 1)
 const DEAD = 0.12;       // zona muerta
-const CAM_K = 0.005;     // rad por píxel de arrastre (× sensibilidad)
+const CAM_K = 0.005;
+const SPRINT_EDGE = 0.92;   // fracción del radio a partir de la cual el stick cuenta "a fondo"
+const SPRINT_HOLD = 0.35;   // s a fondo para activar el esprint
+const SPRINT_FWD = 0.6;     // moveF mínimo para mantenerlo
+const AIM_LOOK = 0.6;       // factor del arrastre de cámara al apuntar     // rad por píxel de arrastre (× sensibilidad)
 
 export interface TouchHeld {
   moveF: number;
@@ -25,6 +29,8 @@ export interface TouchHeld {
   fire: boolean;
   knife: boolean;
   crouch: boolean;
+  sprint: boolean;
+  aim: boolean;
 }
 
 export interface TouchCtl {
@@ -46,6 +52,8 @@ const ICONS: Record<string, string> = {
   ability: '<path d="M13 2L5 13.5h6L10 22l8-11.5h-6z"/>',
   useItem: '<path d="M9 4h6v5h5v6h-5v5H9v-5H4V9h5z"/>',
   cycle: '<path d="M4 8h14l-3.2-3.2M20 16H6l3.2 3.2"/>',
+  aim: '<circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  sprint: '<circle cx="14" cy="4.5" r="2.2"/><path d="M13 8l-3 5 4 3-1 5M10 13l-5 1M13 8l5 3"/>',
   crouch: '<circle cx="9" cy="5" r="2.3"/><path d="M9 8v6l6 1.5M9 14l-3.5 6M15 15.5l1 4.5"/>',
   orders: '<path d="M6 21V3.5M6 4.5h12l-3.2 4.2 3.2 4.3H6"/>',
   interact: '<path d="M6 21V3h12v18M3 21h18"/><circle cx="14.5" cy="12.5" r="1" fill="#fff"/>',
@@ -66,6 +74,8 @@ const TXT: Record<string, { es: string; en: string }> = {
   interact: { es: 'Puerta', en: 'Door' },
   cycle: { es: 'Cambiar objeto', en: 'Next item' },
   crouch: { es: 'Agacharse', en: 'Crouch' },
+  aim: { es: 'Apuntar', en: 'Aim' },
+  sprint: { es: 'Esprintar', en: 'Sprint' },
   orders: { es: 'Órdenes', en: 'Orders' },
   fire: { es: 'Disparar', en: 'Fire' },
   follow: { es: 'A mí', en: 'To me' },
@@ -158,7 +168,8 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   // ───────── stick izquierdo (flotante) ─────────
   let stickId: number | null = null;
   let ox = 0, oy = 0, rx = 0, ry = 0; // origen del stick y esquina de la capa en pantalla
-  let sF = 0, sR = 0;
+  let sF = 0, sR = 0, sMag = 0, fullTime = 0, gestureSprint = false;
+  let aimOn = false, sprintOn = false;
 
   const stickRadius = (): number => STICK_R * scale;
 
@@ -175,6 +186,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     const dy = e.clientY - ry - oy;
     const len = Math.hypot(dx, dy);
     const mag = Math.min(len / R, 1);
+    sMag = mag;
     if (mag < DEAD || len === 0) {
       sF = 0; sR = 0;
     } else {
@@ -212,7 +224,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   stickZone.addEventListener('pointerup', stickEnd);
   stickZone.addEventListener('pointercancel', stickEnd);
   function stickRelease(): void {
-    stickId = null; sF = 0; sR = 0;
+    stickId = null; sF = 0; sR = 0; sMag = 0; fullTime = 0; gestureSprint = false;
     base.style.display = 'none';
     hint.style.display = active ? 'block' : 'none';
   }
@@ -221,7 +233,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   let camId: number | null = null;
   let camX = 0, camY = 0;
   const lookBy = (dx: number, dy: number): void => {
-    const k = CAM_K * core.sensitivity();
+    const k = CAM_K * core.sensitivity() * (aimOn ? AIM_LOOK : 1);
     core.rotate(dx * k, -dy * k);   // arrastrar a la derecha = +yaw; arrastrar arriba = +pitch
     if (dx || dy) lastMoveAt = clock;
   };
@@ -315,6 +327,14 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     crouchBtn.classList.toggle('tl-act', crouchOn);
   }, () => {});
 
+  // Apuntar (conmutador; se apaga solo al esprintar) y esprint (conmutador, alternativa al gesto del stick)
+  const aimBtn = makeBtn('aim', { r: 122, b: 152, size: 44 }, { caption: false });
+  const sprintBtn = makeBtn('sprint', { r: 314, b: 98, size: 40 }, { caption: false });
+  const setAim = (v: boolean): void => { aimOn = v; aimBtn.classList.toggle('tl-act', v); };
+  const setSprintToggle = (v: boolean): void => { sprintOn = v; sprintBtn.classList.toggle('tl-act', v); };
+  bindPress(aimBtn, () => { setAim(!aimOn); if (aimOn) setSprintToggle(false); }, () => {});
+  bindPress(sprintBtn, () => { setSprintToggle(!sprintOn); if (sprintOn) setAim(false); }, () => {});
+
   // Interactuar contextual (solo visible con puerta al alcance)
   const interactBtn = makeBtn('interact', { r: 68, b: 158, size: 58 }, { caption: true, cls: 'tl-interact' });
   bindPress(interactBtn, () => { input.interact = true; }, () => {});
@@ -358,10 +378,11 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     camId = null;
     fireHeld = false; knifeHeld = false;
     crouchOn = false; crouchBtn.classList.remove('tl-act');
+    setAim(false); setSprintToggle(false);
     closeMenu();
   }
 
-  const held: TouchHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false };
+  const held: TouchHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false };
 
   return {
     setActive(a: boolean): void {
@@ -387,6 +408,15 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
         interactShown = want;
         interactBtn.style.display = want ? 'flex' : 'none';
       }
+      // Esprint por gesto: stick a fondo 0,35 s; se mantiene mientras siga a fondo y hacia delante.
+      if (stickId !== null && sMag > SPRINT_EDGE) {
+        fullTime += dt;
+        if (gestureSprint) { if (sF <= SPRINT_FWD) { gestureSprint = false; fullTime = 0; } }
+        else if (fullTime >= SPRINT_HOLD && sF > SPRINT_FWD) gestureSprint = true;
+      } else { fullTime = 0; gestureSprint = false; }
+      const sprinting = gestureSprint || sprintOn;
+      if (sprinting && aimOn) setAim(false);
+      held.sprint = sprinting; held.aim = aimOn;
       held.moveF = sF; held.moveR = sR;
       held.fire = fireHeld; held.knife = knifeHeld; held.crouch = crouchOn;
       return held;

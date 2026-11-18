@@ -5,7 +5,7 @@
 // vida y munición suben a las esquinas superiores (clase `touch` en #hud).
 
 import type { IWorld, Settings } from '../contracts';
-import type { ClassId, Entity, ItemType, OrderKind } from '../sim/types';
+import type { ClassId, Entity, GameEvent, ItemType, OrderKind } from '../sim/types';
 import { CLASS_IDS } from '../sim/types';
 import { CLASS_STATS, isClass } from '../sim/data';
 import { fmtTime, h, icon, itemIcon, setBar, setCls, setStyle, setText } from './dom';
@@ -19,9 +19,7 @@ const ARC_LIFE = 1.0;       // s
 const ARC_POOL = 6;
 const SUB_LIFE = 2.6;       // s
 const SUB_MAX = 3;
-const HIT_LIFE = 0.16;      // s
 const VIGNETTE_LIFE = 0.7;  // s
-const FIRE_OPEN = 0.12;     // s que la retícula permanece abierta tras disparar
 
 /** Estados de IA que indican que el jefe ya ha detectado al jugador (la IA los etiqueta como texto libre). */
 const BOSS_ENGAGED = /attack|ataca|chase|persig|combat|engage|suppress|fire|disp|alert/i;
@@ -53,6 +51,14 @@ export class Hud {
   private phaseText = '';
   private lastSubAt = new Map<string, number>();
   private allyByKind: Partial<Record<ClassId, Entity>> = {};
+  private hitRank = 0;           // 1 normal, 2 cabeza, 3 baja, 4 baja de cabeza
+  private gapCur = 4;            // separación actual de la retícula (px), interpolada
+  private lastT = 0;
+  private reloadTotal = 0;
+  private reloadPrev = 0;
+  private streak = 0;
+  private streakAt = -99;
+  private feed: { el: HTMLElement; until: number }[] = [];
 
   constructor(
     parent: HTMLElement,
@@ -76,6 +82,7 @@ export class Hud {
     this.subsKey = '';
     this.hitUntil = this.vigUntil = this.phaseUntil = -1;
     this.lastSubAt.clear();
+    this.streak = 0; this.streakAt = -99; this.reloadTotal = 0; this.reloadPrev = 0; this.feed = []; this.lastT = 0;
     this.r = this.build();
   }
 
@@ -90,8 +97,9 @@ export class Hud {
     const plName = h('span', { class: 'vit-cls' });
     const plHp = h('span', { class: 'vit-hp' });
     const plBar = sbar();
+    const plSprint = h('span', { class: 'sprint-tag' }, t('hud.sprint'));
     const vit = h('div', { class: 'hud-vit hp-box' },
-      h('div', { class: 'lbl' }, t('hud.hp')),
+      h('div', { class: 'lbl' }, t('hud.hp'), ' ', plSprint),
       h('div', { class: 'vit-top' }, plHp, plName),
       plBar.el,
     );
@@ -146,16 +154,20 @@ export class Hud {
     const boss = h('div', { class: 'boss' }, h('div', { class: 'bn' }, icon('warn'), bossName), bossBar.el, bossShield);
     const phaseMsg = h('div', { class: 'phase-msg' });
     const chutaos = h('div', { class: 'chutaos' }, t('hud.chutaos'));
+    const cheated = h('div', { class: 'chutaos cheated' }, icon('warn'), t('hud.cheats'));
     const top = h('div', { class: 'hud-top' },
       compass,
       h('div', { class: 'morale' }, h('span', null, t('hud.morale')), moraleBar.el),
-      boss, phaseMsg, chutaos,
+      boss, phaseMsg, chutaos, cheated,
     );
 
     // Centro: retícula fina, marca de impacto, arcos de daño, viñeta, avisos
-    const xh = h('div', { class: 'xh' },
+    const ring = h('div', { class: 'xh-ring' });
+    const streakEl = h('div', { class: 'streak' });
+    const xh = h('div', { class: 'xh' }, ring,
       h('i', { class: 't' }), h('i', { class: 'b' }), h('i', { class: 'l' }), h('i', { class: 'r' }), h('i', { class: 'd' }), h('i', { class: 'dia' }));
-    const hit = h('div', { class: 'hit' });
+    const hit = h('div', { class: 'hit' }, h('i', { class: 'hd' }), h('i', { class: 'hr' }));
+    const feedBox = h('div', { class: 'killfeed' });
     const hurtLayer = h('div', { class: 'hurt-layer' });
     for (let i = 0; i < ARC_POOL; i++) {
       const el = h('div', { class: 'hurt-arc' });
@@ -173,12 +185,13 @@ export class Hud {
     const slots = [0, 1, 2, 3, 4].map(() => h('div', { class: 'slot' }));
     const bc = h('div', { class: 'hud-bc' }, subsBox, order, invName, h('div', { class: 'inv' }, ...slots));
 
-    this.el.append(vignette, vit, ammo, squad, tr, top, xh, hit, hurtLayer, prompt, clearedMsg, bc);
+    this.el.append(vignette, vit, ammo, squad, tr, feedBox, top, xh, streakEl, hit, hurtLayer, prompt, clearedMsg, bc);
 
     return {
       plName, plHp, plBar, plAmmo, plWeapon, plGren, plWarn, abilLbl, abilBar, allyRows,
       vScore, vTime, vEnemies, pauseBtn,
-      compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos,
+      compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos, cheated,
+      plSprint, ring, streakEl, feedBox,
       xh, hit, vignette, prompt, clearedMsg, subsBox, order, invName, slots,
     };
   }
@@ -220,6 +233,8 @@ export class Hud {
     for (const e of evs) {
       switch (e.type) {
         case 'hurt': {
+          // Impacto del jugador sobre otro: aspa blanca (normal) o ámbar con rombo (cabeza)
+          if (e.attackerId === p.id && e.id !== p.id) { this.mark(e.zone === 'head' ? 2 : 1, now); break; }
           if (e.id !== p.id) break;
           this.vigUntil = now + VIGNETTE_LIFE;
           this.vigPeak = Math.min(0.95, 0.35 + e.amount / 40);
@@ -234,7 +249,7 @@ export class Hud {
         }
         case 'shot': {
           if (e.id === p.id) {
-            if (e.hit === 'entity') this.hitUntil = now + HIT_LIFE;
+            if (e.hit === 'entity') this.mark(1, now);
           } else if (subsOn && e.team === 'enemy') {
             const d = Math.hypot(e.fx - p.x, e.fy - p.y);
             if (d < 40) this.subThrottled('sub.shots', now, this.relDir(world, e.fx, e.fy), 1.2);
@@ -254,6 +269,7 @@ export class Hud {
           if (subsOn) this.pushSub(t('sub.reinforce'), now);
           break;
         case 'death':
+          this.onDeath(world, e);
           if (subsOn && e.team === 'ally' && e.id !== p.id && isClass(e.kind)) this.pushSub(t('sub.allyDown', { name: t('kind.' + e.kind) }), now);
           break;
         case 'phase':
@@ -263,6 +279,37 @@ export class Hud {
         default: break;
       }
     }
+  }
+
+  /** Marca de impacto: gana la de mayor rango dentro de su ventana (normal < cabeza < baja < baja de cabeza). */
+  private mark(rank: number, now: number): void {
+    if (now < this.hitUntil && rank < this.hitRank) return;
+    this.hitRank = rank;
+    this.hitUntil = now + (rank >= 3 ? 0.25 : 0.12);
+  }
+
+  private onDeath(world: IWorld, e: Extract<GameEvent, { type: 'death' }>): void {
+    const now = world.time;
+    const p = world.player;
+    const killerId = e.killerId ?? -1;
+    const head = !!e.headshot;
+    if (killerId === p.id && e.id !== p.id) {
+      this.mark(head ? 4 : 3, now);
+      this.streak = now - this.streakAt < 4 ? this.streak + 1 : 1;
+      this.streakAt = now;
+      const el = this.r.streakEl;
+      el.textContent = '×' + this.streak;
+      el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); // reinicia la animación
+    }
+    // Registro de bajas
+    const killer = killerId >= 0 ? world.entityById(killerId) : undefined;
+    const victim = t('kind.' + e.kind);
+    const text = killer ? `${t('kind.' + killer.kind)} ▸ ${victim}` : `▸ ${victim}`;
+    const cls = e.team === 'ally' ? 'loss' : killerId === p.id ? 'mine' : '';
+    const line = h('div', { class: 'kf ' + cls }, head ? icon('head') : null, text);
+    this.r.feedBox.appendChild(line);
+    this.feed.push({ el: line, until: now + 4 });
+    while (this.feed.length > 5) this.feed.shift()!.el.remove();
   }
 
   // ───────────── actualización por frame ─────────────
@@ -365,10 +412,44 @@ export class Hud {
     if (phaseOn) setText(r.phaseMsg, this.phaseText);
     setCls(r.phaseMsg, 'on', phaseOn);
 
-    // Retícula: se abre al disparar; roja (y con rombo) sobre enemigo. Marca de impacto.
+    // Retícula dinámica: separación (px) = tan(dispersión) / tan(fov/2) × alto/2, mínimo 4, interpolada
+    const dtT = Math.min(0.1, Math.max(0, now - this.lastT));
+    this.lastT = now;
+    const fov = (world.cam.fov ?? 60) * Math.PI / 180;
+    const spread = Math.max(0, p.spread ?? 0);
+    const target = Math.max(4, (Math.tan(spread) / Math.tan(fov / 2)) * (window.innerHeight / 2));
+    this.gapCur += (target - this.gapCur) * Math.min(1, dtT * 16);
+    setStyle(r.xh, '--gap', (Math.round(this.gapCur * 2) / 2) + 'px');
     setCls(r.xh, 'on-target', world.aim.entityId >= 0);
-    setCls(r.xh, 'fire', now - p.lastShotAt < FIRE_OPEN && p.lastShotAt >= 0);
-    setCls(r.hit, 'on', now < this.hitUntil);
+    setCls(r.xh, 'aim', !!p.aiming);
+    setCls(r.xh, 'sprint', !!p.sprinting);
+    setCls(r.plSprint, 'on', !!p.sprinting);
+
+    // Anillo de progreso de la recarga (la duración total es el valor de `reloading` cuando empieza)
+    if (p.reloading > 0) {
+      if (this.reloadPrev <= 0 || p.reloading > this.reloadPrev + 0.05) this.reloadTotal = p.reloading;
+      const prog = this.reloadTotal > 0 ? 1 - p.reloading / this.reloadTotal : 0;
+      setStyle(r.ring, '--p', (Math.round(prog * 100) / 100).toString());
+      setCls(r.ring, 'on', true);
+    } else {
+      setCls(r.ring, 'on', false);
+    }
+    this.reloadPrev = p.reloading;
+
+    // Marca de impacto
+    const hitOn = now < this.hitUntil;
+    setCls(r.hit, 'on', hitOn);
+    setCls(r.hit, 'head', hitOn && (this.hitRank === 2 || this.hitRank === 4));
+    setCls(r.hit, 'kill', hitOn && this.hitRank >= 3);
+
+    // Racha de bajas
+    const sl = this.streakAt + 4 - now;
+    if (this.streak >= 2 && sl > 0) { setCls(r.streakEl, 'on', true); setStyle(r.streakEl, 'opacity', (Math.round(Math.min(1, sl) * 10) / 10).toString()); }
+    else { setCls(r.streakEl, 'on', false); if (sl <= 0) this.streak = 0; }
+
+    // Registro de bajas: cada línea se desvanece (CSS) y se retira a los 4 s
+    while (this.feed.length && this.feed[0].until <= now) this.feed.shift()!.el.remove();
+    setCls(r.cheated, 'on', !!world.cheated);
 
     // Arcos de daño recibido: siguen la rotación de la cámara
     for (const a of this.arcs) {

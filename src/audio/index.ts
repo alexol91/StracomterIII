@@ -10,7 +10,7 @@ import { Sfx } from './sfx';
 /** Nivel interno de la música respecto a los efectos (la música no debe tapar los disparos). */
 const MUSIC_TRIM = 0.55;
 
-export function createAudio(): IAudio {
+export function createAudio(): IAudio & { setLayers(on: boolean): void } {
   let ctx: AudioContext | null = null;
   let failed = false;
   let sfx: Sfx | null = null;
@@ -20,6 +20,7 @@ export function createAudio(): IAudio {
   let musicVol = 0.5;
   let sfxVol = 0.8;
   let wanted: MusicTrack = null;
+  let layersOn = true;
 
   const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 
@@ -53,6 +54,7 @@ export function createAudio(): IAudio {
     const samples = new Samples(ctx);
     sfx = new Sfx(ctx, sfxBus, samples);
     music = new Music(ctx, musicBus, samples);
+    sfx.setLayers(layersOn);
     samples.loadAll(); // en segundo plano; mientras tanto suena lo sintetizado
     applyVolumes();
     if (typeof document !== 'undefined' && document.addEventListener) {
@@ -69,6 +71,8 @@ export function createAudio(): IAudio {
   };
 
   return {
+    /** Apaga/enciende las capas sintetizadas de los disparos y la cola de sala (calidad baja). */
+    setLayers(on: boolean) { try { layersOn = on; sfx?.setLayers(on); } catch { /* sin audio */ } },
     unlock() {
       try {
         if (failed) return;

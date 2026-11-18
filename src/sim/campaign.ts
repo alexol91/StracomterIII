@@ -1,15 +1,17 @@
 // Campaña: estado entre plantas, recompensas, ajuste de dificultad y guardado (§4, §8, §12, §19).
 
-import type { CampaignState, Difficulty, ICampaign, IWorld, KVStorage, MemberState, ZoneInfo, ZoneSummary } from '../contracts';
+import type { CampaignState, Difficulty, Grade, ICampaign, IWorld, KVStorage, MemberState, RecordEntry, ZoneInfo, ZoneSummary } from '../contracts';
 import {
-  AMMO_CAP, AMMO_START, CLASS_STATS, DIFFICULTY_MULT, ENEMY_COUNT, ENEMY_MIX, INVENTORY_SLOTS, ITEM_EFFECT, ZONE_REWARD, ZONE_SIZE,
+  AMMO_CAP, AMMO_START, CLASS_STATS, DIFFICULTY_MULT, ENEMY_COUNT, ENEMY_MIX, INVENTORY_SLOTS, ITEM_EFFECT, UPGRADES, ZONE_REWARD, ZONE_SIZE,
+  computeMods, maxHpFor,
 } from './data';
 import type { DirectorConfig } from './director';
 import { getMap } from './maps';
 import { CLASS_IDS, type ClassId, type ItemType, type MapDef } from './types';
-import { World } from './world';
+import { World, mulberry32 } from './world';
 
 const SAVE_KEY = 'stracomter3.save';
+const RECORDS_KEY = 'stracomter3.records';
 const SIZE_IDX = { pequeno: 0, mediano: 1, grande: 2 } as const;
 
 function freshMembers(): Record<ClassId, MemberState> {
@@ -67,7 +69,47 @@ export function adaptStep(world: IWorld, enemies: number): number {
   return score >= 2 ? 1 : score <= -2 ? -1 : 0;
 }
 
-export function createCampaign(storage: KVStorage): ICampaign {
+/** Nota de la planta (v1.2): 0-100 y desglose [clave i18n, puntos, máximo]. Pura: solo mira las estadísticas de la zona. */
+export function gradeZone(stats: IWorld['stats'], playerMaxHp: number): { score: number; grade: Grade; breakdown: [string, number, number][] } {
+  const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+  const acc = stats.shotsFired > 0 ? stats.shotsHit / stats.shotsFired : 0;
+  const pAcc = 25 * clamp01((acc - 0.10) / 0.35);
+  const hurt = stats.damageTaken / Math.max(1, playerMaxHp);
+  const pDmg = 25 * clamp01((1.5 - hurt) / 1.3);
+  const ref = 30 + 7 * Math.max(1, stats.kills);       // referencia fija según el número de enemigos
+  const tr = stats.time / ref;
+  const pTime = 25 * clamp01((2.2 - tr) / 1.4);
+  const pSquad = Math.max(0, 15 - 7 * stats.alliesLost);
+  const hs = stats.shotsHit > 0 ? (stats.headshots ?? 0) / stats.shotsHit : 0;
+  const pHead = 10 * clamp01(hs / 0.30);
+  const r1 = (x: number) => Math.round(x * 10) / 10;
+  const total = pAcc + pDmg + pTime + pSquad + pHead;
+  const score = Math.round(total);
+  const grade: Grade = score >= 90 ? 'S' : score >= 75 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : 'D';
+  return {
+    score, grade,
+    breakdown: [['grade.accuracy', r1(pAcc), 25], ['grade.damage', r1(pDmg), 25], ['grade.time', r1(pTime), 25], ['grade.squad', r1(pSquad), 15], ['grade.headshots', r1(pHead), 10]],
+  };
+}
+
+/** Tres mejoras distintas que aún no se tienen, elegidas de forma determinista (semilla: planta + puntuación). */
+export function pickUpgradeChoices(have: readonly string[], floor: number, score: number): string[] {
+  const pool = UPGRADES.map(u => u.id).filter(id => !have.includes(id));
+  const rng = mulberry32(floor * 7919 + Math.round(score) * 31 + 17);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  return pool.slice(0, 3);
+}
+
+export function createCampaign(storage: KVStorage, now: () => Date = () => new Date()): ICampaign {
+  const readRecords = (): Record<string, RecordEntry> => {
+    try {
+      const raw = storage.getItem(RECORDS_KEY);
+      if (!raw) return {};
+      const o = JSON.parse(raw);
+      return o && typeof o === 'object' ? o as Record<string, RecordEntry> : {};
+    } catch { return {}; }
+  };
+
   const zonesOf = (floor: number): ZoneInfo[] => {
     const out: ZoneInfo[] = [];
     const n = floor === 9 ? 1 : 6;
@@ -84,10 +126,10 @@ export function createCampaign(storage: KVStorage): ICampaign {
 
   const self: ICampaign = {
     newCampaign(difficulty, controlled) {
-      return { version: 1, floor: 1, controlled, score: 0, members: freshMembers(), difficulty, adapt: 0 };
+      return { version: 1, floor: 1, controlled, score: 0, members: freshMembers(), difficulty, adapt: 0, upgrades: [] };
     },
     newQuickPlay(difficulty, controlled, floor) {
-      return { version: 1, floor: Math.max(1, Math.min(9, floor | 0)), controlled, score: 0, members: freshMembers(), difficulty, adapt: 0, quick: true };
+      return { version: 1, floor: Math.max(1, Math.min(9, floor | 0)), controlled, score: 0, members: freshMembers(), difficulty, adapt: 0, quick: true, upgrades: [] };
     },
     zonesOf,
     startZone(state, zone) {
@@ -100,12 +142,12 @@ export function createCampaign(storage: KVStorage): ICampaign {
       let members = state.members;
       if ((state.retries ?? 0) >= 3) {
         members = JSON.parse(JSON.stringify(state.members)) as typeof state.members;
-        for (const c of CLASS_IDS) if (members[c].hp > 0) { members[c].hp = CLASS_STATS[c].hp; members[c].ammo = Math.max(members[c].ammo, 120); }
+        for (const c of CLASS_IDS) if (members[c].hp > 0) { members[c].hp = maxHpFor(c, state.upgrades); members[c].ammo = Math.max(members[c].ammo, 120); }
       }
       return new World({
         map: zi.map, floor: state.floor, zone: zi.zone, controlled,
         members, director: directorConfig(state, state.floor, zi.size),
-        baseScore: state.score,
+        baseScore: state.score, upgrades: (state.upgrades ?? []).slice(),
         seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131 + (state.retries ?? 0) * 17,
       });
     },
@@ -133,17 +175,36 @@ export function createCampaign(storage: KVStorage): ICampaign {
         if (free >= 0) m.inv[free] = reward;
         else {
           const e = ITEM_EFFECT[reward];
-          m.hp = Math.min(CLASS_STATS[c].hp, m.hp + e.hp);
-          m.ammo = Math.min(AMMO_CAP, m.ammo + e.ammo);
+          const lm = computeMods(state.upgrades).lootMult;
+          m.hp = Math.min(maxHpFor(c, state.upgrades), m.hp + Math.round(e.hp * lm));
+          m.ammo = Math.min(AMMO_CAP, m.ammo + Math.round(e.ammo * lm));
         }
       }
       state.score += world.stats.scoreGained;
       state.adapt = Math.max(-3, Math.min(3, state.adapt + adaptStep(world, enemyTotal(world.floor, zi.size, state.difficulty, state.adapt))));
       state.retries = 0;
       const campaignWon = world.floor >= 9;
+      // v1.2: nota y récord (no puntúa si se usaron trucos)
+      const g = gradeZone(world.stats, w.player.maxHp);
+      if (w.cheated) state.cheated = true;
+      let newRecord = false;
+      if (!w.cheated && !state.cheated && !state.quick) { // la partida rápida no escribe nada en el almacenamiento
+        const recs = readRecords();
+        const key = `${state.difficulty}:${world.floor}`;
+        const old = recs[key];
+        if (!old || g.score > old.score) {
+          recs[key] = { grade: g.grade, score: g.score, time: Math.round(world.stats.time), date: now().toISOString().slice(0, 10) };
+          try { storage.setItem(RECORDS_KEY, JSON.stringify(recs)); } catch { /* almacenamiento lleno o bloqueado */ }
+          newRecord = true;
+        }
+      }
+      const upgradeChoices = campaignWon || state.quick ? [] : pickUpgradeChoices(state.upgrades ?? [], world.floor, state.score);
       state.floor = world.floor + 1;
       if (!state.quick) { if (campaignWon) self.clearSave(); else self.save(state); }
-      return { floor: world.floor, zone: world.zone, stats: { ...world.stats }, reward, rewarded, fallen, totalScore: state.score, campaignWon };
+      return {
+        floor: world.floor, zone: world.zone, stats: { ...world.stats }, reward, rewarded, fallen, totalScore: state.score, campaignWon,
+        grade: g.grade, gradeScore: g.score, gradeBreakdown: g.breakdown, newRecord, upgradeChoices,
+      };
     },
     failZone(state) {
       // «si va ahogado, baja»: morir es la señal más clara. Un escalón por intento.
@@ -151,6 +212,17 @@ export function createCampaign(storage: KVStorage): ICampaign {
       state.retries = (state.retries ?? 0) + 1;
       if (!state.quick) self.save(state);
     },
+    chooseUpgrade(state, id) {
+      const def = UPGRADES.find(u => u.id === id);
+      if (!def) return;
+      state.upgrades = state.upgrades ?? [];
+      if (state.upgrades.includes(id)) return;
+      state.upgrades.push(id);
+      // vigor: la vida máxima sube 20 y los supervivientes curan 20 (sin pasar del nuevo máximo)
+      if (id === 'vigor') for (const c of CLASS_IDS) { const m = state.members[c]; if (m.hp > 0) m.hp = Math.min(maxHpFor(c, state.upgrades), m.hp + 20); }
+      if (!state.quick) self.save(state);
+    },
+    records() { return readRecords(); },
     save(state) {
       if (state.quick) return;
       try { storage.setItem(SAVE_KEY, JSON.stringify(state)); } catch { /* almacenamiento lleno o bloqueado */ }
@@ -167,6 +239,7 @@ export function createCampaign(storage: KVStorage): ICampaign {
           while (m.inv.length < INVENTORY_SLOTS) m.inv.push(null);
         }
         if (!CLASS_IDS.some(c => s.members[c].hp > 0)) return null;
+        if (!Array.isArray(s.upgrades)) s.upgrades = []; // partidas guardadas antiguas
         return s;
       } catch { return null; }
     },

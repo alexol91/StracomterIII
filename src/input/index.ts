@@ -57,7 +57,7 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
       if (touch) touch.setActive(a);
       if (!a) {
         input.moveF = 0; input.moveR = 0;
-        input.fire = false; input.knife = false; input.crouch = false;
+        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false;
       }
     },
 
@@ -72,7 +72,7 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
       const d = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
       if (!active) {
         input.moveF = 0; input.moveR = 0;
-        input.fire = false; input.knife = false; input.crouch = false;
+        input.fire = false; input.knife = false; input.crouch = false; input.sprint = false; input.aim = false;
         return input;
       }
       const k = kb.update(d);
@@ -89,6 +89,8 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): IC
       input.fire = k.fire || (t ? t.fire : false);
       input.knife = k.knife || (t ? t.knife : false);
       input.crouch = k.crouch || (t ? t.crouch : false);
+      input.sprint = k.sprint || (t ? t.sprint : false);
+      input.aim = k.aim || (t ? t.aim : false);
       input.aimAssist = isTouch;
 
       // Imán del apuntado asistido (solo táctil).

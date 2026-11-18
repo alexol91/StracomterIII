@@ -130,6 +130,15 @@ export interface Entity {
   shielded: boolean;
   /** marcado por la habilidad Órdenes / orden de enfocar */
   marked: boolean;
+  // ── v1.2 ──
+  /** esprintando (no puede disparar) */
+  sprinting: boolean;
+  /** apuntando al hombro (solo el jugador) */
+  aiming: boolean;
+  /** dispersión actual del arma en radianes (sigma): la retícula la dibuja */
+  spread: number;
+  /** world.time hasta el que está aturdido por un impacto fuerte (no dispara, va lento); 0 si no */
+  staggerUntil: number;
 }
 
 /** Entrada del jugador para un paso de simulación. La genera la capa de controles. */
@@ -143,6 +152,10 @@ export interface PlayerInput {
   /** distancia de cámara deseada (zoom), metros */
   camDist: number;
   fire: boolean;          // mantenido
+  /** v1.2 — esprint (mantenido): más rápido, sin disparar */
+  sprint: boolean;
+  /** v1.2 — apuntar al hombro (mantenido): más precisión, más lento */
+  aim: boolean;
   knife: boolean;         // mantenido
   crouch: boolean;        // mantenido
   // Pulsaciones (flanco). world.step las consume y las pone a false.
@@ -160,7 +173,7 @@ export interface PlayerInput {
 export function emptyInput(): PlayerInput {
   return {
     moveF: 0, moveR: 0, yaw: 0, pitch: 0, camDist: 4.2,
-    fire: false, knife: false, crouch: false,
+    fire: false, sprint: false, aim: false, knife: false, crouch: false,
     reload: false, grenade: false, ability: false, interact: false,
     useItem: false, cycleItem: false, order: null, aimAssist: false,
   };
@@ -170,11 +183,15 @@ export type HitZone = 'head' | 'torso' | 'limb';
 
 /** Sucesos de un paso. Se vacían al empezar el paso siguiente: léelos tras cada step. */
 export type GameEvent =
-  | { type: 'shot'; id: number; kind: Kind; team: Team; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: 'none' | 'wall' | 'entity' }
+  | { type: 'shot'; id: number; kind: Kind; team: Team; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: 'none' | 'wall' | 'entity';
+      /** v1.2 — qué ha tocado la bala (para marcas y polvo); normal aproximada en el plano (nx, ny) */
+      surface?: 'wall' | 'door' | 'furniture' | 'floor' | 'body' | 'none'; nx?: number; ny?: number }
   | { type: 'dryfire'; id: number }
   | { type: 'explosion'; x: number; y: number; z: number; radius: number }
   | { type: 'hurt'; id: number; amount: number; zone: HitZone | 'blast' | 'knife'; fromX: number; fromY: number; attackerId: number }
-  | { type: 'death'; id: number; kind: Kind; team: Team; x: number; y: number }
+  | { type: 'death'; id: number; kind: Kind; team: Team; x: number; y: number;
+      /** v1.2 — quién lo mató (-1 si nadie), si fue de un tiro en la cabeza, y dirección del golpe final */
+      killerId?: number; headshot?: boolean; fromX?: number; fromY?: number }
   | { type: 'knife'; id: number; hit: boolean }
   | { type: 'reload'; id: number }
   | { type: 'door'; doorId: number; open: boolean; x: number; y: number }
@@ -208,6 +225,9 @@ export interface AiDebugInfo {
 
 /** Estadísticas de la zona para el resumen de fin de planta y el ajuste de dificultad. */
 export interface ZoneStats {
+  /** v1.2 — impactos en la cabeza del jugador, y mejor racha de bajas del jugador (bajas con < 4 s entre ellas) */
+  headshots?: number;
+  bestStreak?: number;
   time: number;
   kills: number;
   shotsFired: number;

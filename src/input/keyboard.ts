@@ -6,7 +6,7 @@ import { CAM_MAX, CAM_MIN, Core, clamp, isTextTarget } from './shared';
 /** Teclas por defecto, solo hasta que llegue applySettings. */
 export const DEFAULT_BINDINGS: Record<Action, string> = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
-  fire: 'Mouse0', knife: 'Mouse2', reload: 'KeyR', grenade: 'Space', ability: 'KeyF',
+  fire: 'Mouse0', knife: 'KeyX', sprint: 'ShiftLeft', aim: 'Mouse2', reload: 'KeyR', grenade: 'Space', ability: 'KeyF',
   interact: 'KeyE', useItem: 'KeyQ', cycleItem: 'Tab', crouch: 'ControlLeft',
   orderFollow: 'KeyV', orderGoto: 'Digit1', orderFocus: 'Digit2', orderHold: 'Digit3',
   pause: 'Escape', console: 'Backquote',
@@ -35,6 +35,8 @@ export interface KeyHeld {
   fire: boolean;
   knife: boolean;
   crouch: boolean;
+  sprint: boolean;
+  aim: boolean;
 }
 
 export interface KeyboardCtl {
@@ -64,7 +66,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   let haveLast = false;
   let ignorePauseUntil = 0;
 
-  const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false };
+  const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false };
 
   function rebuild(): void {
     byCode = new Map();
@@ -105,7 +107,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
     const acts = byCode.get(code);
     if (acts) {
       for (const a of acts) {
-        if (a === 'fire' || a === 'knife' || a === 'crouch') latch.add(a);
+        if (a === 'fire' || a === 'knife' || a === 'crouch' || a === 'sprint' || a === 'aim') latch.add(a);
         if (repeat) continue;
         switch (a) {
           case 'reload': input.reload = true; break;
@@ -188,7 +190,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
     lastY = e.clientY;
     haveLast = true;
     if (mx || my) {
-      const k = MOUSE_K * core.sensitivity();
+      // Al apuntar (aim mantenido) la sensibilidad baja a 0,6.
+      const k = MOUSE_K * core.sensitivity() * (isHeld('aim') ? 0.6 : 1);
       core.rotate(mx * k, -my * k); // ratón a la derecha = +yaw; ratón arriba (my<0) = +pitch
     }
   };
@@ -244,7 +247,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
 
     update(dt: number): KeyHeld {
       if (!active) {
-        held.moveF = 0; held.moveR = 0; held.fire = false; held.knife = false; held.crouch = false;
+        held.moveF = 0; held.moveR = 0; held.fire = false; held.knife = false; held.crouch = false; held.sprint = false; held.aim = false;
         return held;
       }
       // Flechas: giran la vista siempre, con o sin pointer lock (no dependen de la sensibilidad).
@@ -257,6 +260,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       held.fire = isHeld('fire') || latch.has('fire');
       held.knife = isHeld('knife') || latch.has('knife');
       held.crouch = isHeld('crouch') || latch.has('crouch');
+      held.sprint = isHeld('sprint') || latch.has('sprint');
+      held.aim = isHeld('aim') || latch.has('aim');
       latch.clear();
       return held;
     },

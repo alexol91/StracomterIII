@@ -11,6 +11,7 @@
 
 import type { CampaignState, KVStorage } from '../src/contracts';
 import { createCampaign } from '../src/sim/campaign';
+import { GUN_FEEL } from '../src/sim/data';
 import { emptyInput, type ClassId } from '../src/sim/types';
 import { angDiff, type Unit, type World } from '../src/sim/world';
 
@@ -55,15 +56,19 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
     if (tgt && total === 0 && world.pickups.some(k => !k.taken && k.type.startsWith('municion'))) tgt = null;
     if (tgt) {
       const wantYaw = Math.atan2(tgt.y - p.y, tgt.x - p.x);
-      const dy = angDiff(wantYaw, input.yaw);
+      // v1.2: la mira lleva el retroceso de cámara; el bot lo compensa como lo haría una persona (tirando hacia abajo)
+      const dy = angDiff(wantYaw, input.yaw + world.recoil.yaw);
       input.yaw += Math.max(-0.12, Math.min(0.12, dy)); // gira como una persona rápida, no al instante
       // apunta al pecho desde la cámara
       const dz = world.height(tgt) * 0.6 - world.cam.z, dh = Math.hypot(tgt.x - world.cam.x, tgt.y - world.cam.y);
-      input.pitch += (Math.atan2(dz, dh) - input.pitch) * 0.3;
+      input.pitch += (Math.atan2(dz, dh) - (input.pitch + world.recoil.pitch)) * 0.3;
       if (Math.abs(dy) < 0.06) {
         if (p.cls === 'explosives' && td < 4) input.moveF = -1;
         else if (total > 0 && !pasivo) input.fire = true;
       }
+      // v1.2: ráfagas. Con el arma «caliente» y el blanco lejos suelta el gatillo hasta que la dispersión baja
+      const base = GUN_FEEL[p.cls ?? 'captain'].baseSpread;
+      if (input.fire && p.spread > 2.2 * base && td > 12) input.fire = false;
       if (td < 1.6 || total === 0) { input.knife = td < 1.7; if (total === 0) input.moveF = 1; }
       // se mueve de lado para no ser un blanco quieto
       input.moveR = Math.sin(world.time * 1.3) > 0 ? 0.7 : -0.7;

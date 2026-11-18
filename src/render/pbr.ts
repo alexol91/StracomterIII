@@ -10,11 +10,14 @@ export interface PBRSet { map: THREE.Texture; normalMap: THREE.Texture; roughnes
 
 /** Metros que cubre una repetición de cada textura. */
 export const PBR_TILE_M: Record<string, number> = {
-  marble_tiles: 2.4, terrazzo_tiles: 2.0, dirty_carpet: 4.0, Carpet012: 5.0, large_grey_tiles: 2.0,
+  terrazzo_tiles: 2.0, dirty_carpet: 4.0, Carpet012: 5.0,
   concrete_floor_painted: 3.0, laminate_floor_02: 1.6, rough_concrete: 4.0, white_plaster_02: 2.0,
 };
 
 const cache = new Map<string, Promise<PBRSet | null>>();
+const pbrReady = new Set<string>();
+/** ¿Ya terminó (con éxito o fallo) la carga de este conjunto de texturas? */
+export function isPBRReady(id: string): boolean { return pbrReady.has(id); }
 
 export function loadPBR(id: string): Promise<PBRSet | null> {
   let p = cache.get(id);
@@ -31,7 +34,8 @@ export function loadPBR(id: string): Promise<PBRSet | null> {
     };
     p = Promise.all([one('color', true), one('normal', false), one('rough', false)])
       .then(([map, normalMap, roughnessMap]) => ({ map, normalMap, roughnessMap }))
-      .catch(() => null);
+      .catch(() => null)
+      .then((r) => { pbrReady.add(id); return r; });
     cache.set(id, p);
   }
   return p;
@@ -43,6 +47,8 @@ export function disposePBRCache(): void {
 }
 
 const envCache = new Map<string, Promise<THREE.Texture | null>>();
+const envReady = new Set<string>();
+export function isEnvReady(name: string): boolean { return envReady.has(name); }
 
 /** Carga un HDRI (equirrectangular) y lo convierte a entorno PMREM. */
 export function loadEnvironment(renderer: THREE.WebGLRenderer, name: string): Promise<THREE.Texture | null> {
@@ -54,7 +60,7 @@ export function loadEnvironment(renderer: THREE.WebGLRenderer, name: string): Pr
       const env = pm.fromEquirectangular(tex).texture;
       tex.dispose(); pm.dispose();
       return env;
-    }).catch(() => null);
+    }).catch(() => null).then((r) => { envReady.add(name); return r; });
     envCache.set(name, p);
   }
   return p;

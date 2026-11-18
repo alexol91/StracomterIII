@@ -187,6 +187,26 @@ marcado, estilo cómic», «modelos sencillos») y de «ningún asset descargado
 * Calidad `high` (sombras, contorno, posprocesado) en ordenador y `low` en táctiles de alta densidad;
   se fuerza con `?quality=low|high`.
 
+## v1.2: tacto de disparo, progresión y versión pública (decisión del dueño, 2026-11-18)
+
+Nada de esta sección está en el documento de definición: son añadidos que el dueño aprobó tras el
+análisis de producto («me gustan todas las ideas… vamos a ello»). Lo que cambia respecto al encargo:
+
+* **Esprint** (Mayús): ×1,45 de velocidad, no se dispara, 0,35 s para volver a levantar el arma, pasos más ruidosos. El §11 no lo contemplaba.
+* **Apuntar al hombro** (clic derecho): velocidad ×0,55, dispersión ×0,45, cámara a 2 m y campo de visión 60→42. **El cuchillo pasa de clic derecho a la tecla X** (los ajustes guardados se migran solos).
+* **Dispersión dinámica y retroceso** por clase (`GUN_FEEL` en `src/sim/data.ts`): el arma del jugador ya no es perfectamente precisa; se abre al disparar seguido o moverse. El retroceso mueve la cámara, no la entrada del jugador.
+* **Aturdimiento**: un golpe de ≥ 18 de daño (≥ 20 si es explosión) deja al enemigo 0,35 s sin disparar, con 1,2 s de enfriamiento.
+* **Mejoras de campaña**: al terminar cada planta se elige 1 de 3 (20 en total, `UPGRADES`), obligatoria y para el resto de la campaña. Es un sistema de progresión nuevo que altera los números del §6-§8 (cargador, vida, recarga…) solo para quien las elige.
+* **Nota de zona** S-D (precisión 25 + daño recibido 25 + tiempo 25 + escuadra 15 + tiros a la cabeza 10) y **récords locales** por planta y dificultad. Usar cualquier truco marca la partida («TRUCOS») y no puntúa ni guarda récord; la partida rápida tampoco guarda récords.
+* **Tutorial guiado** en la planta 1 la primera vez (12 pasos, se puede omitir y repetir). Mientras dura, los enemigos no aparecen ni detectan (`world.hold`) hasta el paso de disparar.
+* **Confirmación de impactos, registro de bajas, retícula dinámica, marcas de bala, polvo por superficie, casquillos y disparos por capas con cola de sala**: solo presentación.
+* **Versión pública**: los ganchos de prueba (`window.__stracomter`, `?test`, `?auto`) solo existen en desarrollo o con `?debug=1`. La consola de trucos se mantiene (la pide el §18).
+* **Registro de partidas** para pruebas con personas: se guarda solo en el navegador (`stracomter3.playlog`) y se exporta a mano desde Opciones. No se envía nada a ningún sitio.
+* **Carga**: animaciones recortadas a los 16 clips que se usan (`tools/recortar-ual.ts`, 6,5 MB → 0,8 MB), HDRI a 512 px (`tools/reducir-hdri.ts`), texturas de personajes a 1024/512, y modelos de reserva solo si hacen falta. Build de 47 a 33 MB. Los originales siguen en `assets-src/` (fuera del repositorio).
+
+Sin comprobar con el bot: el bot no esprinta ni apunta al hombro, así que el equilibrio de esas dos
+mecánicas solo está probado a mano. Las pruebas `tests/v12-*.test.ts` anotan qué no cubren.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo

@@ -15,6 +15,40 @@ const MAX_TRACER = 48;
 const MAX_FLASH = 24;
 const MAX_EXPL = 8;
 const MAX_MARK = 4;
+/** fogonazo: 1-2 frames */
+const FLASH_TIME = 0.032;
+const MAX_CASINGS = 40;
+/** capacidad máxima de marcas de bala por tipo (yeso, madera, cristal/puerta) y el reparto por calidad */
+const DECAL_MAX = { plaster: 120, wood: 50, glass: 50 };
+const DECAL_CAPS = { high: { plaster: 120, wood: 50, glass: 50 }, medium: { plaster: 50, wood: 20, glass: 20 }, low: { plaster: 0, wood: 0, glass: 0 } };
+type DecalKind = 'plaster' | 'wood' | 'glass';
+
+/** Textura de marca de bala generada por canvas. */
+function decalTexture(kind: DecalKind): THREE.CanvasTexture {
+  const S = 64;
+  const { c, g } = makeCanvas(S, S);
+  g.translate(S / 2, S / 2);
+  let seed = kind === 'plaster' ? 11 : kind === 'wood' ? 23 : 37;
+  const r = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  if (kind === 'glass') {
+    // estrella de grietas finas
+    g.strokeStyle = 'rgba(235,245,255,0.85)'; g.lineWidth = 1.2;
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + r() * 0.3, l = 14 + r() * 16; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * l * 0.5, Math.sin(a) * l * 0.5); g.lineTo(Math.cos(a + 0.15) * l, Math.sin(a + 0.15) * l); g.stroke(); }
+    g.strokeStyle = 'rgba(220,235,250,0.5)'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.stroke();
+    g.fillStyle = 'rgba(10,14,20,0.9)'; g.beginPath(); g.arc(0, 0, 3, 0, 7); g.fill();
+  } else {
+    // borde astillado: polígono irregular claro (yeso) u ocre (madera), agujero oscuro en el centro
+    const rim = kind === 'plaster' ? 'rgba(225,223,215,0.75)' : 'rgba(196,150,92,0.85)';
+    g.fillStyle = rim; g.beginPath();
+    for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2, rad = (i % 2 ? 11 : 19) + r() * 7; g.lineTo(Math.cos(a) * rad, Math.sin(a) * rad); }
+    g.closePath(); g.fill();
+    if (kind === 'wood') { g.strokeStyle = 'rgba(214,170,110,0.9)'; g.lineWidth = 1.4; for (let i = 0; i < 7; i++) { const a = r() * 6.28, l = 18 + r() * 12; g.beginPath(); g.moveTo(Math.cos(a) * 4, Math.sin(a) * 4); g.lineTo(Math.cos(a) * l, Math.sin(a) * l); g.stroke(); } }
+    const rg = g.createRadialGradient(0, 0, 0, 0, 0, 8);
+    rg.addColorStop(0, 'rgba(8,8,8,1)'); rg.addColorStop(0.7, 'rgba(25,22,20,0.95)'); rg.addColorStop(1, 'rgba(30,28,26,0)');
+    g.fillStyle = rg; g.beginPath(); g.arc(0, 0, 8, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
@@ -26,6 +60,8 @@ const _m = new THREE.Matrix4();
 const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _c = new THREE.Color();
+const _q2 = new THREE.Quaternion();
+const _e = new THREE.Euler();
 const IDQ = new THREE.Quaternion();
 
 function makeCanvas(w: number, h: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
@@ -132,6 +168,19 @@ export class Fx {
   private projHullMat: THREE.MeshBasicMaterial;
   private trailAcc = 0;
 
+  // casquillos
+  private casingMesh: THREE.InstancedMesh;
+  private cpos = new Float32Array(MAX_CASINGS * 3);
+  private cvel = new Float32Array(MAX_CASINGS * 3);
+  private crot = new Float32Array(MAX_CASINGS * 2);
+  private cspin = new Float32Array(MAX_CASINGS * 2);
+  private clife = new Float32Array(MAX_CASINGS);
+  private cnext = 0;
+
+  // marcas de bala persistentes (buffer circular por tipo)
+  private decals = {} as Record<DecalKind, { mesh: THREE.InstancedMesh; cap: number; n: number; head: number }>;
+  private decalQuality: 'low' | 'medium' | 'high' = 'high';
+
   constructor() {
     const o = this.owned;
     // — trazadoras: quads con degradado que se orientan hacia la cámara
@@ -187,6 +236,23 @@ export class Fx {
     this.coneGeo = o.add(new THREE.ConeGeometry(0.2, 0.42, 10).rotateX(Math.PI)); // punta hacia abajo
     for (let i = 0; i < MAX_MARK; i++) { const mk = this.makeMarker(); this.markers.push(mk); }
     this.persistent = this.makeMarker();
+    // — casquillos (cilindro de latón, hasta 40 vivos)
+    const cg = o.add(new THREE.CylinderGeometry(0.007, 0.007, 0.034, 6));
+    const cm = o.add(new THREE.MeshBasicMaterial({ color: 0xd2a043 }));
+    this.casingMesh = new THREE.InstancedMesh(cg, cm, MAX_CASINGS);
+    this.casingMesh.frustumCulled = false;
+    for (let i = 0; i < MAX_CASINGS; i++) this.casingMesh.setMatrixAt(i, zero);
+    this.group.add(this.casingMesh);
+    // — marcas de bala: un InstancedMesh por tipo, sin escribir profundidad
+    const dq = o.add(new THREE.PlaneGeometry(1, 1));
+    for (const k of ['plaster', 'wood', 'glass'] as DecalKind[]) {
+      const tex = o.add(decalTexture(k));
+      const mat = o.add(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+      const im = new THREE.InstancedMesh(dq, mat, DECAL_MAX[k]);
+      im.frustumCulled = false; im.count = 0; im.renderOrder = 2;
+      this.group.add(im);
+      this.decals[k] = { mesh: im, cap: DECAL_CAPS.high[k], n: 0, head: 0 };
+    }
     // — proyectiles
     this.projMat = o.add(makeToonVC());
     this.projHullMat = o.add(makeOutlineMat());
@@ -218,6 +284,63 @@ export class Fx {
   setColorblind(cb: boolean): void {
     this.tracerMatAlly.color.setHex(cb ? 0x7aa8ff : 0xffe14a);
     this.tracerMatEnemy.color.setHex(cb ? 0xffee00 : 0xff5a2a);
+  }
+
+  /** Calidad de las marcas de bala: 220 en alta, 90 en media, ninguna en baja. */
+  setDecalQuality(q: 'low' | 'medium' | 'high'): void {
+    if (q === this.decalQuality) return;
+    this.decalQuality = q;
+    this.clearDecals();
+    for (const k of Object.keys(this.decals) as DecalKind[]) this.decals[k].cap = DECAL_CAPS[q][k];
+  }
+
+  /** Borra todas las marcas (cambio de mundo o boquete en un muro). */
+  clearDecals(): void {
+    for (const d of Object.values(this.decals)) { d.n = 0; d.head = 0; d.mesh.count = 0; }
+  }
+
+  private addDecal(kind: DecalKind, x: number, y: number, z: number, nx: number, ny: number, nz: number, size: number): void {
+    const d = this.decals[kind];
+    if (d.cap <= 0) return;
+    const i = d.head;
+    d.head = (d.head + 1) % d.cap;
+    d.n = Math.min(d.cap, d.n + 1);
+    _d.set(nx, ny, nz);
+    _q.setFromUnitVectors(Z_AXIS, _d);
+    _q2.setFromAxisAngle(Z_AXIS, Math.random() * Math.PI * 2);
+    _q.multiply(_q2);
+    _p.set(x + nx * 0.003, y + ny * 0.003, z + nz * 0.003);   // 3 mm de la superficie
+    _s.set(size, size, 1);
+    d.mesh.setMatrixAt(i, _m.compose(_p, _q, _s));
+    d.mesh.count = d.n;
+    d.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Polvo y fragmentos según la superficie. n = normal (hacia fuera), d = dirección del disparo (en coordenadas three). */
+  private impact(surface: string, x: number, y: number, z: number, nx: number, ny: number, nz: number): void {
+    switch (surface) {
+      case 'wall':     // yeso: nubecilla clara + esquirlas
+        this.burst(x, y, z, 3, 0.9, 0.7, 0.16, 0xe4e2dc, -0.3, 0.3, nx * 0.8, ny * 0.8, nz * 0.8);
+        this.burst(x, y, z, 5, 3.5, 0.35, 0.035, 0xc9c6bd, 9, 0.2, nx * 1.8, ny * 1.8 + 0.5, nz * 1.8);
+        break;
+      case 'furniture': // madera: astillas ocres
+        this.burst(x, y, z, 7, 3.2, 0.4, 0.03, 0xb98a52, 9, 0.2, nx * 1.6, ny * 1.6 + 0.4, nz * 1.6);
+        this.burst(x, y, z, 2, 0.8, 0.5, 0.08, 0xcaa070, -0.2, 0.3, nx * 0.6, ny * 0.6, nz * 0.6);
+        break;
+      case 'door':     // cristal/puerta: destello y fragmentos
+        this.burst(x, y, z, 1, 0.2, 0.08, 0.18, 0xffffff, 0, 0, nx * 0.3, ny * 0.3, nz * 0.3);
+        this.burst(x, y, z, 8, 4.2, 0.4, 0.03, 0xcfe6f5, 9, 0.2, nx * 2.2, ny * 2.2 + 0.4, nz * 2.2);
+        break;
+      case 'floor':    // suelo: polvo bajo
+        this.burst(x, y, z, 3, 0.8, 0.6, 0.14, 0xb9b4a8, -0.2, 0.1);
+        this.burst(x, y, z, 3, 2.2, 0.3, 0.03, 0x9c978c, 8, 0.4);
+        break;
+      case 'body':     // cuerpo: salpicadura corta, roja oscura (sobria)
+        this.burst(x, y, z, 5, 2.4, 0.3, 0.045, 0x7a1512, 8, 0.2, nx, ny + 0.3, nz);
+        break;
+      default:
+        break;
+    }
   }
 
   private makeMarker(): Marker {
@@ -253,6 +376,10 @@ export class Fx {
     for (const v of this.projViews.values()) this.group.remove(v);
     this.projViews.clear();
     this.shake = 0;
+    this.clearDecals();
+    this.clife.fill(0);
+    for (let i = 0; i < MAX_CASINGS; i++) this.casingMesh.setMatrixAt(i, ZERO_M);
+    this.casingMesh.instanceMatrix.needsUpdate = true;
     this.muzzleT = this.explT = 0; this.muzzleLight.intensity = this.explLight.intensity = 0;
   }
 
@@ -330,24 +457,43 @@ export class Fx {
     // fogonazo en estrella en el origen + luz breve
     const f = this.flashes.find((x) => x.t <= 0);
     if (f) {
-      f.t = 0.06; f.base = rr(0.7, 1.1); f.rot = Math.random() * 6.28;
+      f.t = FLASH_TIME; f.base = rr(0.7, 1.1); f.rot = Math.random() * 6.28;
       f.mesh.position.copy(_a).addScaledVector(_d, 0.25);
       f.mesh.visible = true;
     }
     this.muzzleLight.position.copy(_a).addScaledVector(_d, 0.5);
-    this.muzzleT = 0.06;
-    // casquillo expulsado a la derecha del tirador
+    this.muzzleT = FLASH_TIME;
+    // casquillo: sale de la zona de la recámara (algo por detrás de la boca) hacia la derecha del tirador
     const rx = -_d.z, rz = _d.x, rl = Math.hypot(rx, rz) || 1;
-    this.part(_a.x, _a.y, _a.z, (rx / rl) * rr(1.2, 2.4), rr(1.8, 3.2), (rz / rl) * rr(1.2, 2.4), 0.9, 0.04, 0xd9a23a, 14, 0.2);
-    // impacto
-    if (ev.hit === 'wall') {
-      this.burst(ev.tx, ev.tz, ev.ty, 6, 4, 0.3, 0.05, 0xffe28a, 9, 0.2, -_d.x * 2, -_d.y * 2 + 1, -_d.z * 2);
-      this.burst(ev.tx, ev.tz, ev.ty, 2, 1, 0.5, 0.13, 0x9aa0a8, -0.4, 0.5);
-    } else if (ev.hit === 'entity') {
-      const col = ev.team === 'ally' ? 0xff7a2a : 0x6ab8ff;
-      this.burst(ev.tx, ev.tz, ev.ty, 7, 3.5, 0.35, 0.07, col, 8, 0.3, -_d.x, -_d.y + 0.5, -_d.z);
-      this.burst(ev.tx, ev.tz, ev.ty, 3, 2, 0.25, 0.05, 0xffffff, 8, 0.3);
+    this.eject(_a.x - _d.x * 0.4 + (rx / rl) * 0.05, _a.y - _d.y * 0.4 - 0.02, _a.z - _d.z * 0.4 + (rz / rl) * 0.05, (rx / rl) * rr(1.3, 2.3), rr(1.6, 2.8), (rz / rl) * rr(1.3, 2.3));
+    // impacto: según la superficie (si el simulador no la da, 'wall' / 'entity' como antes)
+    const surface = ev.surface ?? (ev.hit === 'wall' ? 'wall' : ev.hit === 'entity' ? 'body' : 'none');
+    if (surface === 'none') return;
+    // normal hacia fuera: la de la simulación en planta; si falta, opuesta al disparo; en el suelo, hacia arriba
+    let nx = 0, ny = 1, nz = 0;
+    if (surface !== 'floor') {
+      const sx = ev.nx ?? -_d.x, sz = ev.ny ?? -_d.z;
+      const l = Math.hypot(sx, sz);
+      if (l > 0.01) { nx = sx / l; ny = 0; nz = sz / l; }
     }
+    if (surface === 'body') {
+      this.burst(ev.tx, ev.tz, ev.ty, 5, 2.4, 0.3, 0.045, ev.team === 'ally' ? 0x7a1512 : 0x1c3a66, 8, 0.2, -_d.x, -_d.y + 0.3, -_d.z);
+      return;
+    }
+    this.impact(surface, ev.tx, ev.tz, ev.ty, nx, ny, nz);
+    const kind: DecalKind = surface === 'furniture' ? 'wood' : surface === 'door' ? 'glass' : 'plaster';
+    this.addDecal(kind, ev.tx, ev.tz, ev.ty, nx, ny, nz, rr(0.05, 0.09));
+  }
+
+  /** Casquillo con rebote (máx. 40 vivos, circular). */
+  private eject(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
+    const i = this.cnext;
+    this.cnext = (this.cnext + 1) % MAX_CASINGS;
+    this.cpos[i * 3] = x; this.cpos[i * 3 + 1] = y; this.cpos[i * 3 + 2] = z;
+    this.cvel[i * 3] = vx; this.cvel[i * 3 + 1] = vy; this.cvel[i * 3 + 2] = vz;
+    this.crot[i * 2] = Math.random() * 6; this.crot[i * 2 + 1] = Math.random() * 6;
+    this.cspin[i * 2] = rr(-25, 25); this.cspin[i * 2 + 1] = rr(-25, 25);
+    this.clife[i] = 3.5;
   }
 
   private onExplosion(ev: Extract<GameEvent, { type: 'explosion' }>, world: IWorld): void {
@@ -408,12 +554,12 @@ export class Fx {
       if (f.t <= 0) continue;
       f.t -= dt;
       if (f.t <= 0) { f.mesh.visible = false; continue; }
-      const k = f.t / 0.06;
+      const k = f.t / FLASH_TIME;
       f.mesh.quaternion.copy(this.flashQuat).multiply(_q.setFromAxisAngle(Z_AXIS, f.rot));
       f.mesh.scale.setScalar(f.base * (0.5 + 0.9 * k));
     }
     // luces puntuales
-    if (this.muzzleT > 0) { this.muzzleT -= dt; this.muzzleLight.intensity = Math.max(0, this.muzzleT / 0.06) * 22; } else this.muzzleLight.intensity = 0;
+    if (this.muzzleT > 0) { this.muzzleT -= dt; this.muzzleLight.intensity = Math.max(0, this.muzzleT / FLASH_TIME) * 22; } else this.muzzleLight.intensity = 0;
     if (this.explT > 0) { this.explT -= dt; this.explLight.intensity = Math.max(0, this.explT / 0.5) * 160; } else this.explLight.intensity = 0;
 
     // partículas
@@ -442,6 +588,29 @@ export class Fx {
       this.pm.setMatrixAt(i, _m);
     }
     this.pm.instanceMatrix.needsUpdate = true;
+
+    // casquillos: gravedad, rebote en el suelo y desaparición suave
+    let cdirty = false;
+    for (let i = 0; i < MAX_CASINGS; i++) {
+      if (this.clife[i] <= 0) continue;
+      cdirty = true;
+      this.clife[i] -= dt;
+      if (this.clife[i] <= 0) { this.casingMesh.setMatrixAt(i, ZERO_M); continue; }
+      const i3 = i * 3;
+      this.cvel[i3 + 1] -= 12 * dt;
+      this.cpos[i3] += this.cvel[i3] * dt; this.cpos[i3 + 1] += this.cvel[i3 + 1] * dt; this.cpos[i3 + 2] += this.cvel[i3 + 2] * dt;
+      if (this.cpos[i3 + 1] < 0.012) {
+        this.cpos[i3 + 1] = 0.012;
+        if (this.cvel[i3 + 1] < -0.5) { this.cvel[i3 + 1] *= -0.35; this.cvel[i3] *= 0.6; this.cvel[i3 + 2] *= 0.6; this.cspin[i * 2] *= 0.5; this.cspin[i * 2 + 1] *= 0.5; }
+        else { this.cvel[i3] = this.cvel[i3 + 1] = this.cvel[i3 + 2] = 0; this.cspin[i * 2] = this.cspin[i * 2 + 1] = 0; }
+      }
+      this.crot[i * 2] += this.cspin[i * 2] * dt; this.crot[i * 2 + 1] += this.cspin[i * 2 + 1] * dt;
+      _q.setFromEuler(_e.set(this.crot[i * 2], 0, this.crot[i * 2 + 1]));
+      const sc = Math.min(1, this.clife[i] / 0.5);
+      _s.set(sc, sc, sc);
+      this.casingMesh.setMatrixAt(i, _m.compose(_p.set(this.cpos[i3], this.cpos[i3 + 1], this.cpos[i3 + 2]), _q, _s));
+    }
+    if (cdirty) this.casingMesh.instanceMatrix.needsUpdate = true;
 
     // explosiones
     for (const e of this.expls) {

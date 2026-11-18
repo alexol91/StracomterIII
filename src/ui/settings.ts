@@ -7,7 +7,7 @@ export const SETTINGS_KEY = 'stracomter3.settings';
 
 /** Orden en que se listan las acciones en la pantalla de remapeo. */
 export const ACTIONS: Action[] = [
-  'forward', 'back', 'left', 'right', 'fire', 'knife', 'reload', 'grenade', 'ability',
+  'forward', 'back', 'left', 'right', 'fire', 'aim', 'sprint', 'knife', 'reload', 'grenade', 'ability',
   'interact', 'useItem', 'cycleItem', 'crouch', 'orderFollow', 'orderGoto', 'orderFocus',
   'orderHold', 'pause', 'console',
 ];
@@ -15,7 +15,7 @@ export const ACTIONS: Action[] = [
 export function defaultBindings(): Record<Action, string> {
   return {
     forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
-    fire: 'Mouse0', knife: 'Mouse2', reload: 'KeyR', grenade: 'Space', ability: 'KeyF',
+    fire: 'Mouse0', aim: 'Mouse2', sprint: 'ShiftLeft', knife: 'KeyX', reload: 'KeyR', grenade: 'Space', ability: 'KeyF',
     interact: 'KeyE', useItem: 'KeyQ', cycleItem: 'Tab', crouch: 'KeyC',
     orderFollow: 'KeyV', orderGoto: 'Digit1', orderFocus: 'Digit2', orderHold: 'Digit3',
     pause: 'Escape', console: 'Backquote',
@@ -70,6 +70,9 @@ export function loadSettings(): Settings {
     for (const a of ACTIONS) {
       if (typeof b[a] === 'string' && (b[a] as string).length > 0) s.bindings[a] = b[a] as string;
     }
+    // Migración v1.2: el clic derecho pasa a apuntar y el cuchillo a X; sprint/aim ausentes ya tienen su valor por defecto
+    if (b.knife === 'Mouse2') s.bindings.knife = 'KeyX';
+    if (s.bindings.sprint === s.bindings.aim) { s.bindings.sprint = 'ShiftLeft'; s.bindings.aim = 'Mouse2'; }
   }
   return s;
 }

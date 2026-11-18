@@ -173,17 +173,19 @@ export class EnemyAI {
 
   update(dt: number): void {
     const w = this.w;
-    this.hearNoises();
+    // v1.2 tutorial: con `hold` nadie oye (los enemigos presentes siguen patrullando)
+    if (!w.hold) this.hearNoises();
     for (const s of this.squads) this.squadTactics(s);
     for (const u of w.entities) {
       if (!u.alive || u.team !== 'enemy') continue;
       const b = u.brain as Brain;
-      if (w.time >= b.senseAt) { this.sense(u, b, w.time - (b.senseAt - 0.1)); b.senseAt = w.time + 0.1; }
+      if (w.time >= b.senseAt) { if (!w.hold) this.sense(u, b, w.time - (b.senseAt - 0.1)); b.senseAt = w.time + 0.1; } // hold: tampoco ven
       if (b.pending && w.time >= b.pending.at) {
         const p = b.pending; b.pending = null;
         if (!b.belief || b.belief.t < p.b.t) this.setBelief(u, b, { ...p.b }, false);
       }
       this.think(u, b, dt);
+      if (w.time < u.staggerUntil && u.kind !== 'miniboss' && u.kind !== 'megaboss') u.aiState = 'aturdido';
       // giro hacia donde quiere mirar
       const rate = (u.kind === 'megaboss' || u.kind === 'miniboss' ? 2.6 : 5.5) * dt;
       const d = angDiff(b.faceYaw, u.yaw);
@@ -643,6 +645,7 @@ export class EnemyAI {
   /** Aprieta el gatillo solo si hay línea de tiro real ahora mismo. */
   private tryShoot(u: Unit, b: Brain, t: Unit, spreadMul: number): boolean {
     const w = this.w;
+    if (w.time < u.staggerUntil) return false; // aturdido: no dispara
     if (w.time < b.reactAt || u.reloading > 0 || u.mag <= 0 || u.fireCd > 0) return false;
     if (w.time < b.restUntil) return false;
     if (w.time > b.burstUntil) {

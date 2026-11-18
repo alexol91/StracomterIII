@@ -29,10 +29,10 @@ const ACCENT: Record<Theme, number> = {
  * Las texturas de moqueta son muy oscuras (luminosidad ~50/255), así que se multiplican por más de 1.
  */
 const FLOOR_PBR: Record<Theme, { set: string; mul: [number, number, number] }> = {
-  recepcion: { set: 'marble_tiles', mul: [1.25, 1.35, 1.45] },
+  recepcion: { set: 'terrazzo_tiles', mul: [1.25, 1.35, 1.45] },
   soporte: { set: 'dirty_carpet', mul: [2.3, 3.0, 4.6] },          // moqueta gris azulada
   desarrollo: { set: 'Carpet012', mul: [2.1, 2.15, 2.1] },         // moqueta gris medio
-  calidad: { set: 'large_grey_tiles', mul: [1.2, 1.2, 1.25] },
+  calidad: { set: 'terrazzo_tiles', mul: [1.2, 1.2, 1.25] },
   datos: { set: 'concrete_floor_painted', mul: [1.0, 1.2, 1.7] },
   comercial: { set: 'laminate_floor_02', mul: [1.05, 1.12, 1.3] },
   direccion: { set: 'laminate_floor_02', mul: [0.95, 0.78, 0.62] },
@@ -47,6 +47,13 @@ const WALL_REAL: Record<Theme, { wall: number; facade: number }> = {
   direccion: { wall: 0xd3c9b8, facade: 0xdcd2c0 }, juntas: { wall: 0xd6d6d4, facade: 0xe0e4ea },
   azotea: { wall: 0x8e949f, facade: 0x7c828d },
 };
+/** Conjuntos de texturas PBR que necesita este tema en el estilo realista (para el progreso de carga). */
+export function pbrIdsFor(theme: Theme): string[] {
+  const th = THEMES[theme];
+  const ids = ['white_plaster_02'];
+  if (!(th.pattern === 'tiles' && theme !== 'datos')) ids.push((FLOOR_PBR[theme] ?? FLOOR_PBR.recepcion).set);
+  return ids;
+}
 export const FOG: Record<Theme, [number, number]> = {
   recepcion: [50, 150], soporte: [50, 150], desarrollo: [50, 150], calidad: [50, 150], comercial: [50, 150],
   direccion: [50, 150], juntas: [50, 150], datos: [22, 90], azotea: [28, 120],

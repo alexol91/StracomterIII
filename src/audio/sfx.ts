@@ -48,6 +48,8 @@ const SHOTS: Record<string, ShotDef> = {
   megaboss:    { nt: 'lowpass', nf0: 2200, nf1: 350, nq: 0.8, nd: 0.1, ng: 0.85, tw: 'sawtooth', tf0: 95, tf1: 45, td: 0.1, tg: 0.4, extra: 'double' },
 };
 
+const ROOM_LEVEL = { mid: 1.6, big: 1.9, ext: 1.2 };
+const HEAVY = new Set<string>(['enemy3', 'especialist', 'megaboss', 'explosives', 'miniboss']);
 const SINGLE = new Set<string>(['enemy1', 'enemy3']);
 const AUTO = new Set<string>(['captain', 'technic', 'especialist', 'enemy2', 'megaboss']);
 
@@ -64,6 +66,15 @@ export class Sfx {
   private lastStepV = -9;
   private lastSexo = -9;
   private lastGo = -9;
+  private lastCasing = -9;
+  private lastConfirm = -9;
+  /** Capas sintetizadas (transitorio, sub-grave, mecánica, cola de sala, casquillos). Apagable. */
+  layers = true;
+  private roomIn: GainNode;
+  private roomOut: GainNode;
+  private conv: ConvolverNode;
+  private roomProfile: 'mid' | 'big' | 'ext' = 'mid';
+  private irCache = new Map<string, AudioBuffer>();
 
   constructor(private ctx: AudioContext, private out: AudioNode, private samples: Samples) {
     // Un único buffer de ruido blanco de 3 s, reutilizado por todos los efectos.
@@ -71,18 +82,70 @@ export class Sfx {
     this.noise = ctx.createBuffer(1, n, ctx.sampleRate);
     const ch = this.noise.getChannelData(0);
     for (let i = 0; i < n; i++) ch[i] = Math.random() * 2 - 1;
+    // Cola de sala: UN ConvolverNode con respuesta generada por código, compartido por todos los disparos.
+    this.roomIn = ctx.createGain();
+    this.conv = ctx.createConvolver();
+    this.roomOut = ctx.createGain();
+    this.roomOut.gain.value = ROOM_LEVEL.mid;
+    this.conv.buffer = this.makeIR('mid');
+    this.roomIn.connect(this.conv);
+    this.conv.connect(this.roomOut);
+    this.roomOut.connect(out);
+  }
+
+  setLayers(on: boolean): void { this.layers = on; }
+
+  private makeIR(p: 'mid' | 'big' | 'ext'): AudioBuffer {
+    const cached = this.irCache.get(p);
+    if (cached) return cached;
+    const sr = this.ctx.sampleRate;
+    const len = p === 'ext' ? 0.3 : p === 'big' ? 1.0 : 0.65;
+    const n = Math.floor(sr * len);
+    const buf = this.ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      let prev = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        const x = Math.random() * 2 - 1;
+        const fadeIn = Math.min(1, t / 0.004);
+        if (p === 'mid') d[i] = x * Math.exp(-t * 6.5) * fadeIn;
+        else if (p === 'big') { // metálica: brillante, con reflexiones tempranas
+          d[i] = (x - 0.6 * prev) * Math.exp(-t * 5) * fadeIn;
+          prev = x;
+        } else { // exterior: casi sin cola y un eco corto («slap») a ~120 ms
+          d[i] = x * Math.exp(-t * 18) * 0.08 * fadeIn;
+          if (t >= 0.12 && t < 0.15) d[i] += x * Math.exp(-(t - 0.12) * 80) * 0.7;
+        }
+      }
+      if (p === 'big') for (const tt of [0.011 + c * 0.003, 0.023, 0.037 + c * 0.004]) d[Math.floor(sr * tt)] += 0.9;
+      if (p === 'mid') for (const tt of [0.008 + c * 0.002, 0.019]) d[Math.floor(sr * tt)] += 0.6;
+    }
+    this.irCache.set(p, buf);
+    return buf;
+  }
+
+  /** Elige el tipo de sala según el tema del nivel (solo reconstruye si cambia). */
+  private setRoom(world: IWorld): void {
+    const theme = (world.level as { theme?: string } | undefined)?.theme;
+    const p: 'mid' | 'big' | 'ext' = theme === 'azotea' ? 'ext' : theme === 'datos' ? 'big' : 'mid';
+    if (p === this.roomProfile) return;
+    this.roomProfile = p;
+    this.conv.buffer = this.makeIR(p);
+    this.roomOut.gain.value = ROOM_LEVEL[p];
   }
 
   // ───────────────────────── Ruta posicional ─────────────────────────
 
   private route(
     world: IWorld | null, pos: { x: number; y: number } | null, vol: number,
-    opt: { prio?: boolean; novar?: boolean } = {},
+    opt: { prio?: boolean; novar?: boolean; room?: number } = {},
   ): Route | null {
     const limit = opt.prio ? MAX_VOICES_PRIO : MAX_VOICES;
     if (this.active >= limit) return null;
     const c = this.ctx;
     let pan = 0;
+    let dd = 0;
     let gain = vol;
     let cutoff = 20000;
     if (pos) {
@@ -91,6 +154,7 @@ export class Sfx {
       const cam = world.cam;
       const dx = pos.x - cam.x, dy = pos.y - cam.y;
       const d = Math.hypot(dx, dy);
+      dd = d;
       if (!(d < MAX_DIST)) return null;
       const fade = d > 35 ? (MAX_DIST - d) / 10 : 1;
       gain = vol * fade / (1 + d / 6);
@@ -126,6 +190,13 @@ export class Sfx {
       tail = panner;
     }
     tail.connect(this.out);
+    // Envío a la cola de sala (compartida): lo lejano lleva más cola; lo propio, menos.
+    if (opt.room && this.layers && this.roomIn) {
+      const sendG = c.createGain();
+      sendG.gain.value = opt.room * (pos ? 0.6 + Math.min(1.5, dd / 20) : 1);
+      tail.connect(sendG);
+      sendG.connect(this.roomIn);
+    }
     this.active++;
     const self = this;
     const r: Route = {
@@ -186,7 +257,7 @@ export class Sfx {
   }
 
   /** Reproduce `fn` en una ruta nueva (si hay voz libre). */
-  private play(world: IWorld | null, pos: { x: number; y: number } | null, vol: number, fn: (r: Route) => void, opt: { prio?: boolean; novar?: boolean } = {}): void {
+  private play(world: IWorld | null, pos: { x: number; y: number } | null, vol: number, fn: (r: Route) => void, opt: { prio?: boolean; novar?: boolean; room?: number } = {}): void {
     const r = this.route(world, pos, vol, opt);
     if (!r) return;
     try { fn(r); } finally { r.finish(); }
@@ -264,20 +335,40 @@ export class Sfx {
 
   // ───────────────────────── Sonidos concretos ─────────────────────────
 
-  private shot(r: Route, kind: Kind): void {
-    // Muestras originales: pistola para armas de un tiro, ametralladora para automáticas.
+  private shot(r: Route, kind: Kind, own: boolean): void {
+    // Cuerpo: muestra original (pistola para armas de un tiro, ametralladora para automáticas).
+    let sampled = false;
     if (SINGLE.has(kind) || !SHOTS[kind]) {
       const old = Math.random() < 0.25 && this.samples.get('pistolOld');
       const shotgun = kind === 'enemy3';
       if (this.smp(r, old ? 'pistolOld' : 'pistol', shotgun ? 0.794 : 1, shotgun ? 1.0 : 0.9)) {
+        sampled = true;
         if (shotgun) this.osc(r, 'sine', 120, 45, 0, 0.22, 0.45); // más cuerpo
-        return;
       }
     } else if (AUTO.has(kind)) {
       const rate = kind === 'megaboss' ? 0.8 : kind === 'especialist' ? 0.9 : kind === 'technic' ? 1.1 : 1;
-      if (this.smp(r, 'machine', rate, 0.9)) return;
+      sampled = this.smp(r, 'machine', rate, 0.9);
     }
-    this.shotSynth(r, kind);
+    if (!sampled) this.shotSynth(r, kind);
+    if (this.layers) this.shotLayers(r, kind, own, sampled);
+  }
+
+  /** Capas sintetizadas sobre el cuerpo: transitorio, sub-grave, mecánica y casquillo del jugador. */
+  private shotLayers(r: Route, kind: Kind, own: boolean, sampled: boolean): void {
+    const heavy = HEAVY.has(kind);
+    this.osc(r, 'square', 2600, 1400, 0, 0.004, 0.12, 0.0005);                  // clic del transitorio
+    this.nz(r, 0, 0.007, own ? 0.5 : 0.35, 'highpass', 5000, 5000, 0.7, 0.0005); // golpe seco en agudos
+    if (sampled || !SHOTS[kind]) this.osc(r, 'sine', heavy ? 65 : 85, heavy ? 38 : 50, 0, heavy ? 0.09 : 0.07, heavy ? 0.5 : 0.22, 0.003); // sub-grave
+    this.nz(r, 0.04, 0.03, 0.07, 'bandpass', 3500, 3000, 3, 0.002);              // mecánica (muy baja)
+    // Casquillo: solo disparos del jugador con pistola/automática, como mucho 1 cada 0,12 s
+    if (own && (AUTO.has(kind) || SINGLE.has(kind)) && this.ctx.currentTime - this.lastCasing >= 0.12) {
+      this.lastCasing = this.ctx.currentTime;
+      const dt = 0.25 + Math.random() * 0.15;
+      const f = 4200 + Math.random() * 2600;
+      this.osc(r, 'sine', f, f * 0.97, dt, 0.06, 0.05, 0.001);
+      this.osc(r, 'sine', f * 1.52, f * 1.5, dt + 0.012, 0.045, 0.03, 0.001);
+      this.nz(r, dt, 0.02, 0.05, 'highpass', 6000, 6000, 1, 0.001);
+    }
   }
 
   private shotSynth(r: Route, kind: Kind): void {
@@ -428,7 +519,7 @@ export class Sfx {
         if (hasV('v:pistol') && !explos) {
           return { key: 'shotv', d: pos ? dist(pos) : 0, own, play: () => { this.voice(world, pos, 'v:pistol', 0.9); } };
         }
-        const fn = (r: Route) => this.shot(r, kind);
+        const fn = (r: Route) => this.shot(r, kind, own);
         const gate = () => {
           if (!auto) return true;
           const last = this.lastShot.get(id) ?? -9;
@@ -436,8 +527,8 @@ export class Sfx {
           this.lastShot.set(id, now);
           return true;
         };
-        if (own) return { key: 'shot', d: 0, own: true, play: () => { if (gate()) this.play(world, null, 1.3, fn, { prio: true }); } };
-        return { key: 'shot', d: dist(pos!), own: false, play: () => { if (gate()) this.play(world, pos, 1.0, fn); } };
+        if (own) return { key: 'shot', d: 0, own: true, play: () => { if (gate()) this.play(world, null, 1.3, fn, { prio: true, room: 0.25 }); } };
+        return { key: 'shot', d: dist(pos!), own: false, play: () => { if (gate()) this.play(world, pos, 1.0, fn, { room: 0.5 }); } };
       }
       case 'dryfire':
         return ent('dryfire', e.id, 0.5, (r) => {
@@ -465,15 +556,26 @@ export class Sfx {
           }
         }, { maxD: 30 });
       }
-      case 'reload':
-        return ent('reload', e.id, 0.5, (r) => {
-          this.nz(r, 0, 0.03, 0.5, 'bandpass', 2600, 2200, 2);              // quitar cargador
-          this.nz(r, 0.01, 0.05, 0.3, 'lowpass', 900, 300);                 // golpe metálico sordo
-          this.nz(r, 0.28, 0.07, 0.35, 'bandpass', 1500, 2500, 1.5, 0.02);  // meter cargador
-          this.nz(r, 0.3, 0.06, 0.3, 'lowpass', 700, 250);
-          this.nz(r, 0.45, 0.03, 0.55, 'highpass', 2500, 2500);             // cerrojo
-          this.nz(r, 0.46, 0.05, 0.3, 'lowpass', 1100, 300);
+      case 'reload': {
+        const en = world.entityById(e.id);
+        const D = Math.max(0.6, Math.min(4, en && en.reloading > 0 ? en.reloading : 1.6));
+        return ent('reload', e.id, 0.4, (r, own) => {
+          const k = own ? 1.4 : 0.8;
+          // 1) sacar cargador
+          this.nz(r, D * 0.12, 0.03, 0.5 * k, 'bandpass', 2600, 2200, 2);
+          this.nz(r, D * 0.12 + 0.01, 0.06, 0.3 * k, 'lowpass', 900, 300);
+          this.nz(r, D * 0.12 + 0.07, 0.05, 0.25 * k, 'bandpass', 1500, 900, 2);   // roce al salir
+          // 2) meter cargador
+          this.nz(r, D * 0.55, 0.07, 0.35 * k, 'bandpass', 1500, 2500, 1.5, 0.02);
+          this.nz(r, D * 0.55 + 0.05, 0.06, 0.45 * k, 'lowpass', 700, 250);
+          this.nz(r, D * 0.55 + 0.05, 0.02, 0.4 * k, 'highpass', 3000, 3000);
+          // 3) montar el arma: corredera atrás y adelante
+          this.nz(r, D * 0.85, 0.04, 0.4 * k, 'highpass', 2500, 2500);
+          this.nz(r, D * 0.85, 0.06, 0.3 * k, 'lowpass', 1100, 300);
+          this.nz(r, D * 0.85 + 0.09, 0.04, 0.55 * k, 'highpass', 2500, 2500);
+          this.nz(r, D * 0.85 + 0.09, 0.07, 0.4 * k, 'lowpass', 1000, 250);
         }, { maxD: 30 });
+      }
       case 'door': {
         const open = e.open;
         return at('door', e.x, e.y, 0.8, (r) => {
@@ -495,8 +597,13 @@ export class Sfx {
           this.lastStepV = now;
           return { key: 'stepv', d: 0, own: true, play: () => { this.voice(world, null, 'v:step', 0.8); } };
         }
-        return at('step', e.x, e.y, 0.2, (r) => {
-          this.nz(r, 0, 0.06, 0.5, 'lowpass', 450 + Math.random() * 150, 180, 0.8, 0.01);
+        const sprint = own && world.player.sprinting === true;
+        return at('step', e.x, e.y, sprint ? 0.42 : 0.2, (r) => {
+          this.nz(r, 0, sprint ? 0.08 : 0.06, 0.5, 'lowpass', 450 + Math.random() * 150, 180, 0.8, 0.01);
+          if (sprint) { // roce del equipo al correr
+            this.nz(r, 0.005, 0.1, 0.22, 'bandpass', 1800, 900, 1.2, 0.03);
+            this.nz(r, 0.03, 0.03, 0.2, 'highpass', 4000, 4000);
+          }
         }, own);
       }
       case 'hurt': {
@@ -619,6 +726,67 @@ export class Sfx {
     }
   }
 
+  /** Items adicionales de un suceso: impactos por superficie y confirmaciones del jugador. */
+  private extras(e: GameEvent, world: IWorld, out: (it: Item) => void): void {
+    const pid = world.player.id;
+    const cam = world.cam;
+    const now = this.ctx.currentTime;
+    if (e.type === 'shot' && e.hit === 'wall') {
+      const surf = e.surface ?? 'wall';
+      if (surf === 'none' || surf === 'body') return;
+      const p = { x: e.tx, y: e.ty };
+      out({ key: 'impact', d: Math.hypot(p.x - cam.x, p.y - cam.y), own: false, play: () => this.play(world, p, 0.55, (r) => {
+        switch (surf) {
+          case 'furniture': // toc seco
+            this.nz(r, 0, 0.03, 0.5, 'bandpass', 1200, 900, 2);
+            this.osc(r, 'triangle', 260, 170, 0, 0.04, 0.3);
+            break;
+          case 'door': // clac más agudo
+            this.nz(r, 0, 0.04, 0.55, 'bandpass', 3500, 2500, 2);
+            this.osc(r, 'triangle', 900, 650, 0, 0.05, 0.2);
+            break;
+          case 'floor': // rebote
+            this.nz(r, 0, 0.04, 0.45, 'lowpass', 1500, 400);
+            this.nz(r, 0.07, 0.03, 0.2, 'bandpass', 1800, 1200, 2);
+            break;
+          default: // yeso/muro: golpe sordo y polvillo
+            this.nz(r, 0, 0.06, 0.55, 'lowpass', 700, 250);
+            this.osc(r, 'sine', 140, 80, 0, 0.05, 0.3);
+            this.nz(r, 0.02, 0.14, 0.1, 'highpass', 4000, 3000, 0.7, 0.02);
+        }
+      }) });
+      return;
+    }
+    const conf = (key: string, fn: (r: Route) => void) =>
+      out({ key, d: 0, own: true, play: () => this.play(world, null, 0.4, fn, { prio: true, novar: true }) });
+    if (e.type === 'hurt' && e.attackerId === pid && e.id !== pid && e.zone !== 'blast') {
+      if (now - this.lastConfirm < 0.06) return;
+      this.lastConfirm = now;
+      if (e.zone === 'head') {
+        conf('confirmH', (r) => { // tic agudo y brillante, dos parciales
+          this.nz(r, 0, 0.01, 0.5, 'highpass', 4500, 4500, 1, 0.0005);
+          this.osc(r, 'sine', 2600, 2500, 0, 0.07, 0.3, 0.001);
+          this.osc(r, 'sine', 3900, 3800, 0, 0.055, 0.2, 0.001);
+        });
+      } else {
+        conf('confirmH', (r) => { // tic corto
+          this.nz(r, 0, 0.012, 0.55, 'bandpass', 3000, 2600, 2, 0.0005);
+          this.osc(r, 'sine', 1700, 1500, 0, 0.035, 0.25, 0.001);
+        });
+      }
+    } else if (e.type === 'death' && e.killerId === pid && e.id !== pid) {
+      const head = e.headshot === true;
+      conf('confirmK', (r) => { // golpe grave + chasquido (+ armónico agudo si fue a la cabeza)
+        this.osc(r, 'sine', 120, 55, 0, 0.16, 0.65, 0.002);
+        this.nz(r, 0, 0.025, 0.6, 'bandpass', 2200, 1800, 2, 0.0005);
+        if (head) {
+          this.osc(r, 'sine', 3300, 3200, 0.015, 0.16, 0.22, 0.001);
+          this.osc(r, 'sine', 4950, 4900, 0.015, 0.1, 0.1, 0.001);
+        }
+      });
+    }
+  }
+
   handleEvents(world: IWorld): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -645,14 +813,19 @@ export class Sfx {
     for (const [id, st] of [...this.mv]) if (now - st.last > 0.4) this.cutMv(id, st);
     const evs = world.events;
     if (!evs || evs.length === 0) return;
+    try { this.setRoom(world); } catch { /* nada */ }
     const groups = new Map<string, Item[]>();
     for (const e of evs) {
       let it: Item | null = null;
       try { it = this.describe(e, world, chut); } catch { it = null; }
-      if (!it) continue;
-      const g = groups.get(it.key);
-      if (g) g.push(it); else groups.set(it.key, [it]);
+      const add = (x: Item) => {
+        const g = groups.get(x.key);
+        if (g) g.push(x); else groups.set(x.key, [x]);
+      };
+      try { this.extras(e, world, add); } catch { /* nada */ }
+      if (it) add(it);
     }
+    if (groups.has('confirmK')) groups.delete('confirmH'); // la baja ya confirma el impacto
     for (const arr of groups.values()) {
       arr.sort((a, b) => a.d - b.d);
       let n = 0;

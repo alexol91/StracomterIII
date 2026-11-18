@@ -6,19 +6,20 @@
 // más la sacudida opcional.
 
 import * as THREE from 'three';
-import type { GameEvent } from '../sim/types';
+import type { GameEvent, Kind } from '../sim/types';
 import type { IRenderer, IWorld, Settings } from '../contracts';
 import { CharManager } from './characters';
 import { AiDebugLayer } from './debug';
 import { Fx } from './fx';
 import { FurnitureLayer, PickupLayer } from './furniture';
 import { disposeRamp, Owned } from './geo';
-import { getAssets, loadAssets, type Assets } from './assets';
-import { sharedRbLibrary } from './rbchars';
-import { FOG, LevelLayer, makeStars, SKY } from './levelMesh';
+import { assetsDone, getAssets, loadAssets, type AssetPart, type Assets } from './assets';
+import { ENEMY_MIX } from '../sim/data';
+import { RbLibrary, sharedRbLibrary } from './rbchars';
+import { FOG, LevelLayer, makeStars, pbrIdsFor, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
-import { loadEnvironment } from './pbr';
+import { isEnvReady, isPBRReady, loadEnvironment } from './pbr';
 import { getOffice, loadOffice, type OfficeAssets } from './officeassets';
 import { RealFurnitureLayer } from './officefurn';
 import type { Theme } from '../sim/types';
@@ -119,7 +120,6 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
 
   const chars = new CharManager();
   const rb = sharedRbLibrary;
-  let rbStarted = false;
   const fx = new Fx();
   const pickups = new PickupLayer();
   scene.add(chars.group, fx.group, pickups.group);
@@ -150,7 +150,6 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prLimit()));
     renderer.setSize(cssW, cssH, true);
     camera.aspect = cssW / cssH;
-    camera.fov = camera.aspect < 1 ? 75 : 60;
     camera.updateProjectionMatrix();
     if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(cssW, cssH); }
   }
@@ -206,6 +205,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     const th = THEMES[lv.theme] ?? THEMES.recepcion;
     scene.background = new THREE.Color(th.bg);
     currentTheme = lv.theme;
+    lastLevelVersion = lv.version;
+    extraKinds.clear();
     applyLighting(lv.theme, th);
     const [fogNear, fogFar] = FOG[lv.theme];
     scene.fog = new THREE.Fog(SKY[lv.theme][1], fogNear, fogFar);
@@ -214,6 +215,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     scene.add(levelLayer.group, levelLayer.sky);
     buildFurniture();
     if (lv.theme === 'azotea') { stars = makeStars(worldOwned); scene.add(stars); }
+    ensureAll();
   }
 
   /** Aplica los modelos CC0 cuando termina la carga (setWorld funciona antes con los modelos de cajas). */
@@ -235,12 +237,77 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     furnLayer.setShadows(quality === 'high');
     scene.add(furnLayer.group);
   }
-  void loadOffice().then((o: OfficeAssets | null) => { if (o && !disposed) { pickups.setOffice(o); buildFurniture(); } }).catch(() => { /* reserva */ });
-  void loadAssets().then((a) => { if (a) useAssets(a); }).catch(() => { /* se quedan los modelos de cajas */ });
+
+  // ───────────── carga bajo demanda ─────────────
+  let officeState: 'idle' | 'loading' | 'done' | 'failed' = 'idle';
+  let rbBusy = false;
+  let rbKey = '';
+  const extraKinds = new Set<Kind>();     // tipos que aparecen en la partida y no estaban previstos (suceso spawn)
+  let lastLevelVersion = -1;
+
+  /** Tipos de personaje que necesita el mundo actual: siempre la escuadra y, según la planta, los enemigos. */
+  function kindsForWorld(w: IWorld | null): Kind[] {
+    const ks: Kind[] = [...RbLibrary.SQUAD, 'enemy1'];
+    if (w) {
+      const mix = ENEMY_MIX[w.floor] ?? [1, 0, 0];
+      if (mix[1] > 0) ks.push('enemy2');
+      if (mix[2] > 0) ks.push('enemy3');
+      if (w.floor >= 2) ks.push('miniboss');
+      if (w.floor >= 8) ks.push('megaboss');
+    }
+    for (const k of extraKinds) if (!ks.includes(k)) ks.push(k);
+    return ks;
+  }
+
+  function ensureOffice(): void {
+    if (getStyleMode() !== 'realista' || officeState !== 'idle' || disposed) return;
+    officeState = 'loading';
+    void loadOffice().then((o: OfficeAssets | null) => {
+      if (disposed) return;
+      officeState = o && o.parts.size > 0 ? 'done' : 'failed';
+      if (o) pickups.setOffice(o);
+      buildFurniture();
+      ensureReserve();
+    }).catch(() => { officeState = 'failed'; ensureReserve(); });
+  }
+
+  /** Modelos de reserva (Quaternius y Kenney): solo en cómic, en calidad baja o si falla lo realista. */
+  function reserveParts(): AssetPart[] {
+    if (getStyleMode() !== 'realista') return ['chars', 'furn', 'misc'];
+    const parts: AssetPart[] = [];
+    if (quality === 'low' || rb.failed) parts.push('chars');
+    if (officeState === 'failed') parts.push('furn', 'misc');
+    return parts;
+  }
+  function ensureReserve(): void {
+    const need = reserveParts().filter((p) => !assetsDone(p));
+    if (need.length) void loadAssets(need).then((a) => { if (a && !disposed) useAssets(a); });
+  }
+
+  function ensureAll(): void { ensureOffice(); ensureRb(); ensureReserve(); }
+
+  /** Fracción (0..1) de lo que necesita el mundo actual, en el estilo y calidad actuales, ya cargado y listo para verse. */
+  function loadProgress(): number {
+    const w = world;
+    if (!w) return 1;
+    let done = 0, total = 0;
+    const add = (d: number, wt = 1): void => { done += d * wt; total += wt; };
+    const real = getStyleMode() === 'realista';
+    if (real) {
+      add(officeState === 'done' || officeState === 'failed' ? 1 : 0, 2);
+      for (const id of pbrIdsFor(w.level.theme)) add(isPBRReady(id) ? 1 : 0);
+      if (quality !== 'low') add(isEnvReady(REAL_LIGHT[w.level.theme].hdri) ? 1 : 0);
+      if (rbWanted()) add(rb.progress(kindsForWorld(w)), 4);
+    }
+    for (const p of reserveParts()) add(assetsDone(p) ? 1 : 0, p === 'chars' ? 2 : 1);
+    return total === 0 ? 1 : Math.max(0, Math.min(1, done / total));
+  }
 
   function onEvents(events: GameEvent[]): void {
     if (!world) return;
     fx.handle(events, world);
+    chars.onEvents(events);
+    for (const ev of events) if (ev.type === 'spawn' && rbWanted() && !rb.has(ev.kind) && !extraKinds.has(ev.kind)) { extraKinds.add(ev.kind); ensureRb(); }
   }
 
   // ── sombras: frustum ortográfico centrado en el jugador, con la luz cuantizada a téxeles
@@ -264,16 +331,21 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   function rbWanted(): boolean { return getStyleMode() === 'realista' && quality !== 'low'; }
   function updateUseRb(): void { rb.setNormals(quality === 'high'); chars.setUseRb(rbWanted() && rb.loaded && rb.templates.size > 0); }
   function ensureRb(): void {
-    if (!rbWanted() || rbStarted || disposed) return;
-    rbStarted = true;
-    void rb.load().then(async (ok) => {
-      if (!ok || disposed) return;
-      rb.build(colorblind);
-      await rb.prewarm();                  // retargeteo repartido en tareas pequeñas; mientras, se ven los Quaternius
+    if (!rbWanted() || disposed || !world || rbBusy) return;
+    const kinds = kindsForWorld(world);
+    const key = kinds.join(',');
+    if (kinds.every((k) => rb.has(k)) || key === rbKey) return;     // nada nuevo que cargar (o ya se intentó con este conjunto)
+    rbKey = key;
+    rbBusy = true;
+    void rb.ensure(kinds).then(async (ok) => {
+      if (disposed) return;
+      if (!ok) { ensureReserve(); return; }            // falló: se usan los Quaternius de reserva
+      rb.build(colorblind, true);
+      await rb.prewarm();                              // retargeteo repartido en tareas pequeñas; mientras, se ven los de reserva
       if (disposed) return;
       chars.setRb(rb);
       updateUseRb();
-    });
+    }).finally(() => { rbBusy = false; if (!disposed) ensureRb(); });
   }
 
   function applyQuality(): void {
@@ -290,7 +362,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (!high && composer) { composer.dispose(); composer = null; }
     resize(cssW, cssH);                    // el límite de devicePixelRatio depende de la calidad
     if (currentTheme) applyLighting(currentTheme);
-    ensureRb(); updateUseRb();
+    fx.setDecalQuality(quality);
+    ensureAll(); updateUseRb();
   }
   function ensureComposer(): EffectComposer {
     if (composer) return composer;
@@ -312,6 +385,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
 
   function updateCamera(w: IWorld, dt: number): void {
     const c = w.cam;
+    // campo de visión vertical de la simulación (se cierra al apuntar); en pantallas verticales se abre un 25 %
+    const wantFov = Math.min(110, (c.fov ?? 60) * (camera.aspect < 1 ? 1.25 : 1));
+    if (Math.abs(camera.fov - wantFov) > 0.01) { camera.fov = wantFov; camera.updateProjectionMatrix(); }
     const tx = c.x, ty = c.z, tz = c.y;
     if (!camInit || camPos.distanceToSquared(_tmp.set(tx, ty, tz)) > 6) {
       camPos.set(tx, ty, tz); camInit = true;
@@ -357,6 +433,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (!w) { renderer.render(scene, camera); return; }
 
     levelLayer?.update();
+    if (w.level.version !== lastLevelVersion) { lastLevelVersion = w.level.version; fx.clearDecals(); }   // boquete: las marcas ya no valen
     updateCamera(w, dt);
     chars.update(w, dt, camera);
     pickups.update(w, w.time);
@@ -411,10 +488,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     setStyleMode(st);
     composer?.dispose(); composer = null;      // se recrea con los pases del estilo
     chars.restyle(); pickups.restyle();
-    ensureRb(); updateUseRb();
+    ensureAll(); updateUseRb();
     const w = world;
     if (w) setWorld(w);                        // reconstruye escenario, mobiliario y luz con el estilo nuevo
   }
 
-  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality, setStyle, getStyle: () => getStyleMode() };
+  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality, loadProgress, setStyle, getStyle: () => getStyleMode() };
 }

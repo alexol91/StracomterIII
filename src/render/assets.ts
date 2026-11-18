@@ -66,59 +66,65 @@ export function bakeColored(obj: THREE.Object3D): THREE.BufferGeometry | null {
   return parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
 }
 
-let promise: Promise<Assets | null> | null = null;
-let ready: Assets | null = null;
+/** Partes de los modelos de reserva (Quaternius y Kenney), que solo se descargan cuando hacen falta. */
+export type AssetPart = 'chars' | 'furn' | 'misc';
 
-/** Estado actual de la carga (null hasta que termina). */
-export function getAssets(): Assets | null { return ready; }
+const shared: Assets = { chars: {}, furn: new Map(), health: null, grenade: null };
+const partPromises = new Map<AssetPart, Promise<void>>();
+const partsDone = new Set<AssetPart>();
 
-/** Precarga todo una sola vez; nunca rechaza. */
-export function loadAssets(): Promise<Assets | null> {
-  if (promise) return promise;
-  promise = doLoad().then((a) => { ready = a; return a; }).catch(() => null);
-  return promise;
-}
+/** Los modelos de reserva cargados hasta ahora (null mientras no se haya cargado ninguna parte). */
+export function getAssets(): Assets | null { return partsDone.size ? shared : null; }
+export function assetsDone(part: AssetPart): boolean { return partsDone.has(part); }
 
-async function doLoad(): Promise<Assets> {
+/** Carga (una sola vez cada parte) lo que se pida; nunca rechaza. */
+export function loadAssets(want: AssetPart[] = ['chars', 'furn', 'misc']): Promise<Assets | null> {
   const base = baseUrl() + 'models/';
   const gl = new GLTFLoader();
-  const assets: Assets = { chars: {}, furn: new Map(), health: null, grenade: null };
-
-  const loadChar = async (id: CharSourceId): Promise<void> => {
-    try {
-      const g = await gl.loadAsync(`${base}chars/Character_${id}.gltf`);
-      assets.chars[id] = { scene: g.scene, anims: g.animations };
-    } catch { /* sin este modelo */ }
+  const jobs: Record<AssetPart, () => Promise<void>> = {
+    chars: async () => {
+      await Promise.all((['Soldier', 'Enemy', 'Hazmat'] as CharSourceId[]).map(async (id) => {
+        try {
+          const g = await gl.loadAsync(`${base}chars/Character_${id}.gltf`);
+          shared.chars[id] = { scene: g.scene, anims: g.animations };
+        } catch { /* sin este modelo */ }
+      }));
+    },
+    furn: async () => {
+      await Promise.all(FURN_PARTS.map(async (name) => {
+        try {
+          const mtl = await new MTLLoader().setPath(`${base}furniture/`).loadAsync(`${name}.mtl`);
+          mtl.preload();
+          const obj = await new OBJLoader().setMaterials(mtl).setPath(`${base}furniture/`).loadAsync(`${name}.obj`);
+          const geo = bakeColored(obj);
+          if (geo) shared.furn.set(name, geo);
+        } catch { /* sin esta pieza */ }
+      }));
+    },
+    misc: async () => {
+      const loadStatic = async (url: string, size: number): Promise<THREE.BufferGeometry | null> => {
+        try {
+          const g = await gl.loadAsync(url);
+          const geo = bakeColored(g.scene);
+          if (!geo) return null;
+          geo.computeBoundingBox();
+          const bb = geo.boundingBox!;
+          const dim = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) || 1;
+          const c = bb.getCenter(new THREE.Vector3());
+          geo.translate(-c.x, -c.y, -c.z);
+          geo.scale(size / dim, size / dim, size / dim);
+          return geo;
+        } catch { return null; }
+      };
+      const [h, gr] = await Promise.all([loadStatic(`${base}env/Health.gltf`, 1), loadStatic(`${base}guns/Grenade.gltf`, 0.22)]);
+      shared.health = h; shared.grenade = gr;
+    },
   };
-  const loadStatic = async (url: string, size: number): Promise<THREE.BufferGeometry | null> => {
-    try {
-      const g = await gl.loadAsync(url);
-      const geo = bakeColored(g.scene);
-      if (!geo) return null;
-      geo.computeBoundingBox();
-      const bb = geo.boundingBox!;
-      const dim = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) || 1;
-      const c = bb.getCenter(new THREE.Vector3());
-      geo.translate(-c.x, -c.y, -c.z);
-      geo.scale(size / dim, size / dim, size / dim);
-      return geo;
-    } catch { return null; }
-  };
-  const loadFurn = async (name: string): Promise<void> => {
-    try {
-      const mtl = await new MTLLoader().setPath(`${base}furniture/`).loadAsync(`${name}.mtl`);
-      mtl.preload();
-      const obj = await new OBJLoader().setMaterials(mtl).setPath(`${base}furniture/`).loadAsync(`${name}.obj`);
-      const geo = bakeColored(obj);
-      if (geo) assets.furn.set(name, geo);
-    } catch { /* sin esta pieza */ }
-  };
-
-  await Promise.all([
-    loadChar('Soldier'), loadChar('Enemy'), loadChar('Hazmat'),
-    ...FURN_PARTS.map(loadFurn),
-    loadStatic(`${base}env/Health.gltf`, 1).then((g) => { assets.health = g; }),
-    loadStatic(`${base}guns/Grenade.gltf`, 0.22).then((g) => { assets.grenade = g; }),
-  ]);
-  return assets;
+  const all: Promise<void>[] = [];
+  for (const part of want) {
+    let p = partPromises.get(part);
+    if (!p) { p = jobs[part]().catch(() => { /* reserva incompleta */ }).then(() => { partsDone.add(part); }); partPromises.set(part, p); }
+    all.push(p);
+  }
+  return Promise.all(all).then(() => getAssets()).catch(() => null);
 }

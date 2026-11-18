@@ -32,7 +32,8 @@ npm run preview    # sirve dist/ para comprobarlo
 |---|---|
 | W A S D | Mover |
 | Ratón | Apuntar y girar la cámara (clic en el juego para capturar el ratón) |
-| Clic izquierdo / derecho | Disparar / cuchillo |
+| Clic izquierdo / derecho | Disparar / apuntar al hombro |
+| Mayús · X | Esprintar · cuchillo |
 | R · Espacio · F | Recargar · granada · habilidad de clase |
 | E · Q · Tab | Puerta · usar objeto · cambiar de objeto |
 | C | Agacharse |
@@ -49,7 +50,8 @@ las flechas del teclado.
 ## Consola de trucos
 
 `help` lista los comandos: `spawn`, `team`, `kill all|bad|me`, `god`, `noclip`, `ammo`, `health`,
-`floor <n>`, `zone <n>`, `tp <x> <y>`, `info [id]`, `ai.debug`.
+`floor <n>`, `zone <n>`, `tp <x> <y>`, `info [id]`, `ai.debug`, `chutaos on|off`. Usar un truco marca la partida
+y deja de puntuar para los récords.
 
 ## Comprobar que funciona sin abrir el navegador
 

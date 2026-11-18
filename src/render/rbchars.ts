@@ -39,6 +39,10 @@ export const RB_CROUCH_HEIGHT = 1.1;
 /** Fracción del cabeceo del jugador que se reparte entre Spine1 y Spine2. */
 export const RB_PITCH_FACTOR = 0.7;
 export const FADE_TIME = 0.15;
+/** Desplazamiento (m) del cadáver alejándose del tirador, y retroceso del arma por disparo (cm, duración s). */
+export const DEATH_PUSH = 0.4;
+export const GUN_KICK_CM = 3;
+export const GUN_KICK_TIME = 0.06;
 /** Curvatura (rad) de las falanges para el agarre fijo; eje local en el que se curvan los dedos. */
 export const FINGER_CURL = { proximal: 0.55, middle: 0.8, distal: 0.6, thumb: 0.3 };
 export const FINGER_AXIS: 'x' | 'y' | 'z' = 'z';
@@ -102,7 +106,7 @@ const TORSO_BONES = new Set(['Bip01_Spine1', 'Bip01_Spine2', 'Bip01_Neck', 'Bip0
   'Bip01_L_Forearm', 'Bip01_R_Forearm', 'Bip01_L_Hand', 'Bip01_R_Hand']);
 const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Idle_Loop', 'Roll']);
 export const RB_CLIPS = ['Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
-  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Death01'];
+  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01'];
 
 type Layer = 'legs' | 'torso';
 
@@ -182,7 +186,7 @@ export class RbLibrary {
   templates = new Map<Kind, RbTemplate>();
   ual: { animations: THREE.AnimationClip[] } | null = null;
   ualOrigin: THREE.Object3D | null = null;
-  private avatars = new Map<string, THREE.Group>();
+  avatars = new Map<string, THREE.Group>();
   private guns = new Map<string, { geo: THREE.BufferGeometry; maxDim: number }>();
   private gunMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.7 });
   private manifest: Record<string, Record<string, { color?: string; normal?: string }>> = {};
@@ -191,32 +195,75 @@ export class RbLibrary {
   /** sin normal maps en los personajes (calidad media): se guardan los originales para poder volver */
   private useNormals = true;
   private normalOf = new Map<THREE.Material, THREE.Texture | null>();
-  private loading: Promise<boolean> | null = null;
 
-  /** Carga avatares, maniquí UAL y armas (una sola vez). Nunca rechaza: si falla algo, `loaded` queda en false. */
-  load(): Promise<boolean> { return (this.loading ??= this.doLoad()); }
+  /** URL (dentro de public/models) del maniquí de animaciones recortado (tools/recortar-ual.ts). */
+  ualUrl = 'anim/ual-min.glb';
+  /** true si algo imprescindible falló: el juego usa los Quaternius de reserva */
+  failed = false;
+  private wanted = new Set<Kind>();
+  private ualPromise: Promise<void> | null = null;
+  private avatarPromises = new Map<string, Promise<void>>();
+  private gunPromises = new Map<string, Promise<void>>();
+  private ualReady = false;
+  private cbLast = false;
+  warmed = new Set<Kind>();
 
-  private async doLoad(): Promise<boolean> {
+  /** Los cuatro operadores de la escuadra (la vista previa y todas las partidas los necesitan). */
+  static readonly SQUAD: Kind[] = ['captain', 'technic', 'especialist', 'explosives'];
+
+  /** Compatibilidad: carga lo mínimo (la escuadra). */
+  load(): Promise<boolean> { return this.ensure(RbLibrary.SQUAD); }
+
+  /** Carga (solo lo que falte) el UAL, los avatares y las armas de esos tipos. Nunca rechaza. */
+  ensure(kinds: Kind[]): Promise<boolean> {
+    for (const k of kinds) this.wanted.add(k);
+    return this.doEnsure();
+  }
+
+  private async doEnsure(): Promise<boolean> {
     try {
-      const gl = new GLTFLoader();
-      const [man, ual] = await Promise.all([
-        fetch(modelsUrl('rb/texturas.json')).then((r) => r.json()),
-        gl.loadAsync(modelsUrl('anim/ual.glb')),
-      ]);
-      this.manifest = man;
-      this.ual = { animations: ual.animations };
-      this.ualOrigin = SkeletonUtils.clone(ual.scene);
-      this.ualOrigin.updateMatrixWorld(true);
-      const names = [...new Set(Object.values(CFG).map((c) => c.avatar))];
-      await Promise.all(names.map((n) => this.loadAvatar(n)));
-      await Promise.all([...new Set(Object.values(CFG).map((c) => c.gun))].map((g) => this.loadGun(g)));
+      this.ualPromise ??= (async () => {
+        const [man, ual] = await Promise.all([
+          fetch(modelsUrl('rb/texturas.json')).then((r) => r.json()),
+          new GLTFLoader().loadAsync(modelsUrl(this.ualUrl)),
+        ]);
+        this.manifest = man;
+        this.ual = { animations: ual.animations };
+        this.ualOrigin = SkeletonUtils.clone(ual.scene);
+        this.ualOrigin.updateMatrixWorld(true);
+        this.ualReady = true;
+      })();
+      const jobs: Promise<void>[] = [this.ualPromise];
+      for (const k of this.wanted) {
+        const cfg = CFG[k];
+        if (!this.avatarPromises.has(cfg.avatar)) this.avatarPromises.set(cfg.avatar, this.ualPromise.then(() => this.loadAvatar(cfg.avatar)));
+        if (!this.gunPromises.has(cfg.gun)) this.gunPromises.set(cfg.gun, this.loadGun(cfg.gun));
+        jobs.push(this.avatarPromises.get(cfg.avatar)!, this.gunPromises.get(cfg.gun)!);
+      }
+      await Promise.all(jobs);
       this.loaded = true;
     } catch (e) {
       console.warn('Rocketbox: no se pudo cargar', e);
+      this.failed = true;
       this.loaded = false;
     }
     return this.loaded;
   }
+
+  /** Fracción (0..1) de lo necesario para esos tipos ya cargado y con sus clips retargeteados. 1 si falló (se usa la reserva). */
+  progress(kinds: Kind[]): number {
+    if (this.failed) return 1;
+    let done = this.ualReady ? 1 : 0, total = 1;
+    for (const k of kinds) {
+      total += 2;
+      if (this.avatars.has(CFG[k].avatar)) done++;
+      if (this.warmed.has(k)) done++;
+    }
+    return Math.min(1, done / total);
+  }
+
+  /** ¿Hay (o ha fallado) plantilla para este tipo? */
+  has(kind: Kind): boolean { return this.templates.has(kind); }
 
   private async loadAvatar(name: string): Promise<void> {
     const g = await new FBXLoader().loadAsync(modelsUrl(`rb/${name}/${name}.fbx`));
@@ -294,10 +341,12 @@ export class RbLibrary {
   }
 
   /** Construye (o reconstruye, p. ej. al cambiar daltonismo) las plantillas de todos los tipos. */
-  build(cb: boolean): void {
-    this.templates.clear();
+  build(cb: boolean, onlyMissing = false): void {
+    if (!onlyMissing || cb !== this.cbLast) { this.templates.clear(); this.warmed.clear(); }
+    this.cbLast = cb;
     if (!this.loaded) return;
-    for (const kind of Object.keys(CFG) as Kind[]) {
+    for (const kind of this.wanted) {
+      if (this.templates.has(kind) || !this.avatars.has(CFG[kind].avatar)) continue;
       try { const t = this.buildOne(kind, cb); this.templates.set(kind, t); this.applyNormals(t); } catch (e) { console.warn('Rocketbox: plantilla', kind, e); }
     }
   }
@@ -377,12 +426,14 @@ export class RbLibrary {
 
   /** Retargetea todos los clips repartiendo el trabajo (un clip por tarea) para no bloquear el hilo. */
   async prewarm(): Promise<void> {
-    for (const t of this.templates.values()) {
+    for (const [kind, t] of this.templates) {
+      if (this.warmed.has(kind)) continue;
       for (const n of RB_CLIPS) {
         t.layerClip(n, 'legs'); t.layerClip(n, 'torso');
         t.fullClip(n);
         await new Promise<void>((r) => setTimeout(r, 0));
       }
+      this.warmed.add(kind);
     }
   }
 
@@ -419,6 +470,10 @@ export class RbView {
   private matState = '';
   private lastShot = -1; private lastKnife = -1; private punchAlt = false; private lastHurt = -1;
   private hitUntil = 0;
+  private lastStagger = 0;
+  private kick = 0;
+  private deathFrom: { x: number; y: number } | null = null;
+  private recoil = 0;
   private tilt: { bone: THREE.Object3D; saved: THREE.Quaternion; k: number; has: boolean }[] = [];
   private gun: GunEntry | null = null;
   mark: THREE.Mesh | null = null;
@@ -448,6 +503,9 @@ export class RbView {
     }
     this.height = tpl.height; this.barW = tpl.barW;
   }
+
+  /** Posición del tirador que dio el golpe final (para orientar y empujar la caída). */
+  setDeathFrom(x: number, y: number): void { this.deathFrom = { x, y }; }
 
   private action(name: string, layer: Layer | 'full'): THREE.AnimationAction | null {
     const key = `${name}:${layer}`;
@@ -501,29 +559,38 @@ export class RbView {
     let legName: string, ref: number;
     if (e.crouch) { legName = moving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop'; ref = CROUCH_REF_SPEED; }
     else if (!moving) { legName = 'Pistol_Idle_Loop'; ref = 1; }
+    else if (e.sprinting) { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
     else if (sp < WALK_MAX_SPEED) { legName = 'Walk_Loop'; ref = WALK_REF_SPEED; }
     else if (sp < JOG_MAX_SPEED) { legName = 'Jog_Fwd_Loop'; ref = JOG_REF_SPEED; }
     else { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
     const ts = moving ? Math.min(TIMESCALE_MAX, Math.max(TIMESCALE_MIN, sp / ref)) : 1;
     this.setLayer('legs', legName, false, ts);
     // torso
-    if (e.lastKnifeAt !== this.lastKnife && time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
+    const staggered = (e.staggerUntil ?? 0) > time;
+    if (staggered) {
+      // reacción de impacto fuerte, una vez por aturdimiento (Hit_Head si existe, Hit_Chest al 100 %)
+      const hit = this.tpl.fullClip('Hit_Head') ? 'Hit_Head' : 'Hit_Chest';
+      this.setLayer('torso', hit, true, 1, 0.05, e.staggerUntil !== this.lastStagger);
+      if (e.staggerUntil !== this.lastStagger) { this.lastStagger = e.staggerUntil ?? 0; this.kick = 1; }
+    } else if (e.lastKnifeAt !== this.lastKnife && time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       this.lastKnife = e.lastKnifeAt; this.punchAlt = !this.punchAlt;
       this.setLayer('torso', this.punchAlt ? 'Punch_Jab' : 'Punch_Cross', true, 1.3, 0.08, true);
     } else if (time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       // sigue el golpe
+    } else if (e.sprinting && moving) {
+      this.setLayer('torso', legName, false, ts);              // esprintando: el torso del propio clip, arma baja
     } else if (e.reloading > 0) {
       this.setLayer('torso', 'Pistol_Reload', false, 1);
     } else if (time - e.lastShotAt < 0.35 && time >= e.lastShotAt) {
       this.setLayer('torso', 'Pistol_Shoot', true, 1, 0.04, e.lastShotAt !== this.lastShot);
       this.lastShot = e.lastShotAt;
-    } else if (time - e.lastShotAt < 0.6 && time >= e.lastShotAt) {
-      this.setLayer('torso', 'Pistol_Aim_Neutral', false, 1);
+    } else if ((time - e.lastShotAt < 0.6 && time >= e.lastShotAt) || (e.isPlayer && e.aiming)) {
+      this.setLayer('torso', 'Pistol_Aim_Neutral', false, 1);   // apuntando, aunque no dispare
     } else {
       this.setLayer('torso', legName, false, ts);
     }
     // golpe recibido: Hit_Chest mezclado al 60 %
-    if (e.lastHurtAt !== this.lastHurt && time - e.lastHurtAt < 0.3 && time >= e.lastHurtAt) {
+    if (!staggered && e.lastHurtAt !== this.lastHurt && time - e.lastHurtAt < 0.3 && time >= e.lastHurtAt) {
       this.lastHurt = e.lastHurtAt;
       const h = this.action('Hit_Chest', 'torso');
       if (h) { h.reset(); h.setLoop(THREE.LoopOnce, 1); h.clampWhenFinished = false; h.setEffectiveWeight(0.6); h.play(); this.hitUntil = time + 0.33; this.torso?.setEffectiveWeight(0.4); }
@@ -534,10 +601,34 @@ export class RbView {
     const k = 1 - Math.exp(-dt * (e.isPlayer ? 30 : 24));
     if (!this.init || Math.hypot(e.x - this.x, e.y - this.y) > 3) { this.x = e.x; this.y = e.y; this.yaw = e.yaw; this.init = true; }
     else { this.x += (e.x - this.x) * k; this.y += (e.y - this.y) * k; this.yaw = lerpAngle(this.yaw, e.yaw, 1 - Math.exp(-dt * 18)); }
-    this.root.position.set(this.x, 0, this.y);
-    this.root.rotation.y = Math.PI / 2 - this.yaw + RB_YAW_OFFSET;
-
     const alive = e.alive;
+    let px = this.x, pz = this.y;
+    if (!alive && this.deathFrom) {
+      // cae alejándose del tirador: el cadáver se gira de cara a él (la animación cae hacia atrás) y se desplaza un poco
+      const f = this.deathFrom;
+      this.yaw = lerpAngle(this.yaw, Math.atan2(f.y - this.y, f.x - this.x), 1 - Math.exp(-dt * 14));
+      const dx = this.x - f.x, dz = this.y - f.y, l = Math.hypot(dx, dz) || 1;
+      const dur = this.tpl.fullClip('Death01')?.duration ?? 2.4;
+      const p = e.deadAt < 0 ? 1 : Math.min(1, Math.max(0, (time - e.deadAt) / (dur * 0.6)));
+      const ease = 1 - (1 - p) * (1 - p);
+      px += (dx / l) * DEATH_PUSH * ease; pz += (dz / l) * DEATH_PUSH * ease;
+    }
+    this.root.position.set(px, 0, pz);
+    this.root.rotation.y = Math.PI / 2 - this.yaw + RB_YAW_OFFSET;
+    // pequeño retroceso del cuerpo al ser aturdido
+    this.kick *= Math.exp(-dt * 9);
+    this.inner.position.z = -this.kick * 0.12;
+    // retroceso del arma (60 ms) tras cada disparo, hacia atrás a lo largo del cañón (+X del hueso de la mano)
+    if (this.gun && alive) {
+      const ts = time - e.lastShotAt;
+      const r = ts >= 0 && ts < GUN_KICK_TIME ? GUN_KICK_CM * (1 - ts / GUN_KICK_TIME) : 0;
+      if (r !== this.recoil) {
+        this.recoil = r;
+        const g = GUN_GRIP[this.gun.weapon];
+        if (g) this.gun.mesh.position.set(g.pos[0] - r, g.pos[1], g.pos[2]);
+      }
+    }
+
     this.speed += ((alive ? Math.hypot(e.vx, e.vy) : 0) - this.speed) * (1 - Math.exp(-dt * 12));
     this.crouchK += ((alive && e.crouch ? 1 : 0) - this.crouchK) * (1 - Math.exp(-dt * 14));
 

@@ -24,12 +24,12 @@ office/  (3DAssets.dev)
   tambour-cupboard, sofa-two-seat, lounge-armchair, guest-chair-four-leg, stacking-chair,
   flip-top-table, floor-planter-large, wall-clock, waste-bin, wall-art-panel, rooftop-ac-unit,
   L-server-rack-42u-doors, L-lobby-armchair, L-visitor-sofa-two-seat, L-fire-extinguisher-point,
-  L-wall-wayfinding-panel.
+  L-wall-wayfinding-panel (wall-clock es del pack Downtown).
 
 hdri/, tex/, props/  (Poly Haven, CC0, https://polyhaven.com/license)
-  HDRI: unfinished_office_1k, newman_lobby_1k.
-  Texturas (color, normal GL y rugosidad, reducidas con sips): marble_tiles, dirty_carpet,
-  large_grey_tiles, concrete_floor_painted, laminate_floor_02, terrazzo_tiles, rough_concrete,
+  HDRI: unfinished_office_1k (reducido a 512×256 con tools/reducir-hdri.ts).
+  Texturas (color, normal GL y rugosidad, reducidas con sips): dirty_carpet,
+  concrete_floor_painted, laminate_floor_02, terrazzo_tiles, rough_concrete,
   white_plaster_02.
   Modelos con textura (reducidas a 512): medical_box, ammo_box.
 
@@ -46,6 +46,14 @@ rb/  (Microsoft Rocketbox Avatar Library, licencia MIT)
   Military_Male_05, Police_Male_01, Police_Male_02, Security_Male_01 (.fbx originales).
   Texturas de color reducidas a 1024 (JPG) y normal solo del material «body» a 512 (JPG).
 
-anim/ual.glb  (Quaternius, «Universal Animation Library [Standard]», CC0)
+anim/ual-min.glb  (Quaternius, «Universal Animation Library [Standard]», CC0)
+  Recortado con tools/recortar-ual.ts: solo el esqueleto y los clips que usa el juego (sin mallas ni texturas).
   Animaciones retargeteadas en tiempo de carga al esqueleto Bip01 de Rocketbox (src/render/retarget.ts).
   Armas en la mano: modelos de guns/ (Quaternius, CC0).
+
+
+=== Limpieza v1.2 ===
+Se eliminaron de public/models los ficheros que el código ya no referencia: env/ (CardboardBoxes_1, Container_Small, Crate,
+Sofa_Small, Structure_1), guns/FireGrenade, furniture/ (bookcaseOpen, kitchenCoffeeMachine, laptop, plantSmall1, tableCross,
+trashcan), hdri/newman_lobby_1k, office/ (L-floor-planter-round, L-office-waste-bin, L-wall-clock), tex/marble_tiles,
+tex/large_grey_tiles, tex/white_plaster_02/color.jpg y anim/ual.glb (sustituido por ual-min.glb).

@@ -333,6 +333,8 @@ export class CharManager implements CharHost {
   private frame = 0;
   private rb: RbLibrary | null = null;
   private useRb = false;
+  private deathFrom = new Map<number, { x: number; y: number }>();
+  private ghostOp = 0.22;
   /** a partir de esta distancia a la cámara los personajes animan 1 de cada 3 frames */
   private farAnimDist = 30;
   private models = new Map<string, Model>();
@@ -406,6 +408,13 @@ export class CharManager implements CharHost {
     }
   }
 
+  /** Sucesos del último paso: guarda de dónde vino el golpe final para orientar la caída. */
+  onEvents(events: { type: string; id?: number; fromX?: number; fromY?: number }[]): void {
+    for (const ev of events) {
+      if (ev.type === 'death' && ev.id !== undefined && ev.fromX !== undefined && ev.fromY !== undefined) this.deathFrom.set(ev.id, { x: ev.fromX, y: ev.fromY });
+    }
+  }
+
   /** Biblioteca de personajes realistas (Rocketbox); se usa cuando `setUseRb(true)`. */
   setRb(lib: RbLibrary | null): void { this.rb = lib; this.clear(); }
   setFarAnimDist(m: number): void { this.farAnimDist = m; }
@@ -442,6 +451,7 @@ export class CharManager implements CharHost {
   clear(): void {
     for (const v of this.views.values()) { this.group.remove(v.root); if (isSkinned(v)) v.dispose(); }
     this.views.clear();
+    this.deathFrom.clear();
     this.shadows.count = 0; this.barBg.count = 0; this.barFg.count = 0;
   }
 
@@ -460,6 +470,9 @@ export class CharManager implements CharHost {
     const seen = new Set<number>();
     let ns = 0, nb = 0;
     this.frame++;
+    // al apuntar el jugador, los aliados «fantasma» que tapan la cámara casi desaparecen
+    const gop = world.player.aiming ? 0.05 : 0.22;
+    if (gop !== this.ghostOp) { this.ghostOp = gop; this.matGhost.opacity = gop; if (this.rb) this.rb.ghostMaterial().opacity = gop; }
     _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_pm);
     const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
@@ -483,6 +496,7 @@ export class CharManager implements CharHost {
         const animate = v.root.visible && ((inF && distCam < this.farAnimDist) || (this.frame + e.id) % 3 === 0);
         const animDt = v.pendingDt;
         if (animate) v.pendingDt = 0;
+        if (v instanceof RbView && !e.alive) { const f = this.deathFrom.get(e.id); if (f) v.setDeathFrom(f.x, f.y); }
         v.update(e, time, dt, this, animate, animDt);
       } else this.animate(v, e, time, dt);
 

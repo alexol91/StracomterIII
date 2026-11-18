@@ -2,7 +2,7 @@
 // Derrota, Victoria, Créditos y Opciones. No saben nada del flujo de la aplicación: reciben callbacks.
 // Navegables con teclado (flechas + Enter, Esc para volver; lo gestiona main con stepNav/goBack) y con el dedo.
 
-import type { Action, CampaignState, Settings, ZoneInfo, ZoneSummary } from '../contracts';
+import type { Action, CampaignState, RecordEntry, Settings, ZoneInfo, ZoneSummary } from '../contracts';
 import type { ClassId, ItemType } from '../sim/types';
 import { CLASS_IDS } from '../sim/types';
 import { CLASS_STATS } from '../sim/data';
@@ -11,6 +11,8 @@ import { t, getLang } from './i18n';
 import { drawMiniMap } from './minimap';
 import { ACTIONS, defaultBindings, keyLabel } from './settings';
 import { createSquadPreview, type SquadPreview } from '../render/preview';
+import { upgradeInfo } from './upgrades';
+import { VERSION } from './version';
 
 /** Contenedor de pantallas: solo hay una visible a la vez. Se puede redibujar (cambio de idioma). */
 export class Screens {
@@ -128,7 +130,7 @@ function fmtNum(n: number): string {
 
 export interface TitleParams {
   hasSave: boolean;
-  onNew(): void; onContinue(): void; onQuick(): void; onOptions(): void; onCredits(): void;
+  onNew(): void; onContinue(): void; onQuick(): void; onOptions(): void; onCredits(): void; onRecords(): void;
   onLang(l: 'es' | 'en'): void;
 }
 
@@ -147,6 +149,7 @@ export function titleScreen(p: TitleParams): HTMLElement {
   items.push(menuItem(t('menu.newCampaign'), p.onNew, i++, { autofocus: true, sound: 'confirm' }));
   if (p.hasSave) items.push(menuItem(t('menu.continue'), p.onContinue, i++, { sound: 'confirm' }));
   items.push(menuItem(t('menu.quick'), p.onQuick, i++));
+  items.push(menuItem(t('menu.records'), p.onRecords, i++));
   items.push(menuItem(t('menu.options'), p.onOptions, i++));
   items.push(menuItem(t('menu.credits'), p.onCredits, i++));
   return scr('bg-tower',
@@ -157,7 +160,7 @@ export function titleScreen(p: TitleParams): HTMLElement {
     ),
     h('div', { class: 't-menu' }, menuBlock(items)),
     h('div', { class: 't-foot' },
-      h('span', null, t('menu.foot')),
+      h('span', null, `${t('menu.foot')} · v${VERSION}`),
       h('span', { class: 'nav-hint' }, t('nav.hint')),
       langSelector(p.onLang),
     ),
@@ -339,6 +342,19 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
     members[c] = el;
     party.appendChild(el);
   }
+  // Mejoras de la campaña: iconos; el nombre sale al pasar el ratón o al enfocar
+  const ups = st.upgrades ?? [];
+  const upBox = h('div', { class: 'upgs' }, h('span', { class: 'tag' }, '// ' + t('strat.upgrades')));
+  if (ups.length === 0) upBox.appendChild(h('p', { class: 'hint' }, t('strat.noUpgrades')));
+  else {
+    const row = h('div', { class: 'upg-row' });
+    for (const id of ups) {
+      const u = upgradeInfo(id);
+      row.appendChild(h('span', { class: 'upg', tabindex: 0, 'data-name': u.name, title: `${u.name}: ${u.desc}`, 'aria-label': u.name }, icon(u.icon)));
+    }
+    upBox.appendChild(row);
+  }
+  party.appendChild(upBox);
 
   // Zonas: tarjetas de «plano táctico». Un clic selecciona; ENTRAR (o Enter) despliega.
   const zones = h('div', { class: 'zones' });
@@ -396,6 +412,8 @@ export interface SummaryParams {
   summary: ZoneSummary;
   /** Instante (Date.now) en que se mostró: el botón se habilita 2 s después y no se reinicia al redibujar */
   shownAt: number;
+  /** true si hubo trucos en esta zona o en la campaña */
+  cheated?: boolean;
   onContinue(): void;
 }
 
@@ -430,26 +448,100 @@ export function summaryScreen(s: Screens, p: SummaryParams): HTMLElement {
 
   const kpi = (k: string, v: string, acc2 = false): HTMLElement =>
     h('div', { class: 'kpi' + (acc2 ? ' acc' : '') }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v));
+  const grade = sm.grade;
+  const gradeBox = grade
+    ? h('div', { class: 'grade g-' + grade },
+      h('div', { class: 'gl-k tag' }, t('sum.grade')),
+      h('div', { class: 'gl' }, grade),
+      sm.gradeScore !== undefined ? h('div', { class: 'gs' }, t('sum.score100', { n: Math.round(sm.gradeScore) })) : null)
+    : null;
+  const bd = sm.gradeBreakdown ?? [];
+  const breakdown = bd.length
+    ? h('div', { class: 'breakdown' }, h('span', { class: 'tag' }, '// ' + t('sum.breakdown')),
+      ...bd.map(([k, pts, max]) => statLine(t(k), max > 0 ? pts / max : 0, `${Math.round(pts)}/${Math.round(max)}`)))
+    : null;
   return scr('bg-dim',
     h('div', { class: 'center-col' },
       h('div', { class: 'report tech' },
         h('span', { class: 'tag' }, '// ' + t('sum.report')),
         h('h1', { class: 'h-title' }, t('sum.title')),
         h('div', { class: 'sub' }, t('sum.sub', { floor: pad2(sm.floor), zone: pad2(sm.zone) })),
-        h('div', { class: 'kpis' },
-          kpi(t('sum.time'), fmtTime(st.time)),
-          kpi(t('sum.kills'), String(st.kills)),
-          kpi(t('sum.accuracy'), acc),
-          kpi(t('sum.damage'), String(Math.round(st.damageTaken))),
-          kpi(t('sum.gained'), '+' + Math.round(st.scoreGained), true),
-          kpi(t('sum.total'), String(sm.totalScore)),
+        sm.newRecord && !p.cheated ? h('div', { class: 'flag rec' }, icon('star'), t('sum.newRecord')) : null,
+        p.cheated ? h('div', { class: 'flag cheat' }, icon('warn'), t('sum.cheated')) : null,
+        h('div', { class: 'rep-top' },
+          gradeBox,
+          h('div', { class: 'kpis' },
+            kpi(t('sum.time'), fmtTime(st.time)),
+            kpi(t('sum.kills'), String(st.kills)),
+            kpi(t('sum.accuracy'), acc),
+            kpi(t('sum.damage'), String(Math.round(st.damageTaken))),
+            kpi(t('sum.gained'), '+' + Math.round(st.scoreGained), true),
+            kpi(t('sum.total'), String(sm.totalScore)),
+          ),
         ),
+        breakdown,
         h('div', { class: 'rep-lines' },
           h('div', { class: 'rl' }, h('span', { class: 'k' }, t('sum.fallen')), h('span', { class: 'v' }, fallen)),
           h('div', { class: 'rl' }, h('span', { class: 'k' }, t('sum.reward')), h('span', { class: 'v' }, `${t('reward.' + sm.reward)} — ${rewardTo}`)),
         ),
         h('div', { class: 'btn-row center', style: 'margin-top:0.9rem' }, cont),
       ),
+    ),
+  );
+}
+
+// ───────────────────────────── Elegir mejora ─────────────────────────────
+
+export function upgradeScreen(s: Screens, p: { choices: string[]; onPick(id: string): void }): HTMLElement {
+  s.setBack(null);
+  const cards = p.choices.map((id, i) => {
+    const u = upgradeInfo(id);
+    const pick = (): void => { uiSound('reward'); p.onPick(id); };
+    return h('div', {
+      class: 'up tech', tabindex: 0, role: 'button', 'data-nav': true, 'data-autofocus': i === 0 ? true : null, style: `--i:${i}`,
+      onclick: pick,
+      onmouseenter: (e: Event) => (e.currentTarget as HTMLElement).focus({ preventScroll: true }),
+      onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } },
+    },
+      h('span', { class: 'tag' }, `// ${pad2(i + 1)}`),
+      h('div', { class: 'up-ico' }, icon(u.icon)),
+      h('h3', { class: 'h-title' }, u.name),
+      h('p', { class: 'up-desc' }, u.desc),
+      h('div', { class: 'foot' }, deployLabel(t('up.pick'))),
+    );
+  });
+  return scr('bg-blur',
+    h('div', { class: 'stack' },
+      h('div', { class: 'screen-head' }, h('div', null, h('span', { class: 'tag' }, '// 03'), h('h2', { class: 'h-title' }, t('up.title')), h('p', { class: 'hint' }, t('up.hint')))),
+      h('div', { class: 'ups' }, ...cards),
+    ),
+  );
+}
+
+// ───────────────────────────── Récords ─────────────────────────────
+
+export function recordsScreen(s: Screens, p: { records: Record<string, RecordEntry>; onBack(): void }): HTMLElement {
+  s.setBack(p.onBack);
+  const diffs: ('easy' | 'normal' | 'hard')[] = ['easy', 'normal', 'hard'];
+  const any = Object.keys(p.records).length > 0;
+  const grid = h('div', { class: 'rec-grid' }, h('span', { class: 'tag' }, t('rec.floor')), ...diffs.map((d) => h('span', { class: 'tag' }, t('opt.diff.' + d))));
+  for (let f = 1; f <= 9; f++) {
+    grid.appendChild(h('span', { class: 'rf' }, `${pad2(f)} · ${t(`floor.${f}.name`)}`));
+    for (const d of diffs) {
+      const r = p.records[`${d}:${f}`];
+      let when = '';
+      if (r) { const dt = new Date(r.date); when = isNaN(dt.getTime()) ? String(r.date) : dt.toLocaleDateString(getLang() === 'es' ? 'es-ES' : 'en-US'); }
+      grid.appendChild(r
+        ? h('span', { class: 'rc' }, h('b', { class: 'g-' + r.grade }, r.grade), h('small', null, `${fmtTime(r.time)} · ${when}`))
+        : h('span', { class: 'rc none' }, '—'));
+    }
+  }
+  return scr('bg-blur',
+    h('div', { class: 'stack' },
+      h('div', { class: 'screen-head' },
+        h('div', null, h('span', { class: 'tag' }, '// 06'), h('h2', { class: 'h-title' }, t('rec.title')), h('p', { class: 'hint' }, t('rec.hint'))),
+        (() => { const b = button(t('menu.back'), p.onBack, 'primary', 'back'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })()),
+      any ? h('div', { class: 'tech rec-box' }, grid) : h('div', { class: 'tech rec-box' }, h('p', { class: 'hint', style: 'padding:1rem' }, t('rec.empty'))),
     ),
   );
 }
@@ -538,6 +630,11 @@ export interface OptionsParams {
   /** Se llama tras CADA cambio: la app guarda y reaplica los ajustes. */
   onChange(): void;
   onBack(): void;
+  /** Datos: tutorial y registro de partidas (v1.2) */
+  onRepeatTutorial(): void;
+  onExportLog(): void;
+  onClearLog(): number;
+  logCount(): number;
 }
 
 type OptTab = 'audio' | 'controls' | 'video' | 'lang';
@@ -676,6 +773,20 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
     bindGrid.appendChild(h('div', { class: 'bind-row' }, h('span', null, t('act.' + a)), b));
   }
 
+  // Datos: tutorial y registro de partidas (todo local, no se envía nada)
+  const dataSection = (): HTMLElement[] => {
+    const info = h('p', { class: 'hint' }, t('opt.logCount', { n: p.logCount() }));
+    return [
+      h('h3', { class: 'h-title opt-sec' }, '// ' + t('opt.data')),
+      h('div', { class: 'btn-row', style: 'margin:0.4rem 0' },
+        button(t('tut.again'), () => { p.onRepeatTutorial(); info.textContent = t('tut.againDone'); }, 'small'),
+        button(t('opt.exportLog'), () => p.onExportLog(), 'small'),
+        button(t('opt.clearLog'), () => { const n = p.onClearLog(); info.textContent = t('opt.logCount', { n }); }, 'small'),
+      ),
+      info,
+    ];
+  };
+
   const panes: Record<OptTab, () => HTMLElement[]> = {
     audio: () => [
       slider(t('opt.music'), 0, 1, 0.05, () => st.musicVol, (v) => { st.musicVol = v; }, pct),
@@ -709,6 +820,7 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
         { v: 'medium', text: t('opt.gfx.medium') }, { v: 'low', text: t('opt.gfx.low') },
       ], () => st.graphics ?? 'auto', (v) => { st.graphics = v; }),
       h('p', { class: 'hint' }, t('opt.gfx.help')),
+      ...dataSection(),
     ],
     lang: () => [
       segment(t('opt.lang'), [{ v: 'es', text: t('lang.es') }, { v: 'en', text: t('lang.en') }], () => st.lang, (v) => { st.lang = v; }),

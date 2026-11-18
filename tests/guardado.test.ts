@@ -59,7 +59,8 @@ describe('21.14 / 19 · guardado y carga', () => {
       expect(m.hp).toBeLessThanOrEqual(world.entities.find(e => e.kind === c)!.maxHp);
     }
     expect(cargado.members).toEqual(sinCargadores(state));
-    expect(storage.map.size).toBe(1);
+    // v1.2: además de la partida, el récord de la planta vive en el mismo almacenamiento (clave stracomter3.records)
+    expect([...storage.map.keys()].filter(k => k !== 'stracomter3.records')).toHaveLength(1);
   }, 60_000);
 
   it('21.14 · la recompensa entra en el inventario de cada superviviente y no en el del muerto', () => {

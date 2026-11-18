@@ -240,7 +240,7 @@ export function createSquadPreview(canvas: HTMLCanvasElement, slots: Record<Clas
     try {
       const lib = sharedRbLibrary;
       if (!(await lib.load()) || disposed) return;
-      if (lib.templates.size === 0) lib.build(false);
+      lib.build(false, true);
       // entorno tenue propio (el PMREM es por contexto: no se comparte con el renderer del juego)
       void new RGBELoader().loadAsync(modelsUrl('hdri/unfinished_office_1k.hdr')).then((tex) => {
         if (disposed) { tex.dispose(); return; }

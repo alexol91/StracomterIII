@@ -267,6 +267,7 @@ export class Director {
     const w = this.w;
     void dt;
     if (w.status !== 'playing') return;
+    if (w.hold) return; // v1.2 tutorial: ni oleadas, ni fases, ni zona limpia
     const alive = w.enemiesAlive();
 
     // Si el MegaBoss ha muerto, los refuerzos de las fases que no llegó a pedir ya no vienen.

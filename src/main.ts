@@ -7,7 +7,7 @@
 
 import './ui/styles.css';
 import type {
-  CampaignState, ConsoleHost, IAudio, IConsole, IControls, ICampaign, IRenderer, IWorld, KVStorage, MusicTrack, ZoneSummary,
+  RecordEntry, CampaignState, ConsoleHost, IAudio, IConsole, IControls, ICampaign, IRenderer, IWorld, KVStorage, MusicTrack, ZoneSummary,
 } from './contracts';
 import type { ClassId, PlayerInput } from './sim/types';
 import { CLASS_IDS, emptyInput } from './sim/types';
@@ -18,16 +18,19 @@ import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
 import { onLangChange, setLang, t } from './ui/i18n';
 import { loadSettings, saveSettings } from './ui/settings';
-import { asset, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
+import { asset, button, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
-  titleScreen, victoryScreen,
+  titleScreen, victoryScreen, recordsScreen, upgradeScreen,
 } from './ui/screens';
+import { Tutorial } from './ui/tutorial';
+import { VERSION } from './ui/version';
 import { Hud } from './ui/hud';
 import { ConsoleOverlay } from './ui/consoleOverlay';
 
 type Screen =
-  | 'title' | 'class' | 'strategy' | 'game' | 'pause' | 'options' | 'summary' | 'defeat' | 'victory' | 'credits';
+  | 'title' | 'class' | 'strategy' | 'game' | 'pause' | 'options' | 'summary' | 'defeat' | 'victory' | 'credits'
+  | 'records' | 'upgrade';
 
 const STEP = 1 / 60;
 const MAX_STEPS = 5;
@@ -36,6 +39,9 @@ const END_DELAY = 1.5; // s entre «zona limpia»/«muerte» y la pantalla sigui
 // ───────────────────────────── Ajustes e idioma ─────────────────────────────
 
 const params = new URLSearchParams(location.search);
+// Ganchos de prueba (window.__stracomter, ?test, ?auto, advance): solo en desarrollo o con ?debug=1
+const DEBUG = import.meta.env.DEV || params.get('debug') === '1';
+const autoMode = DEBUG && params.has('auto');
 const settings = loadSettings();
 // ?lang=en fuerza inglés para pruebas (no se guarda). Sin parámetro manda el ajuste guardado; por defecto, español.
 {
@@ -80,6 +86,22 @@ function toast(msg: string, ms = 4500): void {
 
 // ───────────────────────────── Módulos ─────────────────────────────
 
+let fatal = false;
+/** Panel sobrio de error irrecuperable, con botón para recargar (en vez de dejar la pantalla congelada). */
+function showFatal(msg: string): void {
+  if (fatal) return;
+  fatal = true;
+  try { controls?.setActive(false); } catch { /* aún sin controles */ }
+  uiRoot.appendChild(h('div', { class: 'screen bg-defeat', style: 'z-index:100' },
+    h('div', { class: 'scroll' },
+      h('div', { class: 'center-col' },
+        h('span', { class: 'tag' }, '// ERROR'),
+        h('h1', { class: 'h-title defeat-title' }, t('err.title')),
+        h('p', { class: 'hint', style: 'max-width:36rem;word-break:break-word' }, msg),
+        button(t('err.reload'), () => location.reload(), 'primary'),
+      ))));
+}
+
 let renderer: IRenderer;
 let audio: IAudio;
 let controls: IControls;
@@ -90,7 +112,7 @@ try {
   renderer = createRenderer(canvas);
 } catch (err) {
   console.error(err);
-  uiRoot.appendChild(h('div', { class: 'screen bg-dim' }, h('div', { class: 'panel center-col' }, t('err.webgl'))));
+  showFatal(t('err.webgl'));
   throw err;
 }
 audio = createAudio();
@@ -119,7 +141,8 @@ let lastConsoleToggle = -1e9;
 
 // Pantalla de carga de zona: se quita al primer frame dibujado, respetando un mínimo y un máximo (ver frame())
 const loadingText = h('div', { class: 'ld-t' });
-const loadingEl = h('div', { id: 'loading', class: 'out' }, loadingText, h('div', { class: 'ld-bar' }));
+const loadingBar = h('div', { class: 'ld-bar' });
+const loadingEl = h('div', { id: 'loading', class: 'out' }, loadingText, loadingBar);
 let loadingActive = false;
 let loadingSince = 0;
 let loadingFrames = 0;
@@ -128,6 +151,7 @@ let loadedOnce = false; // los modelos pesan: la primera zona de la sesión espe
 function showLoading(floor: number, zone: number): void {
   loadingText.textContent = t('load.deploying', { floor: pad2(floor), zone: pad2(zone) });
   loadingEl.classList.remove('out');
+  loadingBar.classList.remove('det');
   loadingActive = true;
   loadingSince = performance.now();
   loadingFrames = 0;
@@ -144,6 +168,11 @@ const hud = new Hud(uiRoot, () => settings, () => controls.isTouch, () => toggle
 uiRoot.appendChild(screensLayer);
 uiRoot.appendChild(loadingEl);
 const consoleUi = new ConsoleOverlay(uiRoot, runConsole, () => closeConsole());
+const tutorial = new Tutorial(uiRoot, {
+  getSettings: () => settings,
+  isTouch: () => controls.isTouch,
+  project: (x, y, z) => renderer.project(x, y, z),
+}, () => { /* el tutorial ya queda marcado en localStorage */ });
 
 // ───────────────────────────── Ajustes aplicados ─────────────────────────────
 
@@ -162,6 +191,7 @@ onLangChange(() => {
   screens.refresh();
   hud.relabel();
   consoleUi.relabel();
+  tutorial.relabel();
 });
 
 // ───────────────────────────── Música ─────────────────────────────
@@ -187,6 +217,7 @@ function updateGameMusic(force = false): void {
 // ───────────────────────────── Pantallas ─────────────────────────────
 
 function leaveGame(): void {
+  tutorial.stop(null);
   world = null;
   renderer.setWorld(null);
   renderer.render(0); // deja el lienzo limpio
@@ -207,6 +238,7 @@ function showTitle(): void {
     onQuick: () => showClassSelect(true),
     onOptions: () => showOptions('title'),
     onCredits: showCredits,
+    onRecords: showRecords,
     onLang: (l) => { settings.lang = l; applyAll(true); },
   }));
 }
@@ -293,10 +325,23 @@ function showOptions(from: 'title' | 'pause'): void {
   screens.show((s) => optionsScreen(s, {
     settings,
     onChange: () => applyAll(true),
+    onRepeatTutorial: () => Tutorial.reset(),
+    onExportLog: exportLog,
+    onClearLog: () => { writeLog([]); return 0; },
+    logCount: () => readLog().length,
     onBack: () => {
       if (optionsFrom === 'pause') { hud.show(true); showPause(); } else showTitle();
     },
   }));
+}
+
+function showRecords(): void {
+  leaveGame();
+  screen = 'records';
+  music('menu');
+  let recs: Record<string, RecordEntry> = {};
+  try { recs = campaign.records?.() ?? {}; } catch { /* sin récords */ }
+  screens.show((sc) => recordsScreen(sc, { records: recs, onBack: showTitle }));
 }
 
 function showCredits(): void {
@@ -306,17 +351,34 @@ function showCredits(): void {
   screens.show((sc) => creditsScreen(sc, { onBack: showTitle }));
 }
 
-function showSummary(summary: ZoneSummary): void {
+function showSummary(summary: ZoneSummary, cheated: boolean): void {
   screen = 'summary';
   lastSummary = summary;
   music('strategy');
   const shownAt = Date.now();
   screens.show((s) => summaryScreen(s, {
-    summary, shownAt,
+    summary, shownAt, cheated,
     onContinue: () => {
-      if (summary.campaignWon) showVictory();
-      else if (state?.quick) showTitle();
-      else showStrategy();
+      const next = (): void => {
+        if (summary.campaignWon) showVictory();
+        else if (state?.quick) showTitle();
+        else showStrategy();
+      };
+      // Mejora de campaña: obligatoria, no se puede saltar
+      const choices = summary.upgradeChoices ?? [];
+      if (choices.length > 0 && state && !state.quick) showUpgrade(choices, next); else next();
+    },
+  }));
+}
+
+function showUpgrade(choices: string[], then: () => void): void {
+  screen = 'upgrade';
+  music('strategy');
+  screens.show((sc) => upgradeScreen(sc, {
+    choices,
+    onPick: (id) => {
+      try { if (state && campaign.chooseUpgrade) campaign.chooseUpgrade(state, id); } catch (err) { reportError(err); }
+      then();
     },
   }));
 }
@@ -327,6 +389,7 @@ function showDefeat(): void {
   hud.show(false);
   audio.ui('defeat');
   if (state) campaign.failZone(state); // el ajuste dinámico afloja un escalón tras una derrota
+  if (world) logPlay('dead', world);
   const floor = world?.floor ?? state?.floor ?? 1;
   const zone = world?.zone ?? 1;
   screens.show((sc) => defeatScreen(sc, { floor, zone, onRetry: retryFloor, onMenu: showTitle }));
@@ -345,6 +408,62 @@ function showVictory(): void {
   audio.ui('victory');
   const score = state?.score ?? lastSummary?.totalScore ?? 0;
   screens.show(() => victoryScreen({ score, onContinue: showCredits }));
+}
+
+// ───────────────────────────── Registro de partidas (pruebas con personas) ─────────────────────────────
+// Una línea por zona terminada o perdida, en localStorage. No se envía nada a ningún sitio.
+
+const LOG_KEY = 'stracomter3.playlog';
+const LOG_MAX = 200;
+
+function readLog(): unknown[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+function writeLog(a: unknown[]): void {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(a.slice(-LOG_MAX))); } catch { /* sin almacenamiento */ }
+}
+
+function logPlay(result: 'cleared' | 'dead', w: IWorld, summary?: ZoneSummary): void {
+  try {
+    const st = w.stats;
+    const log = readLog();
+    log.push({
+      date: new Date().toISOString(),
+      version: VERSION,
+      device: { touch: controls.isTouch, window: `${window.innerWidth}x${window.innerHeight}` },
+      graphics: settings.graphics ?? 'auto',
+      difficulty: state?.difficulty ?? settings.difficulty,
+      mode: state?.quick ? 'quick' : 'campaign',
+      floor: w.floor,
+      zone: w.zone,
+      class: w.player.kind,
+      result,
+      time: Math.round(st.time * 10) / 10,
+      kills: st.kills,
+      accuracy: st.shotsFired > 0 ? Math.round((st.shotsHit / st.shotsFired) * 1000) / 1000 : null,
+      damageTaken: Math.round(st.damageTaken),
+      alliesFallen: summary ? summary.fallen : st.alliesLost,
+      grade: summary?.grade ?? null,
+      upgrades: state?.upgrades ?? [],
+      cheated: !!(w.cheated || state?.cheated),
+    });
+    writeLog(log);
+  } catch (err) { console.error(err); }
+}
+
+function exportLog(): void {
+  const blob = new Blob([JSON.stringify(readLog(), null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `stracomter-partidas-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 // ───────────────────────────── Zona de juego ─────────────────────────────
@@ -374,16 +493,22 @@ function beginWorld(w: IWorld): void {
   hud.reset();
   hud.show(true);
   updateGameMusic(true);
+  // Tutorial guiado: primera partida de campaña, planta 1, sin trucos
+  tutorial.stop(null);
+  if (state && !state.quick && w.floor === 1 && !autoMode && !w.cheated && Tutorial.shouldStart()) tutorial.start(w);
   const ae = document.activeElement as HTMLElement | null;
   if (ae && ae !== document.body && !ae.closest('#console')) ae.blur();
 }
 
 function finishZone(): void {
   if (!world || !state) return;
-  const summary = campaign.completeZone(state, world);
+  const w = world;
+  const summary = campaign.completeZone(state, w);
+  const cheated = !!(w.cheated || state.cheated);
+  logPlay('cleared', w, summary);
   leaveGame();
   audio.ui('reward');
-  showSummary(summary);
+  showSummary(summary, cheated);
 }
 
 function neutralInput(src: PlayerInput): PlayerInput {
@@ -402,6 +527,7 @@ function simulate(dtReal: number): void {
     renderer.onEvents(w.events);
     audio.handleEvents(w);
     hud.onEvents(w);
+    tutorial.onEvents(w);
     acc -= STEP;
     n++;
   }
@@ -420,12 +546,15 @@ function simulate(dtReal: number): void {
 
 function frame(nowMs: number): void {
   requestAnimationFrame(frame);
+  if (fatal) return;
   const dtReal = Math.min(0.25, Math.max(0, (nowMs - lastFrameMs) / 1000));
   lastFrameMs = nowMs;
   try {
     if (world) {
+      tutorial.setVisible(screen === 'game' && !consoleUi.isOpen && !loadingActive);
       if (screen === 'game' && !consoleUi.isOpen && !loadingActive) {
         simulate(dtReal);
+        if (world) tutorial.update(world, dtReal);
         musicTimer += dtReal;
         if (musicTimer >= 0.5 && world) { musicTimer = 0; updateGameMusic(); }
       }
@@ -435,9 +564,18 @@ function frame(nowMs: number): void {
         if (loadingActive) {
           loadingFrames++;
           const el = performance.now() - loadingSince;
-          // Sin señal del renderer: 1ª vez mínimo 1,2 s y máximo 4 s; después 0,4 s y 1,5 s
-          const minMs = loadedOnce ? 400 : 1200, maxMs = loadedOnce ? 1500 : 4000;
-          if ((loadingFrames >= 1 && el >= minMs) || el >= maxMs) { hideLoading(); loadedOnce = true; }
+          // Con progreso real del renderer: la barra lo enseña y se quita al llegar a 1 (tope absoluto 20 s).
+          // Sin él: 1ª vez mínimo 1,2 s y máximo 4 s; después 0,4 s y 1,5 s.
+          const lp = renderer.loadProgress ? renderer.loadProgress() : undefined;
+          const real = typeof lp === 'number' && isFinite(lp);
+          if (real) {
+            loadingBar.classList.add('det');
+            loadingBar.style.setProperty('--p', String(Math.min(1, Math.max(0, lp as number))));
+          }
+          const minMs = loadedOnce ? 400 : 1200;
+          const maxMs = real ? 20000 : loadedOnce ? 1500 : 4000;
+          const ready = real ? (lp as number) >= 1 : true;
+          if ((loadingFrames >= 1 && ready && el >= minMs) || el >= maxMs) { hideLoading(); loadedOnce = true; }
         }
       }
     }
@@ -446,14 +584,25 @@ function frame(nowMs: number): void {
   }
 }
 
-const reported = new Set<string>();
+const reported = new Map<string, number>();
 function reportError(err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   console.error(err);
-  if (reported.has(msg)) return;
-  reported.add(msg);
-  toast(t('err.generic', { msg }), 7000);
+  const n = (reported.get(msg) ?? 0) + 1;
+  reported.set(msg, n);
+  if (n === 1) toast(t('err.generic', { msg }), 7000);
+  // El mismo fallo en el bucle de juego, una y otra vez: no se puede seguir
+  if (n >= 5) showFatal(msg);
 }
+window.addEventListener('error', (e) => {
+  if (/ResizeObserver/.test(e.message)) return;
+  if (e.error) showFatal(e.error instanceof Error ? e.error.message : String(e.message));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  // Las promesas rechazadas del navegador (p. ej. audio sin gesto) son DOMException: no son un fallo del juego
+  const r = e.reason;
+  if (r instanceof Error && !(r instanceof DOMException)) showFatal(r.message);
+});
 
 // ───────────────────────────── Consola de trucos ─────────────────────────────
 
@@ -533,7 +682,7 @@ function onGlobalKey(e: KeyboardEvent): void {
 window.addEventListener('keydown', onGlobalKey, true);
 
 // ?test=1: en pruebas automáticas el panel pierde el foco y el pointer lock sin parar; ahí no se pausa sola
-const testMode = params.has('test');
+const testMode = DEBUG && params.has('test');
 controls.onPause = () => { if (!testMode) togglePause(); };
 controls.onConsole = () => toggleConsole();
 
@@ -572,7 +721,7 @@ const appApi = {
   get consoleOpen(): boolean { return consoleUi.isOpen; },
 };
 
-(window as unknown as { __stracomter: unknown }).__stracomter = {
+if (DEBUG) (window as unknown as { __stracomter: unknown }).__stracomter = {
   get world() { return world; },
   get state() { return state; },
   get screen() { return screen; },
@@ -604,7 +753,7 @@ const appApi = {
 };
 
 function autoStart(): boolean {
-  const mode = params.get('auto');
+  const mode = DEBUG ? params.get('auto') : null;
   if (mode !== 'campaign' && mode !== 'quick') return false;
   const cls = params.get('class') as ClassId | null;
   const c: ClassId = cls && (CLASS_IDS as string[]).includes(cls) ? cls : 'captain';

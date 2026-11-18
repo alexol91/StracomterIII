@@ -41,7 +41,9 @@ export interface IWorld {
   morale: number;
   stats: ZoneStats;
   /** Posición de cámara calculada por la simulación (ya con colisión contra muros). Úsala tal cual. */
-  cam: { x: number; y: number; z: number; yaw: number; pitch: number };
+  cam: { x: number; y: number; z: number; yaw: number; pitch: number;
+    /** v1.2 — campo de visión vertical en grados (60 normal; se cierra al apuntar). yaw/pitch ya incluyen el retroceso. */
+    fov?: number };
   /** Punto al que apunta la mira (para dibujar retícula 3D o láser si se quiere). */
   aim: { x: number; y: number; z: number; entityId: number };
   /** Puerta que se puede accionar ahora (para el aviso contextual), o -1. */
@@ -57,6 +59,10 @@ export interface IWorld {
   pacing: 'ascenso' | 'pico' | 'alivio' | 'descanso';
   /** chutaos: «Modo Chutaos», los efectos de sonido pasan a ser las voces de broma del equipo original */
   cheats: { god: boolean; noclip: boolean; aiDebug: boolean; chutaos: boolean };
+  /** v1.2 — true en cuanto se usa cualquier truco en esta zona: la partida no puntúa para récords */
+  cheated: boolean;
+  /** v1.2 — tutorial: mientras sea true el director no suelta oleadas y los enemigos presentes no detectan a nadie */
+  hold: boolean;
   /** Avanza la simulación dt segundos (usa paso fijo 1/60). Consume los flancos de input. */
   step(dt: number, input: PlayerInput): void;
   /** Datos para dibujar ai.debug. Solo se rellenan si cheats.aiDebug. */
@@ -72,7 +78,18 @@ export interface MemberState {
   inv: (ItemType | null)[]; // 5 ranuras
 }
 
+/** v1.2 — identificador de una mejora de campaña (tabla UPGRADES en src/sim/data.ts) */
+export type UpgradeId = string;
+
+export type Grade = 'S' | 'A' | 'B' | 'C' | 'D';
+
+export interface RecordEntry { grade: Grade; score: number; time: number; date: string }
+
 export interface CampaignState {
+  /** v1.2 — mejoras elegidas en esta campaña */
+  upgrades?: UpgradeId[];
+  /** v1.2 — se usaron trucos en algún momento de la campaña */
+  cheated?: boolean;
   version: 1;
   /** Planta que toca jugar (1..9). 10 = campaña terminada. */
   floor: number;
@@ -111,6 +128,16 @@ export interface ZoneSummary {
   totalScore: number;
   /** true si era la azotea: toca pantalla de Victoria */
   campaignWon: boolean;
+  // ── v1.2 ──
+  /** nota de la planta y puntuación 0-100 de la que sale */
+  grade?: Grade;
+  gradeScore?: number;
+  /** desglose de la nota: [clave i18n, puntos obtenidos, puntos máximos] */
+  gradeBreakdown?: [string, number, number][];
+  /** true si esta nota mejora el récord guardado de esa planta y dificultad */
+  newRecord?: boolean;
+  /** tres mejoras entre las que elegir (vacío si era la última planta o partida rápida) */
+  upgradeChoices?: UpgradeId[];
 }
 
 export interface KVStorage { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
@@ -126,6 +153,10 @@ export interface ICampaign {
   completeZone(state: CampaignState, world: IWorld): ZoneSummary;
   /** Llamar al morir (world.status === 'dead'): el ajuste dinámico baja un escalón y se guarda. No toca nada más. */
   failZone(state: CampaignState): void;
+  /** v1.2 — aplica la mejora elegida tras completeZone (debe ser una de summary.upgradeChoices) y guarda */
+  chooseUpgrade(state: CampaignState, id: UpgradeId): void;
+  /** v1.2 — mejores marcas guardadas en el dispositivo: clave `${dificultad}:${planta}` */
+  records(): Record<string, RecordEntry>;
   save(state: CampaignState): void;
   load(): CampaignState | null;
   hasSave(): boolean;
@@ -144,6 +175,7 @@ export interface ConsoleHost {
 // ───────────────────────── Ajustes (src/ui/settings) ─────────────────────────
 
 export type Action =
+  | 'sprint' | 'aim'
   | 'forward' | 'back' | 'left' | 'right' | 'fire' | 'knife' | 'reload' | 'grenade' | 'ability'
   | 'interact' | 'useItem' | 'cycleItem' | 'crouch' | 'orderFollow' | 'orderGoto' | 'orderFocus'
   | 'orderHold' | 'pause' | 'console';
@@ -172,6 +204,8 @@ export interface Settings {
 export interface IRenderer {
   /** Cambia de mundo (nueva zona). Reconstruye la escena. null = sin mundo (menús). */
   setWorld(world: IWorld | null): void;
+  /** v1.2 — progreso de carga de los modelos y texturas que necesita el mundo actual, 0..1 (1 = listo para verse bien) */
+  loadProgress?(): number;
   /** La app lo llama tras CADA world.step con world.events (trazadoras, explosiones, boquetes…). */
   onEvents(events: GameEvent[]): void;
   /** Dibuja un frame. dt = segundos reales desde el frame anterior. */

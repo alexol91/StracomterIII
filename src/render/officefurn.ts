@@ -133,7 +133,7 @@ function rackLeds(): THREE.BufferGeometry {
 
 interface DecorSpot { name: string; x: number; y: number; elev: number; yaw: number }
 const DECOR: { name: string; elev: number }[] = [
-  { name: 'L-wall-clock', elev: 2.05 }, { name: 'wall-art-panel', elev: 1.45 }, { name: 'L-fire-extinguisher-point', elev: 0 },
+  { name: 'wall-clock', elev: 2.05 }, { name: 'wall-art-panel', elev: 1.45 }, { name: 'L-fire-extinguisher-point', elev: 0 },
   { name: 'waste-bin', elev: 0 }, { name: 'L-wall-wayfinding-panel', elev: 1.7 },
 ];
 

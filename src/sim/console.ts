@@ -26,6 +26,9 @@ export function createConsole(host: ConsoleHost): IConsole {
         return ['spawn <tipo> <x> <y> · team <tipo> <x> <y> · kill all|bad|me · god · noclip · ammo · health',
           'floor <n> · zone <n> · tp <x> <y> · info [id] · ai.debug · chutaos on|off', 'tipos: ' + KINDS.join(', ')];
       }
+      // v1.2: cualquier comando que altere la partida la invalida para récords (todos salvo help, info y ai.debug)
+      const ALTERA = ['spawn', 'team', 'kill', 'god', 'noclip', 'ammo', 'health', 'tp', 'chutaos', 'floor', 'zone'];
+      if (w && ALTERA.includes(cmd)) w.cheated = true;
       if (cmd === 'floor' || cmd === 'zone') {
         const n = parseInt(parts[1], 10);
         if (!Number.isFinite(n)) return [`uso: ${cmd} <n>`];
