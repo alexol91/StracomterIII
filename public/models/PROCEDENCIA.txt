@@ -1,0 +1,12 @@
+Modelos de terceros usados por Stracomter III. Todos CC0 (dominio público): sin pago, sin royalties,
+sin atribución obligatoria. Comprobado el 2026-11-18.
+
+chars/, guns/, env/
+  «Toon Shooter Game Kit» (dic. 2022), de Quaternius.
+  Página oficial: https://quaternius.com/packs/toonshootergamekit.html  (indica «CC0» y «free to use in
+  personal and commercial projects»). Descargado de la carpeta oficial enlazada desde esa página.
+  La carpeta no incluye fichero de licencia: el CC0 consta en la página, no dentro de los ficheros.
+
+furniture/
+  «Furniture Pack 1.0», de Kenney (www.kenney.nl). Licencia en LICENSE-Kenney.txt (CC0).
+  Descargado de la subida del propio Kenney en https://opengameart.org/content/furniture-kit

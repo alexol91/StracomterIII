@@ -8,14 +8,16 @@ import * as THREE from 'three';
 import type { GameEvent, OrderKind, Projectile } from '../sim/types';
 import type { IWorld } from '../contracts';
 import { GeoBuilder, Owned, makeOutlineMat, makeToonVC } from './geo';
+import type { Assets } from './assets';
 
-const MAX_PART = 640;
+const MAX_PART = 900;
 const MAX_TRACER = 48;
 const MAX_FLASH = 24;
 const MAX_EXPL = 8;
 const MAX_MARK = 4;
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _d = new THREE.Vector3();
@@ -26,12 +28,60 @@ const _p = new THREE.Vector3();
 const _c = new THREE.Color();
 const IDQ = new THREE.Quaternion();
 
+function makeCanvas(w: number, h: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  return { c, g: c.getContext('2d')! };
+}
+/** Trazadora: degradado a lo largo (cola transparente, cabeza brillante) y suave a lo ancho. */
+function tracerTexture(): THREE.CanvasTexture {
+  const { c, g } = makeCanvas(64, 16);
+  const gx = g.createLinearGradient(0, 0, 64, 0);
+  gx.addColorStop(0, 'rgba(255,255,255,0)'); gx.addColorStop(0.7, 'rgba(255,255,255,0.55)'); gx.addColorStop(1, 'rgba(255,255,255,1)');
+  g.fillStyle = gx; g.fillRect(0, 0, 64, 16);
+  g.globalCompositeOperation = 'destination-in';
+  const gy = g.createLinearGradient(0, 0, 0, 16);
+  gy.addColorStop(0, 'rgba(0,0,0,0)'); gy.addColorStop(0.5, 'rgba(0,0,0,1)'); gy.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gy; g.fillRect(0, 0, 64, 16);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+/** Fogonazo: estrella de cuatro puntas con núcleo brillante. */
+function starTexture(): THREE.CanvasTexture {
+  const { c, g } = makeCanvas(128, 128);
+  g.translate(64, 64);
+  const rg = g.createRadialGradient(0, 0, 0, 0, 0, 40);
+  rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.35, 'rgba(255,225,140,0.85)'); rg.addColorStop(1, 'rgba(255,140,40,0)');
+  g.fillStyle = rg; g.fillRect(-64, -64, 128, 128);
+  g.fillStyle = 'rgba(255,240,190,0.95)';
+  for (let i = 0; i < 4; i++) {
+    g.save(); g.rotate((i * Math.PI) / 2 + Math.PI / 4 * (i % 2 ? 0 : 0));
+    g.beginPath(); g.moveTo(0, -4); g.lineTo(62, 0); g.lineTo(0, 4); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(0, -4); g.lineTo(-62, 0); g.lineTo(0, 4); g.closePath(); g.fill();
+    g.restore();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+/** Bola de fuego: ruido de manchas naranja/amarillo/rojo oscuro. */
+function fireTexture(): THREE.CanvasTexture {
+  const { c, g } = makeCanvas(128, 128);
+  g.fillStyle = '#c23a0a'; g.fillRect(0, 0, 128, 128);
+  let seed = 5; const r = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const cols = ['255,210,90', '255,150,40', '230,80,20', '120,30,10'];
+  for (let i = 0; i < 70; i++) {
+    const x = r() * 128, y = r() * 128, rad = 8 + r() * 26;
+    const rg = g.createRadialGradient(x, y, 0, x, y, rad);
+    const col = cols[Math.floor(r() * cols.length)];
+    rg.addColorStop(0, `rgba(${col},0.9)`); rg.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = rg; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; return t;
+}
+
 const easeOut = (t: number): number => 1 - (1 - t) * (1 - t);
 const rr = (a: number, b: number): number => a + Math.random() * (b - a);
 
-interface Tracer { mesh: THREE.Mesh; t: number; life: number }
-interface Flash { mesh: THREE.Mesh; t: number; base: number }
-interface Expl { sphere: THREE.Mesh; core: THREE.Mesh; ring: THREE.Mesh; t: number; life: number; r: number }
+interface Tracer { mesh: THREE.Mesh; t: number; life: number; a: THREE.Vector3; d: THREE.Vector3; len: number }
+interface Flash { mesh: THREE.Mesh; t: number; base: number; rot: number }
+interface Expl { sphere: THREE.Mesh; core: THREE.Mesh; ring: THREE.Mesh; t: number; life: number; r: number; spin: THREE.Vector3 }
 interface Marker { root: THREE.Group; ring: THREE.Mesh; cone: THREE.Mesh; ringMat: THREE.MeshBasicMaterial; coneMat: THREE.MeshBasicMaterial; t: number; life: number; kind: OrderKind }
 
 const ORDER_COLOR: Record<OrderKind, number> = { follow: 0x9ec5ff, goto: 0x35d0ff, focus: 0xff4040, hold: 0xffc72c };
@@ -47,6 +97,11 @@ export class Fx {
   private flashes: Flash[] = [];
   private tracerMatAlly: THREE.MeshBasicMaterial;
   private tracerMatEnemy: THREE.MeshBasicMaterial;
+  private muzzleLight: THREE.PointLight;
+  private explLight: THREE.PointLight;
+  private muzzleT = 0;
+  private explT = 0;
+  private flashQuat = new THREE.Quaternion();
 
   // partículas
   private pm: THREE.InstancedMesh;
@@ -79,27 +134,35 @@ export class Fx {
 
   constructor() {
     const o = this.owned;
-    // — trazadoras
-    const box = o.add(new THREE.BoxGeometry(1, 1, 1));
-    this.tracerMatAlly = o.add(new THREE.MeshBasicMaterial({ color: 0xffe14a }));
-    this.tracerMatEnemy = o.add(new THREE.MeshBasicMaterial({ color: 0xff5a2a }));
+    // — trazadoras: quads con degradado que se orientan hacia la cámara
+    const quad = o.add(new THREE.PlaneGeometry(1, 1));
+    const tTex = o.add(tracerTexture());
+    const mkTr = (col: number): THREE.MeshBasicMaterial => o.add(new THREE.MeshBasicMaterial({
+      map: tTex, color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.tracerMatAlly = mkTr(0xffe14a);
+    this.tracerMatEnemy = mkTr(0xff5a2a);
     for (let i = 0; i < MAX_TRACER; i++) {
-      const mesh = new THREE.Mesh(box, this.tracerMatAlly);
-      mesh.visible = false; mesh.frustumCulled = false;
+      const mesh = new THREE.Mesh(quad, this.tracerMatAlly);
+      mesh.visible = false; mesh.frustumCulled = false; mesh.renderOrder = 5;
       this.group.add(mesh);
-      this.tracers.push({ mesh, t: 0, life: 0.06 });
+      this.tracers.push({ mesh, t: 0, life: 0.09, a: new THREE.Vector3(), d: new THREE.Vector3(), len: 1 });
     }
-    // — fogonazos
-    const flashGeo = o.add(new THREE.IcosahedronGeometry(0.16, 0));
-    const flashMat = o.add(new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+    // — fogonazos en estrella (billboards)
+    const sTex = o.add(starTexture());
+    const flashMat = o.add(new THREE.MeshBasicMaterial({ map: sTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     for (let i = 0; i < MAX_FLASH; i++) {
-      const mesh = new THREE.Mesh(flashGeo, flashMat);
-      mesh.visible = false; mesh.frustumCulled = false;
+      const mesh = new THREE.Mesh(quad, flashMat);
+      mesh.visible = false; mesh.frustumCulled = false; mesh.renderOrder = 6;
       this.group.add(mesh);
-      this.flashes.push({ mesh, t: 0, base: 1 });
+      this.flashes.push({ mesh, t: 0, base: 1, rot: 0 });
     }
+    // luces puntuales breves (solo calidad alta: se encienden con setHighQuality)
+    this.muzzleLight = new THREE.PointLight(0xffd890, 0, 7, 2);
+    this.explLight = new THREE.PointLight(0xff9a40, 0, 16, 2);
+    this.muzzleLight.visible = this.explLight.visible = false;
+    this.group.add(this.muzzleLight, this.explLight);
     // — partículas
-    const pg = o.add(new THREE.BoxGeometry(1, 1, 1));
+    const pg = o.add(new THREE.IcosahedronGeometry(0.6, 0));
     const pmat = o.add(new THREE.MeshBasicMaterial({ color: 0xffffff }));
     this.pm = new THREE.InstancedMesh(pg, pmat, MAX_PART);
     this.pm.frustumCulled = false;
@@ -109,13 +172,14 @@ export class Fx {
     this.group.add(this.pm);
     // — explosiones
     const sph = o.add(new THREE.SphereGeometry(1, 16, 12));
+    const fireTex = o.add(fireTexture());
     const ringG = o.add(new THREE.RingGeometry(0.8, 1, 36).rotateX(-Math.PI / 2));
     for (let i = 0; i < MAX_EXPL; i++) {
-      const sphere = new THREE.Mesh(sph, o.add(new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, depthWrite: false })));
+      const sphere = new THREE.Mesh(sph, o.add(new THREE.MeshBasicMaterial({ map: fireTex, transparent: true, depthWrite: false })));
       const core = new THREE.Mesh(sph, o.add(new THREE.MeshBasicMaterial({ color: 0xfff4d0, transparent: true, depthWrite: false })));
       const ring = new THREE.Mesh(ringG, o.add(new THREE.MeshBasicMaterial({ color: 0xffb050, transparent: true, depthWrite: false, side: THREE.DoubleSide })));
       for (const m of [sphere, core, ring]) { m.visible = false; m.frustumCulled = false; this.group.add(m); }
-      this.expls.push({ sphere, core, ring, t: 0, life: 0.6, r: 1 });
+      this.expls.push({ sphere, core, ring, t: 0, life: 0.7, r: 1, spin: new THREE.Vector3(1, 2, 0.5) });
     }
     // — marcadores
     this.ringRound = o.add(new THREE.RingGeometry(0.5, 0.64, 32).rotateX(-Math.PI / 2));
@@ -141,6 +205,14 @@ export class Fx {
     o.add(this.grenadeGeo.geo); if (this.grenadeGeo.hull) o.add(this.grenadeGeo.hull);
     o.add(this.rocketGeo.geo); if (this.rocketGeo.hull) o.add(this.rocketGeo.hull);
   }
+
+  /** Granada con el modelo Quaternius (CC0) cuando termina la carga. */
+  setAssets(a: Assets | null): void {
+    if (a?.grenade) this.grenadeGeo = { geo: a.grenade, hull: null };
+  }
+
+  /** Enciende o apaga las luces puntuales de fogonazos y explosiones (calidad alta). */
+  setHighQuality(on: boolean): void { this.muzzleLight.visible = this.explLight.visible = on; }
 
   /** Colores de trazadora para daltonismo: aliados azul claro, hostiles amarillo vivo. */
   setColorblind(cb: boolean): void {
@@ -181,6 +253,7 @@ export class Fx {
     for (const v of this.projViews.values()) this.group.remove(v);
     this.projViews.clear();
     this.shake = 0;
+    this.muzzleT = this.explT = 0; this.muzzleLight.intensity = this.explLight.intensity = 0;
   }
 
   // ───────────────────────── Partículas ─────────────────────────
@@ -225,10 +298,10 @@ export class Fx {
           break;
         }
         case 'breach': {
-          for (let i = 0; i < 44; i++) {
-            const a = Math.random() * Math.PI * 2, sp = rr(0.8, 4);
+          for (let i = 0; i < 90; i++) {
+            const a = Math.random() * Math.PI * 2, sp = rr(0.8, 5);
             this.part(ev.x + rr(-0.4, 0.4), rr(0.2, 2.6), ev.y + rr(-0.4, 0.4), Math.cos(a) * sp, rr(0, 2.5), Math.sin(a) * sp,
-              rr(1.1, 2.2), rr(0.25, 0.7), Math.random() > 0.5 ? 0xb9b2a2 : 0x8c8678, 0.6, 1.6);
+              rr(1.4, 3.0), rr(0.3, 0.9), Math.random() > 0.5 ? 0xb9b2a2 : 0x8c8678, 0.6, 1.6);
           }
           break;
         }
@@ -246,25 +319,26 @@ export class Fx {
     const len = _d.length();
     if (len < 1e-3) return;
     _d.divideScalar(len);
-    // trazadora
+    // trazadora (se anima en update: la cabeza viaja del origen al destino)
     const t = this.tracers.find((x) => x.t <= 0);
     if (t) {
-      t.t = t.life = 0.06;
+      t.t = t.life = 0.09;
       t.mesh.material = ev.team === 'ally' ? this.tracerMatAlly : this.tracerMatEnemy;
-      t.mesh.position.copy(_a).addScaledVector(_d, len / 2);
-      t.mesh.quaternion.setFromUnitVectors(X_AXIS, _d);
-      t.mesh.scale.set(len, 0.05, 0.05);
+      t.a.copy(_a); t.d.copy(_d); t.len = len;
       t.mesh.visible = true;
     }
-    // fogonazo en el origen
+    // fogonazo en estrella en el origen + luz breve
     const f = this.flashes.find((x) => x.t <= 0);
     if (f) {
-      f.t = 0.05; f.base = rr(0.9, 1.5);
-      f.mesh.position.copy(_a).addScaledVector(_d, 0.2);
-      f.mesh.quaternion.setFromUnitVectors(X_AXIS, _d);
-      f.mesh.scale.set(f.base * 1.6, f.base, f.base);
+      f.t = 0.06; f.base = rr(0.7, 1.1); f.rot = Math.random() * 6.28;
+      f.mesh.position.copy(_a).addScaledVector(_d, 0.25);
       f.mesh.visible = true;
     }
+    this.muzzleLight.position.copy(_a).addScaledVector(_d, 0.5);
+    this.muzzleT = 0.06;
+    // casquillo expulsado a la derecha del tirador
+    const rx = -_d.z, rz = _d.x, rl = Math.hypot(rx, rz) || 1;
+    this.part(_a.x, _a.y, _a.z, (rx / rl) * rr(1.2, 2.4), rr(1.8, 3.2), (rz / rl) * rr(1.2, 2.4), 0.9, 0.04, 0xd9a23a, 14, 0.2);
     // impacto
     if (ev.hit === 'wall') {
       this.burst(ev.tx, ev.tz, ev.ty, 6, 4, 0.3, 0.05, 0xffe28a, 9, 0.2, -_d.x * 2, -_d.y * 2 + 1, -_d.z * 2);
@@ -278,7 +352,9 @@ export class Fx {
 
   private onExplosion(ev: Extract<GameEvent, { type: 'explosion' }>, world: IWorld): void {
     const e = this.expls.find((x) => x.t <= 0) ?? this.expls[0];
-    e.t = e.life = 0.6; e.r = Math.max(0.5, ev.radius);
+    e.t = e.life = 0.7; e.r = Math.max(0.5, ev.radius);
+    e.spin.set(rr(-2, 2), rr(-2, 2), rr(-2, 2));
+    this.explT = 0.5; this.explLight.position.set(ev.x, Math.max(1, ev.z), ev.y);
     for (const m of [e.sphere, e.core]) m.position.set(ev.x, Math.max(0.3, ev.z), ev.y);
     e.ring.position.set(ev.x, 0.06, ev.y);
     e.sphere.visible = e.core.visible = e.ring.visible = true;
@@ -286,6 +362,8 @@ export class Fx {
     this.burst(x, y, z, 30, 11, 0.7, 0.16, 0xff9a2a, 6, 0.5);
     this.burst(x, y, z, 12, 7, 0.5, 0.12, 0xffe28a, 6, 0.4);
     this.burst(x, y, z, 14, 3, 1.5, 0.7, 0x3d4048, -1.2, 0.6);
+    this.burst(x, y + 0.4, z, 10, 1.6, 2.4, 1.1, 0x55585f, -1.6, 1.0);   // humo que sube y se disipa
+    for (let i = 0; i < 16; i++) { const a = Math.random() * 6.28, sp = rr(6, 14); this.part(x, 0.2, z, Math.cos(a) * sp, rr(0.5, 2), Math.sin(a) * sp, 0.35, 0.09, 0xffe9a8, 4, 1.5); }   // chispas a ras de suelo
     this.burst(x, 0.15, z, 8, 5, 0.9, 0.25, 0x8a8a90, 5, 0.2);
     // sacudida si está cerca de la cámara
     const cam = world.cam;
@@ -304,22 +382,39 @@ export class Fx {
 
   // ───────────────────────── Actualización ─────────────────────────
 
-  update(dt: number, world: IWorld | null, time: number): void {
-    // trazadoras
+  update(dt: number, world: IWorld | null, time: number, camera: THREE.Camera): void {
+    camera.getWorldQuaternion(this.flashQuat);
+    // trazadoras: quad en el plano que contiene la línea y mira a la cámara
     for (const t of this.tracers) {
       if (t.t <= 0) continue;
       t.t -= dt;
       if (t.t <= 0) { t.mesh.visible = false; continue; }
-      const k = t.t / t.life;
-      t.mesh.scale.y = t.mesh.scale.z = 0.02 + 0.045 * k;
+      const p = 1 - t.t / t.life;
+      const head = t.len * (0.2 + 0.8 * p);
+      const tail = Math.min(head, 8);
+      _p.copy(t.a).addScaledVector(t.d, head - tail / 2);
+      _b.subVectors(camera.position, _p);                       // hacia la cámara
+      _b.addScaledVector(t.d, -_b.dot(t.d));                    // ortogonal a la línea
+      if (_b.lengthSq() < 1e-6) _b.set(0, 1, 0);
+      _b.normalize();
+      _a.crossVectors(_b, t.d);                                 // eje «y» del quad
+      _m.makeBasis(t.d, _a, _b);
+      t.mesh.quaternion.setFromRotationMatrix(_m);
+      t.mesh.position.copy(_p);
+      const w = 0.14 * Math.min(1, t.t / t.life * 2.2);
+      t.mesh.scale.set(Math.max(tail, 0.01), Math.max(w, 0.001), 1);
     }
     for (const f of this.flashes) {
       if (f.t <= 0) continue;
       f.t -= dt;
       if (f.t <= 0) { f.mesh.visible = false; continue; }
-      const k = f.t / 0.05;
-      f.mesh.scale.set(f.base * 1.6 * k + 0.2, f.base * k + 0.1, f.base * k + 0.1);
+      const k = f.t / 0.06;
+      f.mesh.quaternion.copy(this.flashQuat).multiply(_q.setFromAxisAngle(Z_AXIS, f.rot));
+      f.mesh.scale.setScalar(f.base * (0.5 + 0.9 * k));
     }
+    // luces puntuales
+    if (this.muzzleT > 0) { this.muzzleT -= dt; this.muzzleLight.intensity = Math.max(0, this.muzzleT / 0.06) * 22; } else this.muzzleLight.intensity = 0;
+    if (this.explT > 0) { this.explT -= dt; this.explLight.intensity = Math.max(0, this.explT / 0.5) * 160; } else this.explLight.intensity = 0;
 
     // partículas
     for (let i = 0; i < MAX_PART; i++) {
@@ -358,11 +453,12 @@ export class Fx {
       const cMat = e.core.material as THREE.MeshBasicMaterial;
       const rMat = e.ring.material as THREE.MeshBasicMaterial;
       e.sphere.scale.setScalar(e.r * (0.2 + 0.8 * easeOut(t)));
-      sMat.opacity = (1 - t) * 0.7;
+      e.sphere.rotation.set(e.spin.x * t, e.spin.y * t, e.spin.z * t);
+      sMat.opacity = Math.min(1, (1 - t) * 1.4);
       const tc = Math.min(1, t * 2.5);
       e.core.scale.setScalar(e.r * 0.55 * (0.4 + 0.6 * easeOut(tc)));
       cMat.opacity = 1 - tc;
-      e.ring.scale.set(e.r * 1.2 * easeOut(t) + 0.1, 1, e.r * 1.2 * easeOut(t) + 0.1);
+      e.ring.scale.set(e.r * 1.8 * easeOut(t) + 0.1, 1, e.r * 1.8 * easeOut(t) + 0.1);
       rMat.opacity = (1 - t) * 0.85;
     }
 

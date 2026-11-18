@@ -10,6 +10,9 @@ import type { IWorld } from '../contracts';
 import { statsOf } from '../sim/data';
 import { GeoBuilder, Owned, makeOutlineMat, makeToonVC } from './geo';
 import { unitPalette, type UnitPalette } from './palette';
+import type { Assets } from './assets';
+import { buildTemplate, CROUCH_VISUAL_HEIGHT, OUTLINE_THICK, SkinView, type CharHost, type SkinTemplate } from './skinchars';
+import { makeHullMaterial } from './stylized';
 
 interface Model {
   body: THREE.BufferGeometry;
@@ -53,7 +56,7 @@ function head(b: GeoBuilder, y: number, r: number, skin: number, visor = true): 
 function buildModel(kind: Kind, cb: boolean): Model {
   const p: UnitPalette = unitPalette(kind, cb);
   const hostile = kind.startsWith('enemy') || kind === 'miniboss' || kind === 'megaboss';
-  const b = new GeoBuilder(kind === 'megaboss' ? 0.06 : kind === 'miniboss' ? 0.05 : 0.035);
+  const b = new GeoBuilder(kind === 'megaboss' ? 0.04 : kind === 'miniboss' ? 0.033 : 0.022);
   const a = new GeoBuilder(0);
   let hipY = 0.88, h = 0.58, w = 0.46, lw = 0.16, ld = 0.17, legZ = 0.12;
   let legCol = p.dark;
@@ -277,6 +280,8 @@ class CharView {
   x = 0; y = 0; yaw = 0; crouchK = 0; speed = 0; phase = 0; init = false;
   /** dibujado «fantasma» (translúcido) porque tapa al jugador o a la cámara */
   ghost = false;
+  get height(): number { return this.model.height; }
+  get barW(): number { return this.model.barW; }
   constructor(public model: Model, public kind: Kind, mgr: CharManager) {
     this.body = new THREE.Mesh(model.body, mgr.matChar);
     this.arms = new THREE.Mesh(model.arms, mgr.matChar);
@@ -298,7 +303,12 @@ class CharView {
   }
 }
 
-export class CharManager {
+type View = CharView | SkinView;
+const _frustum = new THREE.Frustum();
+const _pm = new THREE.Matrix4();
+const _sph = new THREE.Sphere();
+
+export class CharManager implements CharHost {
   group = new THREE.Group();
   matChar: THREE.MeshToonMaterial;
   matDead: THREE.MeshToonMaterial;
@@ -307,18 +317,23 @@ export class CharManager {
   matGhost: THREE.MeshToonMaterial;
   knifeGeo: THREE.BufferGeometry;
   knifeMat = new THREE.MeshBasicMaterial({ color: 0xe6edf5 });
-  private markGeo = new THREE.OctahedronGeometry(0.2, 0);
-  private markMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-  private shieldGeo = new THREE.SphereGeometry(1, 14, 10);
-  private shieldMat = new THREE.MeshBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.28, depthWrite: false });
-  private ringGeo = new THREE.RingGeometry(0.66, 0.9, 32).rotateX(-Math.PI / 2);
-  private ringMat = new THREE.MeshBasicMaterial({ color: 0xd8f2ff, transparent: true, opacity: 1, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-  private views = new Map<number, CharView>();
+  markGeo = new THREE.OctahedronGeometry(0.2, 0);
+  markMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+  shieldGeo = new THREE.SphereGeometry(1, 14, 10);
+  shieldMat = new THREE.MeshBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.28, depthWrite: false });
+  ringGeo = new THREE.RingGeometry(0.66, 0.9, 32).rotateX(-Math.PI / 2);
+  ringMat = new THREE.MeshBasicMaterial({ color: 0xd8f2ff, transparent: true, opacity: 1, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  private views = new Map<number, View>();
+  matHullSkin = makeHullMaterial(OUTLINE_THICK);
+  private assets: Assets | null = null;
+  private templates = new Map<Kind, SkinTemplate>();
+  private frame = 0;
   private models = new Map<string, Model>();
   private shadows: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;
   private barFg: THREE.InstancedMesh;
   private cb = false;
+  shadowsOn = false;
   private owned = new Owned();
 
   constructor() {
@@ -326,7 +341,7 @@ export class CharManager {
     this.matDead = makeToonVC(); this.matDead.color.setHex(0x4a4a50);
     this.matHull = makeOutlineMat();
     this.matGhost = makeToonVC();
-    this.matGhost.transparent = true; this.matGhost.opacity = 0.22; this.matGhost.depthWrite = false;
+    this.matGhost.transparent = true; this.matGhost.opacity = 0.1; this.matGhost.depthWrite = false;
     this.owned.add(this.matGhost);
     this.knifeGeo = new THREE.BoxGeometry(0.34, 0.05, 0.03).translate(0.2, 0, 0);
     this.owned.add(this.matChar); this.owned.add(this.matDead); this.owned.add(this.matFlash); this.owned.add(this.matHull);
@@ -350,9 +365,42 @@ export class CharManager {
     this.group.add(this.shadows, this.barBg, this.barFg);
   }
 
+  /** Con sombras reales activas se ocultan las sombras blob y los personajes proyectan sombra. */
+  setShadows(on: boolean): void {
+    this.shadowsOn = on;
+    this.shadows.visible = !on;
+  }
+
+  /** Activa los modelos con esqueleto (cuando termina la carga) y reconstruye las vistas. */
+  setAssets(a: Assets | null): void {
+    this.assets = a;
+    this.rebuildTemplates();
+    this.clear();
+  }
+
+  private rebuildTemplates(): void {
+    this.templates.clear();
+    if (!this.assets) return;
+    for (const k of ['captain', 'technic', 'especialist', 'explosives', 'enemy1', 'enemy2', 'enemy3', 'miniboss', 'megaboss'] as Kind[]) {
+      try {
+        const t = buildTemplate(k, this.cb, this.assets);
+        if (t) this.templates.set(k, t);
+      } catch { /* este tipo se queda con el modelo de cajas */ }
+    }
+  }
+
+  private makeView(kind: Kind): View {
+    const t = this.templates.get(kind);
+    if (t) {
+      try { return new SkinView(t); } catch { /* cae al modelo de cajas */ }
+    }
+    return new CharView(this.modelFor(kind), kind, this);
+  }
+
   setColorblind(cb: boolean): void {
     if (cb === this.cb) return;
     this.cb = cb;
+    this.rebuildTemplates();
     this.clear();
     for (const m of this.models.values()) { m.body.dispose(); m.hull?.dispose(); m.arms.dispose(); m.legs.dispose(); }
     this.models.clear();
@@ -365,7 +413,7 @@ export class CharManager {
   }
 
   clear(): void {
-    for (const v of this.views.values()) this.group.remove(v.root);
+    for (const v of this.views.values()) { this.group.remove(v.root); if (v instanceof SkinView) v.dispose(); }
     this.views.clear();
     this.shadows.count = 0; this.barBg.count = 0; this.barFg.count = 0;
   }
@@ -384,20 +432,35 @@ export class CharManager {
 
     const seen = new Set<number>();
     let ns = 0, nb = 0;
+    this.frame++;
+    _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_pm);
+    const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
 
     for (const e of world.entities) {
       seen.add(e.id);
       let v = this.views.get(e.id);
       if (!v) {
-        v = new CharView(this.modelFor(e.kind), e.kind, this);
+        v = this.makeView(e.kind);
         this.group.add(v.root);
         this.views.set(e.id, v);
       }
       this.updateGhost(v, e, world, camera);
-      this.animate(v, e, time, dt);
+      if (v instanceof SkinView) {
+        // descarte: fuera de cámara (y lejos) no se dibuja; los lejanos animan 1 de cada 3 frames
+        _sph.center.set(v.x, 1, v.y); _sph.radius = 2.4 * Math.max(1, v.height / 1.8);
+        const inF = _frustum.intersectsSphere(_sph);
+        const distCam = Math.hypot(v.x - cx, v.y - cz, cy - 1);
+        v.root.visible = inF || distCam < 14;
+        v.pendingDt += dt;
+        const animate = v.root.visible && ((inF && distCam < 30) || (this.frame + e.id) % 3 === 0);
+        const animDt = v.pendingDt;
+        if (animate) v.pendingDt = 0;
+        v.update(e, time, dt, this, animate, animDt);
+      } else this.animate(v, e, time, dt);
 
       // sombra blob
-      if (ns < MAX_BARS) {
+      if (!this.shadowsOn && ns < MAX_BARS) {
         const r = e.radius * (e.alive ? 1.25 : 1.6);
         _scl.set(r, 1, r);
         _mat.compose(_v.set(v.x, 0.03, v.y), IDENT_Q, _scl);
@@ -408,9 +471,9 @@ export class CharManager {
       const wantBar = e.alive && !e.isPlayer && e.hp < e.maxHp && !v.ghost;
       if (wantBar && nb < MAX_BARS) {
         const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
-        const bw = v.model.barW;
+        const bw = v.barW;
         const bh = 0.08;
-        const crouchH = THREE.MathUtils.lerp(v.model.height, 1.0, v.crouchK);
+        const crouchH = THREE.MathUtils.lerp(v.height, v instanceof SkinView ? CROUCH_VISUAL_HEIGHT : 1.0, v.crouchK);
         _v.set(v.x, crouchH + 0.25, v.y);
         // fondo oscuro
         _scl.set(bw + 0.04, bh + 0.04, 1);
@@ -432,7 +495,7 @@ export class CharManager {
     // entidades que ya no existen
     if (this.views.size !== seen.size) {
       for (const [id, v] of this.views) {
-        if (!seen.has(id)) { this.group.remove(v.root); this.views.delete(id); }
+        if (!seen.has(id)) { this.group.remove(v.root); if (v instanceof SkinView) v.dispose(); this.views.delete(id); }
       }
     }
 
@@ -444,7 +507,7 @@ export class CharManager {
   }
 
   /** Decide (con histéresis) si el personaje se dibuja translúcido por taparle la vista al jugador. */
-  private updateGhost(v: CharView, e: Entity, world: IWorld, camera: THREE.Camera): void {
+  private updateGhost(v: View, e: Entity, world: IWorld, camera: THREE.Camera): void {
     let want = false;
     if (e.alive) {
       const cx = camera.position.x, cz = camera.position.z;
@@ -469,6 +532,9 @@ export class CharManager {
 
   private animate(v: CharView, e: Entity, time: number, dt: number): void {
     const m = v.model;
+    // sombras proyectadas: cuerpo y piernas (no el contorno ni los brazos); los fantasma no proyectan
+    const cs = this.shadowsOn && !v.ghost;
+    v.body.castShadow = v.legL.castShadow = v.legR.castShadow = cs;
     // ── interpolación exponencial de posición y orientación
     const k = 1 - Math.exp(-dt * (e.isPlayer ? 30 : 24));
     if (!v.init || Math.hypot(e.x - v.x, e.y - v.y) > 3) { v.x = e.x; v.y = e.y; v.yaw = e.yaw; v.init = true; }
@@ -562,6 +628,7 @@ export class CharManager {
     for (const m of this.models.values()) { m.body.dispose(); m.hull?.dispose(); m.arms.dispose(); m.legs.dispose(); }
     this.models.clear();
     this.shadows.dispose(); this.barBg.dispose(); this.barFg.dispose();
+    this.matHullSkin.dispose();
     this.owned.disposeAll();
   }
 }

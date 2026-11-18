@@ -5,6 +5,9 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { makeStylized, toonRamp, disposeRamp } from './stylized';
+
+export { makeStylized, toonRamp, disposeRamp };
 
 export interface PrimOpts {
   /** false = sin contorno (detalles pequeños). Por defecto sí. */
@@ -124,29 +127,14 @@ export class GeoBuilder {
 
 // ───────────────────────── Materiales compartidos ─────────────────────────
 
-let _ramp: THREE.DataTexture | null = null;
-/** Rampa de 3 pasos para el sombreado plano de cómic. */
-export function toonRamp(): THREE.DataTexture {
-  if (!_ramp) {
-    _ramp = new THREE.DataTexture(new Uint8Array([165, 215, 255]), 3, 1, THREE.RedFormat);
-    _ramp.minFilter = THREE.NearestFilter;
-    _ramp.magFilter = THREE.NearestFilter;
-    _ramp.generateMipmaps = false;
-    _ramp.needsUpdate = true;
-  }
-  return _ramp;
-}
-
-export function disposeRamp(): void { _ramp?.dispose(); _ramp = null; }
-
 /** Material de contorno: negro, solo caras traseras (casco invertido). */
 export function makeOutlineMat(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({ color: 0x08080d, side: THREE.BackSide });
+  return new THREE.MeshBasicMaterial({ color: 0x1a1426, side: THREE.BackSide });
 }
 
-/** Material plano con color por vértice. */
+/** Material estilizado con color por vértice. */
 export function makeToonVC(): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: toonRamp() });
+  return makeStylized({ vertexColors: true });
 }
 
 /** Lista de recursos a liberar al terminar. */

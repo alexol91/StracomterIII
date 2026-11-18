@@ -120,6 +120,26 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
   una puerta de 1,33 m se taponaban.
 * Subtítulos desactivados por defecto (se activan en Opciones).
 
+## Cambio de estilo gráfico (decisión del dueño, 2026-11-18)
+
+Tras jugar la primera versión, el dueño pidió subir la calidad gráfica hacia un estilo de «hero shooter»
+estilizado y autorizó usar packs CC0. **Esto se aparta de la sección 20** («colores planos y contorno
+marcado, estilo cómic», «modelos sencillos») y de «ningún asset descargado» de la primera entrega:
+
+* Personajes con esqueleto y animaciones (Quaternius), muebles de oficina (Kenney), sombras proyectadas,
+  sombreado por rampas con luz de contorno, fachada acristalada con ciudad al fondo, posprocesado ligero.
+  Se conserva el contorno oscuro.
+* **Solo hay tres modelos de personaje** con el mismo esqueleto. Los cuatro aliados y los cinco hostiles
+  se distinguen por color, arma, complexión y un accesorio propio (boina, mochila con antena, casco,
+  cuernos…), no por ser modelos distintos.
+* **No existe en CC0**, y por tanto no está: animación de recarga (no se anima), ametralladora pesada
+  (el Especialista lleva un cañón corto), rack de servidores y máquina de aire acondicionado (siguen
+  hechos por código).
+* Los modelos de cajas originales siguen en el código como reserva: se usan mientras cargan los modelos
+  y si alguno falla al cargar.
+* Calidad `high` (sombras, contorno, posprocesado) en ordenador y `low` en táctiles de alta densidad;
+  se fuerza con `?quality=low|high`.
+
 ## Lo que se ha recortado
 
 * **El MiniBoss se ve desde la entrada en dos mapas** (pequeños de las plantas 2 y 6). Está donde el mapa
@@ -142,7 +162,8 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
 
 ## Licencias y procedencia
 
-Nada de pago ni con royalties. Ningún asset descargado: ni modelos, ni texturas, ni sonidos, ni fuentes.
+Nada de pago ni con royalties. Los únicos assets descargados son los modelos CC0 de la tabla; texturas,
+sonidos y fuentes siguen sin ser de terceros.
 
 | Qué | De dónde | Licencia |
 |---|---|---|
@@ -150,7 +171,9 @@ Nada de pago ni con royalties. Ningún asset descargado: ni modelos, ni texturas
 | Vite, vitest | npm (solo desarrollo) | MIT |
 | TypeScript | npm (solo desarrollo) | Apache-2.0 |
 | tsx, @types/* | npm (solo desarrollo) | MIT |
-| Modelos, muebles, escenario | Generados por código (`src/render`) | propio |
+| Personajes, armas, botiquín, granada | Quaternius, «Toon Shooter Game Kit» — quaternius.com/packs/toonshootergamekit.html | CC0 (consta en la página del autor; la descarga no trae fichero de licencia) |
+| Mesas, escritorios, sillas, estanterías, sofás, butacas, macetas | Kenney, «Furniture Pack 1.0» — opengameart.org/content/furniture-kit | CC0 (`public/models/furniture/LICENSE-Kenney.txt`) |
+| Escenario, racks, aire acondicionado, modelos de reserva | Generados por código (`src/render`) | propio |
 | Texturas (baldosas, helipuerto) | Dibujadas en un canvas en tiempo de ejecución | propio |
 | Sonidos y música | Sintetizados con Web Audio (`src/audio`); melodías propias | propio |
 | Fuentes | Las del sistema (Impact / Arial Black / sans-serif) | — |
