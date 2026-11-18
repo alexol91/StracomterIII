@@ -499,6 +499,7 @@ export class CharManager implements CharHost {
         const animDt = v.pendingDt;
         if (animate) v.pendingDt = 0;
         if (v instanceof RbView && this.throwPending.delete(e.id)) v.triggerThrow(time);
+        if (v instanceof RbView) { const ob = world.objective; v.setCaptive(!!ob && ob.kind === 'rescue' && ob.hostageId === e.id && ob.stage !== 'escort'); }
         if (v instanceof RbView && !e.alive) { const f = this.deathFrom.get(e.id); if (f) v.setDeathFrom(f.x, f.y); }
         v.update(e, time, dt, this, animate, animDt);
       } else this.animate(v, e, time, dt);

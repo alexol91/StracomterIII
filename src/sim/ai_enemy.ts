@@ -173,6 +173,24 @@ export class EnemyAI {
     return s;
   }
 
+  /** v1.3 (oleada 2) — saca a `u` de la IA enemiga (el rehén nace como enemigo y pasa al bando aliado). */
+  unregister(u: Unit): void {
+    const b = u.brain as Brain | null;
+    if (b) {
+      b.squad.members = b.squad.members.filter(m => m !== u);
+      if (b.squad.members.length === 0) this.squads = this.squads.filter(q => q !== b.squad);
+    }
+    u.brain = null;
+  }
+
+  /** v1.3 (oleada 2) — manda a `u` a investigar un punto (defensa del servidor). Sólo si está patrullando o investigando. */
+  goInvestigate(u: Unit, x: number, y: number): void {
+    const b = u.brain as Brain | null;
+    if (!b || (b.state !== 'patrol' && b.state !== 'investigate')) return;
+    b.inv = [x, y];
+    this.setState(u, b, 'investigate', 1.5);
+  }
+
   register(u: Unit): void {
     const s = this.newSquad([u.x, u.y], false);
     u.brain = this.mkBrain(u, s);
@@ -382,7 +400,7 @@ export class EnemyAI {
     const sa = engaged ? 1.75 : VISION.peripheralHalfAngle, sr = (engaged ? 14 : VISION.peripheralRange) * dim;
     let best: Unit | null = null, bestRate = 0;
     if (!w.isBlinded(u)) for (const t of w.entities) {
-      if (!t.alive || t.team !== 'ally' || t.downed) continue;
+      if (!t.alive || t.team !== 'ally' || t.downed || t.hostage) continue; // al rehén no lo «ven» como blanco (se le dispara aparte, si no hay otro)
       const dx = t.x - u.x, dy = t.y - u.y;
       const d = Math.hypot(dx, dy);
       if (d > pr) continue;

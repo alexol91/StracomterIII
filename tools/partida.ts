@@ -19,10 +19,14 @@ const mem = new Map<string, string>();
 const storage: KVStorage = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => void mem.set(k, v), removeItem: k => void mem.delete(k) };
 
 export interface ZoneReport {
-  floor: number; zone: number; result: 'cleared' | 'dead' | 'timeout'; time: number; kills: number;
+  floor: number; zone: number; result: 'cleared' | 'dead' | 'failed' | 'timeout'; time: number; kills: number;
   states: Record<string, number>; maxStuck: number; unstuck: number; alliesAlive: number; hp: number; enemyHits: number; enemyShots: number;
   doorsOpenedByEnemies: number; ms: number; playerKills: number; dmgTaken: number;
 }
+
+/** modo horda: cómo elige mejora el bot entre oleadas (la fija la prueba de horda) */
+export let hordePickFn: (() => string) | null = null;
+export function setHordePick(f: (() => string) | null): void { hordePickFn = f; }
 
 export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
   const input = emptyInput();
@@ -47,6 +51,7 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
   const pasivo = process.env.PASIVO === '1';
   let revivePos: [number, number] | null = null;
   while (world.status === 'playing' && world.time < maxTime) {
+    if (world.horde?.pickUpgrade) world.hordePick(hordePickFn ? hordePickFn() : '');
     // ── bot ──
     input.fire = false; input.knife = false; input.moveF = 0; input.moveR = 0; input.roll = false; input.interact = false; input.weaponSlot = null;
     let tgt: Unit | null = null, td = Infinity;
@@ -60,6 +65,23 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
     const pistola = total === 0;
     if (pistola && p.weapon !== 'secondary') input.weaponSlot = 'secondary';
     else if (!pistola && p.weapon === 'secondary') input.weaponSlot = 'primary';
+    // v1.3 (oleada 2): objetivos de zona. objXY = adónde ir; holdPos = quieto manteniendo `interact` (desactivar, liberar)
+    const ob = world.objective;
+    let objXY: [number, number] | null = null, holdPos = false;
+    if (ob.kind === 'defuse') {
+      const pt = ob.points.filter(q => !q.done).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
+      if (pt) { if (Math.hypot(pt.x - p.x, pt.y - p.y) < 1.2) { holdPos = true; input.interact = true; } else objXY = [pt.x, pt.y]; }
+    } else if (ob.kind === 'defend') {
+      const sv = ob.points[0], ds = Math.hypot(sv.x - p.x, sv.y - p.y);
+      if (ob.stage === 'reach' || ds > 4) objXY = [sv.x, sv.y]; else holdPos = true;
+    } else if (ob.kind === 'rescue') {
+      const h = world.entityById(ob.hostageId);
+      if (h) {
+        const dh = Math.hypot(h.x - p.x, h.y - p.y);
+        if (ob.stage === 'find') { if (dh < 1.3) { holdPos = true; input.interact = true; } else objXY = [h.x, h.y]; }
+        else objXY = dh > 5 ? [h.x, h.y] : [ob.points[1].x, ob.points[1].y];
+      }
+    }
     if (tgt) {
       const wantYaw = Math.atan2(tgt.y - p.y, tgt.x - p.x);
       // v1.2: la mira lleva el retroceso de cámara; el bot lo compensa como lo haría una persona (tirando hacia abajo)
@@ -78,6 +100,8 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if (td < 1.6) input.knife = true;
       // se mueve de lado para no ser un blanco quieto
       input.moveR = Math.sin(world.time * 1.3) > 0 ? 0.7 : -0.7;
+      if (holdPos) input.moveR = 0;
+      else if (objXY && td > 10) { input.moveR = 0; input.moveF = 0.6; }  // objetivo: no se queda a duelo lejano
       if (p.cls === 'especialist' && p.abilityCd <= 0) input.ability = true;
     } else {
       // v1.3: reanima a un compañero derribado cuando no ve enemigos (mantiene `interact` a menos de 1,4 m)
@@ -101,6 +125,8 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if (goal && goal.shielded) goal = null; // con el escudo puesto no tiene sentido acercarse al jefe
       // como haría una persona: si va tocado o seco y hay botín, primero a por él
       let gx = goal ? goal.x : p.x, gy = goal ? goal.y : p.y;
+      if (objXY) { gx = objXY[0]; gy = objXY[1]; goal = goal ?? p; }
+      if (holdPos) { goal = null; }
       const needHp = p.hp < p.maxHp * 0.75, needAmmo = total < 40;
       if (revivePos) { gx = revivePos[0]; gy = revivePos[1]; goal = goal ?? p; }
       if (needHp || needAmmo) {
@@ -202,7 +228,7 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
   let maxStuck = 0, unstuck = 0;
   for (const e of world.entities) { if (e.team === 'enemy') { maxStuck = Math.max(maxStuck, e.stuckMax); unstuck += e.brain?.unstuck || 0; } }
   return {
-    floor: world.floor, zone: world.zone, result: world.status === 'cleared' ? 'cleared' : world.status === 'dead' ? 'dead' : 'timeout',
+    floor: world.floor, zone: world.zone, result: world.status === 'cleared' ? 'cleared' : world.status === 'dead' ? 'dead' : world.status === 'failed' ? 'failed' : 'timeout',
     time: Math.round(world.time), kills: world.stats.kills, states, maxStuck: +maxStuck.toFixed(2), unstuck,
     alliesAlive: world.entities.filter(e => e.alive && e.team === 'ally').length, hp: Math.round(p.hp), enemyHits, enemyShots, doorsOpenedByEnemies: doorsE,
     ms: Date.now() - t0, playerKills, dmgTaken: Math.round(world.stats.damageTaken),
@@ -221,10 +247,21 @@ if (isMain) {
   const campaign = createCampaign(storage);
   const cls = (process.env.CLASE as ClassId) || 'captain';
   const god = process.env.GOD === '1';
-  if (args.length >= 2 && args[0] !== 'campaña') {
+  if (args[0] === 'horda') {
+    // modo horda: el bot juega hasta morir (o hasta HORDA_T segundos de partida)
+    const st = campaign.newHorde((process.env.DIF as any) || 'normal', cls, parseInt(args[1] || '3', 10));
+    setHordePick(() => campaign.hordeChoices(st)[0]);
+    const w = campaign.startZone(st, 1) as World;
+    const r = playZone(w, parseInt(process.env.HORDA_T || '3600', 10), god);
+    const fin = campaign.finishHorde(st, w);
+    console.log(fmt(r));
+    console.log(`HORDA: planta ${st.horde!.floor}, ${r.result === 'dead' ? 'muere' : 'tiempo'} en la oleada ${fin.wave} (mejor ${fin.best}); mejoras ${st.upgrades!.length}`);
+  } else if (args.length >= 2 && args[0] !== 'campaña') {
     const st = campaign.newQuickPlay((process.env.DIF as any) || 'normal', cls, parseInt(args[0], 10));
     const w = campaign.startZone(st, parseInt(args[1], 10)) as World;
+    if (process.env.OBJ) w.initObjective(process.env.OBJ as any);
     const r = playZone(w, 900, god);
+    if (w.objective.kind !== 'clear') console.log(`     objetivo ${w.objective.kind}: etapa ${w.objective.stage}, reloj ${w.objective.timeLeft.toFixed(0)}, vida ${w.objective.hp.toFixed(0)}`);
     console.log(fmt(r));
     console.log('     enemigos creados', w.entities.filter(e => e.team === 'enemy').length, 'muertos', w.entities.filter(e => e.team === 'enemy' && !e.alive).length, 'kills', w.stats.kills);
     if (r.result !== 'cleared') {
@@ -244,9 +281,10 @@ if (isMain) {
       const base = zone % 2 === 1 ? zone : zone - 1;
       const z = st.floor === 9 ? 1 : hurt ? base + 1 : base;
       const w = campaign.startZone(st, z) as World;
+      if (process.env.OBJ) w.initObjective(process.env.OBJ as any);
       const r = playZone(w, 1200, god);
       console.log(fmt(r));
-      if (r.result === 'dead' && retries < 5) { retries++; campaign.failZone(st); console.log(`  → muerto; reintenta la planta (intento ${retries + 1}, ajuste ${st.adapt})`); continue; }
+      if ((r.result === 'dead' || r.result === 'failed') && retries < 5) { retries++; campaign.failZone(st); console.log(`  → muerto; reintenta la planta (intento ${retries + 1}, ajuste ${st.adapt})`); continue; }
       if (r.result !== 'cleared') { ok = false; console.log('  → la campaña se para aquí'); break; }
       retries = 0;
       const sum = campaign.completeZone(st, w);

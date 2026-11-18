@@ -361,3 +361,57 @@ export const BOSS_CHARGER = {
 };
 /** Escoltas: dos enemy2 que curan al jefe mientras vivan y estén cerca; al morir los dos, se enfurece. */
 export const BOSS_ESCORTED = { escorts: 2, healPerSec: 6, healRange: 6, enrageRof: 1.3, stayRadius: 5 };
+
+// ───────────────────────── v1.3, oleada 2 (simulación): Armería, objetivos, modificadores y horda ─────────────────────────
+
+/**
+ * Armería. Calibración (nuestra): en Normal una planta media da ~350 puntos (puntos ganados = créditos), así que
+ * un suministro cuesta ~medio ingreso de planta (~2 por planta) y la mejora extra ~dos plantas. Cada mejora extra ya
+ * comprada encarece la siguiente ×1,5. Re-sortear las tres mejoras ofrecidas tras una planta cuesta un precio fijo.
+ */
+export const SHOP = {
+  ammo: 150,        // +50 de munición a toda la escuadra viva
+  medkit: 180,      // +50 de vida a un operador
+  grenade: 120,     // +1 explosiva en la próxima zona
+  flash: 100,       // +1 cegadora
+  smoke: 100,       // +1 de humo
+  upgrade: 700,     // mejora extra (×1,5 por cada compra previa)
+  upgradeStep: 1.5,
+  reroll: 150,
+  maxBought: 3,     // máximo de cada granada comprada para la próxima zona
+  ammoAmount: 50, medkitAmount: 50,
+};
+
+/** Objetivos de zona (nuestros): relojes y cifras. */
+export const OBJECTIVE = {
+  bonus: 1.5,                                     // multiplicador de los puntos de la zona
+  defuseTime: { easy: 180, normal: 150, hard: 130 } as Record<'easy' | 'normal' | 'hard', number>,
+  defuseExtraPer500m2: 20, defuseAreaBase: 800,   // +20 s por cada 500 m² por encima de 800
+  defuseHold: 4, defuseRange: 1.5, defuseMinSep: 10,
+  defendTime: 120, defendReach: 6, defendHp: 400, defendFireRange: 12, defendSpreadOver: 100, defendMinShare: 0.7,
+  rescueHp: 80, rescueRange: 1.6, rescueSpeed: 4, rescueExtractRange: 3,
+};
+
+export interface MutatorDef { id: string; scoreMult: number }
+/** Modificadores de campaña. Los multiplicadores se multiplican entre sí y se aplican a los puntos ganados. */
+export const MUTATORS: MutatorDef[] = [
+  { id: 'rapidos', scoreMult: 1.15 },        // enemigos +20 % de velocidad
+  { id: 'sin-aura', scoreMult: 1.15 },      // sin aura de curación del Capitán
+  { id: 'jefes-dobles', scoreMult: 1.3 },   // dos jefes de planta
+  { id: 'solo-pistola', scoreMult: 1.4 },   // el jugador no usa el arma principal (los aliados sí)
+  { id: 'escasez', scoreMult: 1.2 },        // cajas y botín de munición ×0,5
+];
+export const MUTATOR_SPEED = 1.2;
+/** Segunda vuelta (nuestros): más enemigos y más vida, más puntos; empieza con dos mejoras a elegir. */
+export const NG_PLUS = { enemies: 1.25, hp: 1.15, score: 1.5, startPicks: 2, startOptions: 6 };
+
+/** Modo horda (nuestros). Oleada n: 6 + 2n enemigos (Normal); mezcla y oficios como la planta min(9, 1 + ⌊n/2⌋). */
+export const HORDE = {
+  base: 6, perWave: 2, rest: 12, bossEvery: 5, pickEvery: 2, aliveCap: 30, releaseEvery: 2, releaseGroup: 4,
+  supplies: ['municion_50', 'vida_50'] as const,
+};
+export const BOSS_ROTATION: BossVariant[] = ['cohetes', 'ametrallador', 'embestida', 'escoltas'];
+export function hordeFloorOf(wave: number): number { return Math.min(9, 1 + Math.floor(wave / 2)); }
+export function hordeEnemies(wave: number, difficulty: 'easy' | 'normal' | 'hard'): number {
+  return Math.max(3, Math.round((HORDE.base + HORDE.perWave * wave) * (DIFFICULTY_MULT[difficulty] / DIFFICULTY_MULT.normal)));
+}

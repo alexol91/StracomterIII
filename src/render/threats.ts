@@ -124,11 +124,13 @@ export class ThreatLayer {
       } else if (th.kind === 'laser' && nb < this.beams.length) {
         const b = this.beams[nb], dot = this.dots[nb]; nb++;
         this._a.set(th.fx, 1.4, th.fy); this._b.set(th.x, 1.4, th.y);
-        this.line(b.mesh, this._a, this._b, 0.012 + 0.012 * prog, camera);
-        b.mat.opacity = 0.25 + 0.75 * prog;                 // se intensifica al acercarse el instante del disparo
+        this.line(b.mesh, this._a, this._b, 0.02 + 0.008 * prog, camera);      // 2 cm
+        b.mat.color.setRGB(1.7, 0.05, 0.03);
+        b.mat.opacity = 0.6 + 0.4 * prog;                 // se intensifica al acercarse el instante del disparo
         dot.mesh.visible = true; dot.mesh.position.copy(this._b); dot.mesh.quaternion.copy(camera.quaternion);
-        const sz = 0.16 + 0.2 * prog; dot.mesh.scale.set(sz, sz, 1);
-        dot.mat.opacity = 0.5 + 0.5 * prog;
+        const sz = 0.2 + 0.25 * prog; dot.mesh.scale.set(sz, sz, 1);
+        dot.mat.color.setRGB(2.2, 0.08, 0.05);
+        dot.mat.opacity = 0.7 + 0.3 * prog;
       }
     }
     for (let i = nd; i < this.discs.length; i++) { this.discs[i].mesh.visible = false; this.rings[i].mesh.visible = false; }

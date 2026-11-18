@@ -7,7 +7,7 @@
 
 import './ui/styles.css';
 import type {
-  RecordEntry, CampaignState, ConsoleHost, IAudio, IConsole, IControls, ICampaign, IRenderer, IWorld, KVStorage, MusicTrack, ZoneSummary,
+  RecordEntry, CampaignState, Difficulty, ConsoleHost, IAudio, IConsole, IControls, ICampaign, IRenderer, IWorld, KVStorage, MusicTrack, ZoneSummary,
 } from './contracts';
 import type { ClassId, OrderKind, PlayerInput } from './sim/types';
 import { CLASS_IDS, emptyInput } from './sim/types';
@@ -17,11 +17,12 @@ import { createControls } from './input';
 import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
 import { onLangChange, setLang, t } from './ui/i18n';
+import { NG_PLUS, SHOP } from './sim/data';
 import { loadSettings, saveSettings, takeBindingsNotice, setDeviceProvider } from './ui/settings';
 import { asset, button, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
-  titleScreen, victoryScreen, recordsScreen, upgradeScreen,
+  titleScreen, victoryScreen, recordsScreen, upgradeScreen, setupScreen, hordeEndScreen,
 } from './ui/screens';
 import { Tutorial } from './ui/tutorial';
 import { VERSION } from './ui/version';
@@ -286,9 +287,10 @@ function showTitle(): void {
   if (!autoMode && takeBindingsNotice()) toast(t('title.controlsUpdated'), 9000);
   screens.show(() => titleScreen({
     hasSave: campaign.hasSave(),
-    onNew: () => showClassSelect(false),
+    onNew: () => showClassSelect('campaign'),
     onContinue: continueCampaign,
-    onQuick: () => showClassSelect(true),
+    onQuick: () => showClassSelect('quick'),
+    onHorde: () => showClassSelect('horde'),
     onOptions: () => showOptions('title'),
     onCredits: showCredits,
     onRecords: showRecords,
@@ -296,19 +298,68 @@ function showTitle(): void {
   }));
 }
 
-function showClassSelect(quick: boolean): void {
+let hordeDiff: Difficulty = settings.difficulty;
+let lastHorde: { cls: ClassId; floor: number; diff: Difficulty } | null = null;
+let setupMut: string[] = [];
+let setupNg = false;
+
+function showClassSelect(mode: 'campaign' | 'quick' | 'horde'): void {
   screen = 'class';
   music('menu');
+  const quick = mode !== 'campaign';
+  let best: Record<number, number> = {};
+  if (mode === 'horde') { try { best = campaign.meta?.().hordeBest ?? {}; } catch { /* sin meta */ } }
   screens.show((sc) => classScreen(sc, {
     quickFloor: quick ? quickFloor : null,
+    horde: mode === 'horde' ? { best, diff: hordeDiff, onDiff: (d) => { hordeDiff = d; screens.refresh(); } } : undefined,
     onFloor: (n) => { quickFloor = n; screens.refresh(); },
     onPick: (c) => {
-      state = quick
-        ? campaign.newQuickPlay(settings.difficulty, c, quickFloor)
-        : campaign.newCampaign(settings.difficulty, c);
-      showStrategy();
+      if (mode === 'horde') startHorde(c, quickFloor, hordeDiff);
+      else if (mode === 'quick') { state = campaign.newQuickPlay(settings.difficulty, c, quickFloor); showStrategy(); }
+      else showSetup(c);
     },
     onBack: showTitle,
+  }));
+}
+
+/** Modo supervivencia: mapa de una planta, oleadas sin fin; no se guarda como campaña. */
+function startHorde(c: ClassId, floor: number, diff: Difficulty): void {
+  lastHorde = { cls: c, floor, diff };
+  try {
+    state = campaign.newHorde(diff, c, floor);
+    enterZone(1);
+  } catch (err) { reportError(err); }
+}
+
+/** Preparar la campaña: dificultad, modificadores y segunda vuelta. */
+function showSetup(c: ClassId): void {
+  screen = 'class';
+  let ngUnlocked = false;
+  try { ngUnlocked = !!campaign.meta?.().ngUnlocked; } catch { /* sin meta */ }
+  if (!ngUnlocked) setupNg = false;
+  screens.show((sc) => setupScreen(sc, {
+    diff: settings.difficulty,
+    onDiff: (d) => { settings.difficulty = d; saveSettings(settings); },
+    mutators: setupMut,
+    onToggle: (id, on) => { setupMut = on ? [...setupMut.filter((x) => x !== id), id] : setupMut.filter((x) => x !== id); },
+    ngUnlocked, ng: setupNg,
+    onNg: (on) => { setupNg = on; },
+    onStart: () => {
+      const st = campaign.newCampaign(settings.difficulty, c, { mutators: [...setupMut], ngPlus: setupNg });
+      state = st;
+      // Segunda vuelta: se eligen 2 mejoras iniciales entre las que ofrece la campaña
+      let ch: string[] = [];
+      if (setupNg) { try { ch = campaign.ngStartChoices?.(st) ?? []; } catch (err) { reportError(err); } }
+      if (ch.length < 2) { showStrategy(); return; }
+      const pickInitial = (opts: string[], left: number): void => {
+        showUpgrade(opts, () => {}, false, (id) => {
+          try { campaign.chooseUpgrade?.(st, id); } catch (err) { reportError(err); }
+          if (left > 1 && opts.length > 1) pickInitial(opts.filter((x) => x !== id), left - 1); else showStrategy();
+        });
+      };
+      pickInitial(ch, NG_PLUS.startPicks);
+    },
+    onBack: () => showClassSelect('campaign'),
   }));
 }
 
@@ -319,6 +370,7 @@ function continueCampaign(): void {
   if (state.floor > 9) showVictory(); else showStrategy();
 }
 
+let lastRehydrate = '';
 function showStrategy(): void {
   if (!state) { showTitle(); return; }
   leaveGame();
@@ -330,6 +382,15 @@ function showStrategy(): void {
     const alive = CLASS_IDS.find((c) => st.members[c].hp > 0);
     if (alive) st.controlled = alive;
   }
+  // Mejora pendiente (compra de la Armería o fin de planta sin elegir, también tras cargar una partida): se resuelve primero
+  const pend = st.pendingUpgrade?.length ? st.pendingUpgrade : st.upgradeChoices?.length ? st.upgradeChoices : null;
+  const pendKey = pend ? pend.join(',') : '';
+  if (pend && pendKey !== lastRehydrate) {
+    lastRehydrate = pendKey; // evita bucles si la simulación no limpiase la mejora pendiente
+    showUpgrade(pend, showStrategy, !st.pendingUpgrade?.length);
+    return;
+  }
+  lastRehydrate = '';
   const zones = campaign.zonesOf(st.floor);
   screens.show((sc) => strategyScreen(sc, {
     state: st, zones,
@@ -340,6 +401,18 @@ function showStrategy(): void {
       try { (campaign as unknown as { setLoadout?: (s: CampaignState, c: ClassId, v: 0 | 1) => void }).setLoadout?.(st, c, v); } catch (err) { reportError(err); }
       if (!st.loadout) st.loadout = {};
       st.loadout[c] = v;
+    },
+    shop: (() => { try { return campaign.shopItems?.(st) ?? []; } catch { return []; } })(),
+    onBuy: (id, target) => {
+      let ok = false;
+      try { ok = !!campaign.buy?.(st, id, target); } catch (err) { reportError(err); }
+      if (!ok) { audio.ui('error'); return; }
+      audio.ui('reward');
+      if (id === 'upgrade') {
+        const ch = (campaign as unknown as { shopUpgradeChoices?: (s: CampaignState) => string[] }).shopUpgradeChoices?.(st) ?? [];
+        if (ch.length) { showUpgrade(ch, showStrategy, false); return; }
+      }
+      screens.refresh();
     },
     onMenu: showTitle,
   }));
@@ -400,7 +473,9 @@ function showRecords(): void {
   music('menu');
   let recs: Record<string, RecordEntry> = {};
   try { recs = campaign.records?.() ?? {}; } catch { /* sin récords */ }
-  screens.show((sc) => recordsScreen(sc, { records: recs, onBack: showTitle }));
+  let hb: Record<number, number> = {};
+  try { hb = campaign.meta?.().hordeBest ?? {}; } catch { /* sin meta */ }
+  screens.show((sc) => recordsScreen(sc, { records: recs, hordeBest: hb, onBack: showTitle }));
 }
 
 function showCredits(): void {
@@ -425,21 +500,50 @@ function showSummary(summary: ZoneSummary, cheated: boolean): void {
       };
       // Mejora de campaña: obligatoria, no se puede saltar
       const choices = summary.upgradeChoices ?? [];
-      if (choices.length > 0 && state && !state.quick) showUpgrade(choices, next); else next();
+      if (choices.length > 0 && state && !state.quick) showUpgrade(choices, next, true); else next();
     },
   }));
 }
 
-function showUpgrade(choices: string[], then: () => void): void {
+function showUpgrade(choices: string[], then: () => void, allowReroll = false, onPick?: (id: string) => void): void {
   screen = 'upgrade';
   music('strategy');
   screens.show((sc) => upgradeScreen(sc, {
     choices,
     onPick: (id) => {
+      if (onPick) { onPick(id); return; }
       try { if (state && campaign.chooseUpgrade) campaign.chooseUpgrade(state, id); } catch (err) { reportError(err); }
       then();
     },
+    reroll: allowReroll && state ? {
+      price: SHOP.reroll,
+      onReroll: () => {
+        let nw: string[] | null = null;
+        try { nw = campaign.rerollUpgrades?.(state!) ?? null; } catch (err) { reportError(err); }
+        if (!nw || nw.length === 0) { audio.ui('error'); return; }
+        audio.ui('reward');
+        showUpgrade(nw, then, allowReroll, onPick);
+      },
+    } : undefined,
   }));
+}
+
+/** Modo horda: pausa y elección de mejora entre oleadas. */
+let hordePicking = false;
+function showHordePick(w: IWorld): void {
+  hordePicking = true;
+  let ch: string[] = [];
+  try { ch = state ? campaign.hordeChoices?.(state) ?? [] : []; } catch (err) { reportError(err); }
+  controls.setActive(false);
+  hud.show(false);
+  showUpgrade(ch, () => {}, false, (id) => {
+    try { w.hordePick?.(id); } catch (err) { reportError(err); }
+    screens.clear();
+    screen = 'game';
+    hud.show(true);
+    acc = 0;
+    controls.setActive(!consoleUi.isOpen);
+  });
 }
 
 function showDefeat(): void {
@@ -447,11 +551,30 @@ function showDefeat(): void {
   controls.setActive(false);
   hud.show(false);
   audio.ui('defeat');
+  const w = world;
+  if (w) logPlay(w.status === 'failed' ? 'failed' : 'dead', w);
+  // Supervivencia: fin de la partida con su marca (no hay «reintentar planta», se vuelve a empezar la horda)
+  if (w && state?.horde) {
+    let res = { wave: w.horde?.wave ?? 0, best: 0, newRecord: false };
+    try { res = campaign.finishHorde?.(state, w) ?? res; } catch (err) { reportError(err); }
+    const hs = lastHorde;
+    screens.show((sc) => hordeEndScreen(sc, {
+      ...res,
+      onRetry: () => { if (hs) startHorde(hs.cls, hs.floor, hs.diff); else showTitle(); },
+      onMenu: showTitle,
+    }));
+    return;
+  }
   if (state) campaign.failZone(state); // el ajuste dinámico afloja un escalón tras una derrota
-  if (world) logPlay('dead', world);
-  const floor = world?.floor ?? state?.floor ?? 1;
-  const zone = world?.zone ?? 1;
-  screens.show((sc) => defeatScreen(sc, { floor, zone, onRetry: retryFloor, onMenu: showTitle }));
+  const floor = w?.floor ?? state?.floor ?? 1;
+  const zone = w?.zone ?? 1;
+  // Objetivo fallido: el motivo según el tipo de objetivo
+  let reason: string | undefined;
+  if (w && w.status === 'failed') {
+    const k = w.objective?.kind;
+    reason = k && k !== 'clear' ? t('fail.' + k) : t('fail.generic');
+  }
+  screens.show((sc) => defeatScreen(sc, { floor, zone, reason, onRetry: retryFloor, onMenu: showTitle }));
 }
 
 function retryFloor(): void {
@@ -485,7 +608,7 @@ function writeLog(a: unknown[]): void {
   try { localStorage.setItem(LOG_KEY, JSON.stringify(a.slice(-LOG_MAX))); } catch { /* sin almacenamiento */ }
 }
 
-function logPlay(result: 'cleared' | 'dead', w: IWorld, summary?: ZoneSummary): void {
+function logPlay(result: 'cleared' | 'dead' | 'failed', w: IWorld, summary?: ZoneSummary): void {
   try {
     const st = w.stats;
     const log = readLog();
@@ -495,7 +618,11 @@ function logPlay(result: 'cleared' | 'dead', w: IWorld, summary?: ZoneSummary): 
       device: { touch: controls.isTouch, window: `${window.innerWidth}x${window.innerHeight}` },
       graphics: settings.graphics ?? 'auto',
       difficulty: state?.difficulty ?? settings.difficulty,
-      mode: state?.quick ? 'quick' : 'campaign',
+      mode: state?.horde ? 'horde' : state?.quick ? 'quick' : 'campaign',
+      objective: w.objective?.kind ?? 'clear',
+      mutators: state?.mutators ?? [],
+      ngPlus: state?.ngPlus ?? 0,
+      wave: w.horde?.wave ?? null,
       floor: w.floor,
       zone: w.zone,
       class: w.player.kind,
@@ -550,12 +677,13 @@ function beginWorld(w: IWorld): void {
   controls.setView(w.player.yaw, -0.12);
   controls.setActive(!consoleUi.isOpen);
   hud.reset();
+  hud.setBadges([...(state?.mutators ?? []).map((id) => t('mut.' + id)), ...((state?.ngPlus ?? 0) > 0 ? [t('setup.ng')] : [])]);
   hud.show(true);
   updateGameMusic(true);
   if (!testMode && !autoMode) setUnloadGuard(true);
   // Tutorial guiado: primera partida de campaña, planta 1, sin trucos
   tutorial.stop(null);
-  if (state && !state.quick && w.floor === 1 && !autoMode && !w.cheated && Tutorial.shouldStart()) tutorial.start(w);
+  if (state && !state.quick && !state.horde && w.floor === 1 && !autoMode && !w.cheated && Tutorial.shouldStart()) tutorial.start(w);
   const ae = document.activeElement as HTMLElement | null;
   if (ae && ae !== document.body && !ae.closest('#console')) ae.blur();
 }
@@ -604,7 +732,7 @@ function simulate(dtReal: number): void {
   // Si el frame tardó demasiado, el exceso se descarta (no se acumula deuda de simulación)
   if (acc >= STEP) acc = 0;
 
-  if (w.status === 'cleared' || w.status === 'dead') {
+  if (w.status === 'cleared' || w.status === 'dead' || w.status === 'failed') {
     endTimer += dtReal;
     if (endTimer >= END_DELAY) {
       if (w.status === 'cleared') finishZone(); else showDefeat();
@@ -612,6 +740,11 @@ function simulate(dtReal: number): void {
   } else {
     endTimer = 0;
   }
+
+  // Horda: al terminar una oleada con mejora pendiente, pausa y elección
+  const pick = !!w.horde?.pickUpgrade;
+  if (pick && !hordePicking && screen === 'game') showHordePick(w);
+  else if (!pick) hordePicking = false;
 }
 
 function frame(nowMs: number): void {

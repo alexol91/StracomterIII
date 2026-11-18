@@ -24,10 +24,10 @@ export function createConsole(host: ConsoleHost): IConsole {
       const w = world as World | null;
       if (cmd === 'help' || cmd === 'ayuda') {
         return ['spawn <tipo> <x> <y> · team <tipo> <x> <y> · kill all|bad|me · god · noclip · ammo · health',
-          'floor <n> · zone <n> · tp <x> <y> · info [id] · ai.debug · chutaos on|off', 'tipos: ' + KINDS.join(', ')];
+          'floor <n> · zone <n> · objective <clear|defuse|defend|rescue> · tp <x> <y> · info [id] · ai.debug · chutaos on|off', 'tipos: ' + KINDS.join(', ')];
       }
       // v1.2: cualquier comando que altere la partida la invalida para récords (todos salvo help, info y ai.debug)
-      const ALTERA = ['spawn', 'team', 'kill', 'god', 'noclip', 'ammo', 'health', 'tp', 'chutaos', 'floor', 'zone'];
+      const ALTERA = ['spawn', 'team', 'kill', 'god', 'noclip', 'ammo', 'health', 'tp', 'chutaos', 'floor', 'zone', 'objective'];
       if (w && ALTERA.includes(cmd)) w.cheated = true;
       if (cmd === 'floor' || cmd === 'zone') {
         const n = parseInt(parts[1], 10);
@@ -98,6 +98,14 @@ export function createConsole(host: ConsoleHost): IConsole {
           if (arg !== 'on' && arg !== 'off') return ['uso: chutaos on | chutaos off  (ahora: ' + (w.cheats.chutaos ? 'on' : 'off') + ')'];
           w.cheats.chutaos = arg === 'on';
           return ['Modo Chutaos ' + (w.cheats.chutaos ? 'ACTIVADO' : 'desactivado')];
+        }
+        case 'objective': {
+          // cambia el objetivo de ESTA zona en caliente (cuenta como truco)
+          const k = (parts[1] || '').toLowerCase();
+          if (k !== 'clear' && k !== 'defuse' && k !== 'defend' && k !== 'rescue') return ['uso: objective clear|defuse|defend|rescue  (ahora: ' + w.objective.kind + ')'];
+          if (w.horde) return ['no hay objetivos en el modo horda'];
+          w.initObjective(k);
+          return ['objetivo de la zona: ' + k];
         }
         case 'ai.debug': w.cheats.aiDebug = !w.cheats.aiDebug; return ['ai.debug ' + (w.cheats.aiDebug ? 'ACTIVADO' : 'desactivado')];
       }

@@ -1,7 +1,7 @@
 // Director: cuántos enemigos, de qué tipo, dónde y cuándo aparecen (§8 y §9), el jefe y las fases del MegaBoss.
 
 import { applyBossVariant, applyVariant, type Squad } from './ai_enemy';
-import { BOSS_ESCORTED, BOSS_LATE, FLOOR_BOSS, VARIANT_ALIVE_CAP, VARIANT_BASE, VARIANT_ORDER, VARIANT_SHARE, VARIANT_UNLOCK } from './data';
+import { BOSS_ESCORTED, BOSS_LATE, BOSS_ROTATION, ENEMY_MIX, HORDE, OBJECTIVE, hordeEnemies, hordeFloorOf, FLOOR_BOSS, VARIANT_ALIVE_CAP, VARIANT_BASE, VARIANT_ORDER, VARIANT_SHARE, VARIANT_UNLOCK } from './data';
 import { CELL } from './level';
 import type { BossVariant, EnemyKind, EnemyVariant, Vec2 } from './types';
 import type { Unit, World } from './world';
@@ -21,6 +21,10 @@ export interface DirectorConfig {
   difficulty?: 'easy' | 'normal' | 'hard';
   /** v1.3 — fuerza la variante del jefe de planta (pruebas); por defecto FLOOR_BOSS[planta] */
   bossVariant?: BossVariant;
+  /** v1.3 (oleada 2) — modo horda: oleadas sin fin (ignora total/mix) */
+  horde?: boolean;
+  /** modificador «jefes dobles» */
+  doubleBoss?: boolean;
 }
 
 /** v1.3 — un puesto en la cola de apariciones: tipo base y, si lo lleva, oficio. */
@@ -82,15 +86,22 @@ export class Director {
   private shieldAt = 0;
   private shieldWave = 0;
   private tryAt = 0;
+  // v1.3 (oleada 2): defensa del servidor y modo horda
+  private holdQ: Slot[] = [];
+  private holding = false; private holdN0 = 0; private holdAt = 0;
+  private qWave: Slot[] = [];
+  private mixNow: [number, number, number] | null = null;
+  private vfloor: number | null = null;
+  private restUntil = 0; private nextRelAt = 0;
 
   constructor(private w: World, private cfg: DirectorConfig) {}
 
   pending(): number {
-    return this.qAsc.length + this.qPeak.length + this.qRelief.length + this.qBoss.length + this.bossReserve;
+    return this.qAsc.length + this.qPeak.length + this.qRelief.length + this.qBoss.length + this.bossReserve + this.holdQ.length + this.qWave.length;
   }
 
   private kinds(n: number): EnemyKind[] {
-    const mix = this.cfg.mix;
+    const mix = this.mixNow ?? this.cfg.mix;
     const sum = mix[0] + mix[1] + mix[2] || 1;
     const exact = mix.map(m => (m / sum) * n);
     const cnt = exact.map(Math.floor);
@@ -105,7 +116,7 @@ export class Director {
   }
 
   /** v1.3 — n enemigos normales con su parte de oficios ya repartida. */
-  private slots(n: number): Slot[] { return assignVariants(this.kinds(n), this.w.floor, this.w.rng); }
+  private slots(n: number): Slot[] { return assignVariants(this.kinds(n), this.vfloor ?? this.w.floor, this.w.rng); }
 
   /**
    * v1.3 — saca `n` puestos de la cola respetando el máximo de cada oficio vivo a la vez: el que no cabe cede el turno
@@ -144,6 +155,7 @@ export class Director {
     w.enemyAI.tactics = cfg.tactics;
     w.enemyAI.hard = cfg.difficulty === 'hard';
     this.buildCandidates();
+    if (cfg.horde) { this.startWave(1); return; }
     const all = this.slots(cfg.total);
     const [bx, by] = w.level.map.punto_jefe;
 
@@ -155,6 +167,7 @@ export class Director {
       s.route = this.routeAround([boss.x, boss.y], 3, 7);
       w.enemyAI.join(boss, s);
       this.bossReserve = cfg.reinforcements * 2;
+      if (cfg.doubleBoss) this.spawnSecondBoss(boss, 'cohetes', w.floor, true);
       // escolta inicial
       this.qAsc = [];
       this.placeInitial(all, 3);
@@ -206,9 +219,107 @@ export class Director {
           k++;
         }
         s.initial = s.members.length;
+        if (cfg.doubleBoss) this.spawnSecondBoss(boss, bv, w.floor);
       } else this.qAsc.push(...escorts); // sin sitio para el jefe: los acompañantes vuelven a la cola
     }
     this.nextWaveAt = 10;
+  }
+
+  /** Modificador «jefes dobles»: un segundo jefe de planta (en la 9, un MiniBoss junto al MegaBoss) al lado del primero. */
+  private spawnSecondBoss(first: Unit, bv: BossVariant, floor: number, mini = false): void {
+    const w = this.w, L = w.level;
+    const c = L.nearestFree(first.x + 2.5, first.y + 1, true, 10);
+    if (c < 0) return;
+    const b2 = w.spawnUnit('miniboss', L.cellX(c), L.cellY(c), false);
+    applyBossVariant(b2, bv, floor);
+    void mini;
+    const s = w.enemyAI.newSquad([b2.x, b2.y], false);
+    s.route = this.routeAround([b2.x, b2.y], 2, 5);
+    w.enemyAI.join(b2, s);
+    s.initial = s.members.length;
+  }
+
+  // ───────────────────────── v1.3 (oleada 2): defensa del servidor ─────────────────────────
+
+  /** La defensa empieza (el jugador llegó al servidor): lo que falta por salir se reparte en `defendSpreadOver` s, con un mínimo. */
+  beginHold(): void {
+    if (this.holding) return;
+    const rest = [...this.qAsc, ...this.qPeak, ...this.qRelief];
+    this.qAsc = []; this.qPeak = []; this.qRelief = [];
+    const min = Math.round(this.cfg.total * OBJECTIVE.defendMinShare);
+    if (rest.length < min) rest.push(...this.slots(min - rest.length));
+    this.holdQ = rest; this.holdN0 = rest.length; this.holdAt = this.w.time; this.holding = true;
+    this.w.pacing = 'pico';
+  }
+
+  // ───────────────────────── v1.3 (oleada 2): modo horda ─────────────────────────
+
+  private startWave(n: number): void {
+    const w = this.w, h = w.horde!;
+    const fl = hordeFloorOf(n);
+    this.vfloor = fl;
+    this.mixNow = ENEMY_MIX[fl];
+    w.enemyAI.tactics = fl >= 2 ? 1 : 0;
+    const boss = n % HORDE.bossEvery === 0;
+    h.wave = n; h.bossWave = boss; h.rest = 0; h.pickUpgrade = false;
+    this.qWave = this.slots(hordeEnemies(n, this.cfg.difficulty ?? 'normal'));
+    if (boss) this.spawnWaveBoss(BOSS_ROTATION[(n / HORDE.bossEvery - 1) % BOSS_ROTATION.length], fl);
+    h.left = this.qWave.length + w.enemiesAlive();
+    this.nextRelAt = w.time;
+    w.events.push({ type: 'wave', wave: n, boss });
+  }
+
+  /** Jefe de planta de una oleada de jefe: lejos del jugador y fuera de su vista; los escoltas, con sus dos acompañantes. */
+  private spawnWaveBoss(bv: BossVariant, floor: number): void {
+    const w = this.w;
+    let at: Vec2 | null = null;
+    for (let relax = 0; relax <= 6 && !at; relax++) at = this.pickSpawn(relax);
+    if (!at) return;
+    const c = w.level.nearestFree(at[0], at[1], true, 10);
+    if (c < 0) return;
+    const boss = w.spawnUnit('miniboss', w.level.cellX(c), w.level.cellY(c), w.time > 0);
+    applyBossVariant(boss, bv, floor);
+    this.boss = boss;
+    const s = w.enemyAI.newSquad([boss.x, boss.y], true);
+    s.route = this.routeAround([boss.x, boss.y], 2, 5);
+    w.enemyAI.join(boss, s);
+    if (bv === 'escoltas') {
+      for (let k = 0; k < BOSS_ESCORTED.escorts; k++) {
+        const cc = w.level.nearestFree(boss.x + 1.6 + k * 0.8, boss.y + 1, true, 6);
+        if (cc < 0) continue;
+        const u = w.spawnUnit('enemy2', w.level.cellX(cc), w.level.cellY(cc), w.time > 0);
+        w.enemyAI.join(u, s);
+        w.enemyAI.makeEscort(u, boss);
+      }
+    }
+    s.initial = s.members.length;
+  }
+
+  private hordeUpdate(): void {
+    const w = this.w, h = w.horde!;
+    const alive = w.enemiesAlive();
+    if (h.rest > 0 || (this.restUntil > 0 && this.qWave.length === 0 && alive === 0 && !h.pickUpgrade)) {
+      h.rest = Math.max(0, this.restUntil - w.time);
+      if (h.rest <= 0) { this.restUntil = 0; this.startWave(h.wave + 1); }
+      return;
+    }
+    if (this.qWave.length > 0) {
+      if (w.time >= this.nextRelAt && alive < HORDE.aliveCap) {
+        if (this.release(this.qWave, HORDE.releaseGroup, true)) this.nextRelAt = w.time + HORDE.releaseEvery;
+      }
+    } else if (alive === 0) {
+      // oleada acabada: suministros, los derribados se levantan, descanso (y mejora cada 2 oleadas)
+      for (const e of w.entities) if (e.alive && e.downed) w.revive(e, null);
+      const p = w.player;
+      HORDE.supplies.forEach((t, i) => {
+        const c = w.level.nearestFree(p.x + Math.cos(i * 3) * 1.8, p.y + Math.sin(i * 3) * 1.8, true, 6);
+        if (c >= 0) w.dropPickup(t, w.level.cellX(c), w.level.cellY(c));
+      });
+      this.restUntil = w.time + HORDE.rest;
+      h.rest = HORDE.rest;
+      if (h.wave % HORDE.pickEvery === 0) h.pickUpgrade = true;
+    }
+    h.left = this.qWave.length + alive;
   }
 
   // ───────────────────────── puntos de aparición ─────────────────────────
@@ -373,6 +484,7 @@ export class Director {
     void dt;
     if (w.status !== 'playing') return;
     if (w.hold) return; // v1.2 tutorial: ni oleadas, ni fases, ni zona limpia
+    if (this.cfg.horde) { this.hordeUpdate(); return; }
     const alive = w.enemiesAlive();
 
     // Si el MegaBoss ha muerto, los refuerzos de las fases que no llegó a pedir ya no vienen.
@@ -387,6 +499,16 @@ export class Director {
       if (e !== this.boss && e.kind === 'megaboss' && e.alive && e.shielded && w.time - this.shieldAt > 6) e.shielded = false;
     }
 
+    // defensa del servidor (fase 'hold'): oleadas continuas repartidas en el tiempo; no hay fases del ritmo normal
+    if (this.holding) {
+      if (w.time >= this.tryAt) {
+        this.tryAt = w.time + 0.5;
+        const due = Math.ceil(this.holdN0 * Math.min(1, (w.time - this.holdAt) / OBJECTIVE.defendSpreadOver));
+        const k = due - (this.holdN0 - this.holdQ.length);
+        if (k > 0 && alive < ALIVE_CAP) this.release(this.holdQ, Math.min(3, k), true);
+      }
+      return;
+    }
     if (w.time >= this.tryAt) {
       this.tryAt = w.time + 0.5;
       if (this.qBoss.length > 0) this.release(this.qBoss, 4, true);
@@ -418,7 +540,8 @@ export class Director {
 
     // Una zona está limpia cuando no queda nada por soltar y no queda nadie vivo (§8).
     // (se vuelve a contar: en este mismo paso puede haberse soltado una oleada)
-    if (this.pending() === 0 && w.enemiesAlive() === 0) {
+    // (con un objetivo especial —desactivar, defender, rescatar— no basta con eliminar a todos: lo decide el objetivo)
+    if (w.objective.kind === 'clear' && this.pending() === 0 && w.enemiesAlive() === 0) {
       w.status = 'cleared';
       w.pacing = 'descanso';
       w.morale = Math.min(100, w.morale + 10);

@@ -70,6 +70,9 @@ export class Hud {
   private pingNext = 0;
   private barks: { el: HTMLElement; id: number; until: number }[] = [];
   private pings: { el: HTMLElement; x: number; y: number; until: number }[] = [];
+  private waveUntil = -1;
+  private waveText = '';
+  private badges: string[] = [];
 
   constructor(
     parent: HTMLElement,
@@ -82,6 +85,9 @@ export class Hud {
     parent.appendChild(this.el);
     this.r = this.build();
   }
+
+  /** Chapas de los modificadores activos de la partida. */
+  setBadges(list: string[]): void { this.badges = list; this.r = this.build(); }
 
   show(on: boolean): void { this.el.classList.toggle('on', on); }
 
@@ -180,12 +186,27 @@ export class Hud {
     const bossExp = h('div', { class: 'shield exposed' });
     const boss = h('div', { class: 'boss' }, h('div', { class: 'bn' }, icon('warn'), bossName), bossBar.el, bossShield, bossExp);
     const phaseMsg = h('div', { class: 'phase-msg' });
+    const obText = h('span');
+    const obClock = h('div', { class: 'ob-clock' });
+    const obBar = sbar('boss');
+    const objp = h('div', { class: 'objp' }, h('div', { class: 'ob-t' }, icon('target'), obText), obClock, obBar.el);
+    const wvN = h('span', { class: 'wv-n' });
+    const wvLeft = h('span');
+    const wvRest = h('span');
+    const waveInfo = h('div', { class: 'wave-info' }, wvN, wvLeft, wvRest);
+    const waveMsg = h('div', { class: 'wave-msg' });
+    const chips = h('div', { class: 'hud-chips' }, ...this.badges.map((b) => h('span', { class: 'mchip' }, b)));
+    const objMarks = [0, 1, 2, 3].map(() => {
+      const dist = h('span');
+      const arr = h('i', { class: 'arr' }, '▲');
+      return { el: h('div', { class: 'proj obj-mark' }, arr, icon('target'), dist), dist, arr };
+    });
     const chutaos = h('div', { class: 'chutaos' }, t('hud.chutaos'));
     const cheated = h('div', { class: 'chutaos cheated' }, icon('warn'), t('hud.cheats'));
     const top = h('div', { class: 'hud-top' },
       compass,
       h('div', { class: 'morale' }, h('span', null, t('hud.morale')), moraleBar.el),
-      boss, phaseMsg, chutaos, cheated,
+      objp, waveInfo, boss, phaseMsg, chutaos, cheated, chips,
     );
 
     // Centro: retícula fina, marca de impacto, arcos de daño, viñeta, avisos
@@ -228,6 +249,7 @@ export class Hud {
     for (let i = 0; i < 6; i++) { const el = h('div', { class: 'proj bark' }); projLayer.appendChild(el); this.barks.push({ el, id: -1, until: -1 }); }
     for (let i = 0; i < 3; i++) { const el = h('div', { class: 'proj ping-mark' }); projLayer.appendChild(el); this.pings.push({ el, x: 0, y: 0, until: -1 }); }
     for (const d of dnMarks) projLayer.appendChild(d.el);
+    for (const m of objMarks) projLayer.appendChild(m.el);
 
     // Abajo al centro: subtítulos, orden, inventario
     const subsBox = h('div', { class: 'subs' });
@@ -236,10 +258,11 @@ export class Hud {
     const slots = [0, 1, 2, 3, 4].map(() => h('div', { class: 'slot' }));
     const bc = h('div', { class: 'hud-bc' }, subsBox, order, invName, h('div', { class: 'inv' }, ...slots));
 
-    this.el.append(vignette, dark, edgeWarn, blind, projLayer, vit, ammo, squad, tr, feedBox, top, xh, rollInd, ...thr.map((x) => x.el), streakEl, hit, hurtLayer, warnMsg, comboMsg, revive, prompt, clearedMsg, bc);
+    this.el.append(vignette, dark, edgeWarn, blind, projLayer, vit, ammo, squad, tr, feedBox, top, xh, rollInd, ...thr.map((x) => x.el), streakEl, hit, hurtLayer, warnMsg, comboMsg, waveMsg, revive, prompt, clearedMsg, bc);
 
     return {
       plName, plHp, plBar, plAmmo, plWeapon, wslots, gst, plGren,
+      objp, obText, obClock, obBar, waveInfo, wvN, wvLeft, wvRest, waveMsg, objMarks,
       rollInd, rollFill, blind, dark, edgeWarn, warnMsg, comboMsg, revive, reviveFill, thr, dnMarks, bossExp, plWarn, abilLbl, abilBar, allyRows,
       vScore, vTime, vEnemies, pauseBtn,
       compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos, cheated,
@@ -354,6 +377,10 @@ export class Hud {
           if (subsOn) this.pushSub(`${t('kind.' + sp.kind)}: «${text}»`, now);
           break;
         }
+        case 'wave':
+          this.waveText = e.boss ? t('hud.waveBoss', { n: e.wave }) : t('hud.wave', { n: e.wave });
+          this.waveUntil = now + 3;
+          break;
         case 'weaponSwitch':
           if (e.id === p.id) this.litUntil = now + 1.5;
           break;
@@ -388,13 +415,34 @@ export class Hud {
     }
     // Registro de bajas
     const killer = killerId >= 0 ? world.entityById(killerId) : undefined;
-    const victim = t('kind.' + e.kind);
+    const vEnt = world.entityById(e.id);
+    const isHostage = !!vEnt?.hostage; // el rehén no es hostil: se anota como baja propia
+    const victim = t('kind.' + (isHostage ? 'hostage' : e.kind));
     const text = killer ? `${t('kind.' + killer.kind)} ▸ ${victim}` : `▸ ${victim}`;
-    const cls = e.team === 'ally' ? 'loss' : killerId === p.id ? 'mine' : '';
+    const cls = e.team === 'ally' || isHostage ? 'loss' : killerId === p.id ? 'mine' : '';
     const line = h('div', { class: 'kf ' + cls }, head ? icon('head') : null, text);
     this.r.feedBox.appendChild(line);
     this.feed.push({ el: line, until: now + 4 });
     while (this.feed.length > 5) this.feed.shift()!.el.remove();
+  }
+
+  /** Marcador de objetivo: sobre el punto si se ve; si no, pegado al borde de pantalla con flecha. Lleva la distancia. */
+  private placeObjMark(m: { el: HTMLElement; dist: HTMLElement; arr: HTMLElement }, world: IWorld, x: number, y: number): void {
+    const p = world.player;
+    setText(m.dist, Math.round(Math.hypot(x - p.x, y - p.y)) + ' m');
+    const W = window.innerWidth, H = window.innerHeight, mg = 44;
+    const pr = this.project(x, y, 1.4);
+    if (pr && pr.x > mg && pr.x < W - mg && pr.y > mg && pr.y < H - mg) {
+      setCls(m.el, 'edge', false);
+      this.place(m.el, pr);
+      return;
+    }
+    const rel = Math.atan2(y - p.y, x - p.x) - world.cam.yaw; // > 0 = a la derecha
+    const sx = Math.sin(rel), sy = -Math.cos(rel);
+    const k = Math.min((W / 2 - mg) / (Math.abs(sx) || 1e-6), (H / 2 - mg) / (Math.abs(sy) || 1e-6));
+    setCls(m.el, 'edge', true);
+    setStyle(m.arr, 'transform', `rotate(${Math.round((Math.atan2(sx, -sy) * 180) / Math.PI)}deg)`);
+    this.place(m.el, { x: W / 2 + sx * k, y: H / 2 + sy * k + 20 });
   }
 
   /** Coloca (o esconde) un elemento proyectado en pantalla. */
@@ -602,14 +650,55 @@ export class Hud {
 
     // Aviso contextual de puerta (en táctil lo pone el módulo de controles)
     const reviving = (world.interactRevive ?? -1) >= 0;
-    const showPrompt = world.interactDoor >= 0 && !this.isTouch() && !reviving;
+    const ob = world.objective;
+    const objHold = ob && ob.interact >= 0 ? ob.points[ob.interact] : undefined;
+    const showPrompt = world.interactDoor >= 0 && !this.isTouch() && !reviving && !objHold;
     setCls(r.prompt, 'on', showPrompt);
-    setCls(r.revive, 'on', reviving);
+    setCls(r.revive, 'on', reviving || !!objHold);
     if (reviving) {
       const tgt = world.entityById(world.interactRevive);
       setText(r.revive.firstElementChild as HTMLElement, this.isTouch() ? t('hud.downed') : t('hud.revive', { key: actionLabel('interact', s.bindings) }));
       setStyle(r.reviveFill, 'width', Math.round(Math.min(1, Math.max(0, tgt?.reviveProgress ?? 0)) * 100) + '%');
+    } else if (objHold) {
+      setText(r.revive.firstElementChild as HTMLElement, t('hud.hold', { key: actionLabel('interact', s.bindings) }));
+      setStyle(r.reviveFill, 'width', Math.round(Math.min(1, Math.max(0, objHold.progress)) * 100) + '%');
     }
+
+    // Objetivo de zona: paso actual, reloj, vida del servidor/rehén y marcadores de los puntos pendientes
+    const showObj = !!ob && ob.kind !== 'clear' && !world.horde;
+    setCls(r.objp, 'on', showObj);
+    let marks = 0;
+    if (showObj && ob) {
+      const done = ob.points.filter((x) => x.done).length;
+      const key = `obj.${ob.kind}.${ob.stage}`;
+      let txt = t(key, { n: done, total: ob.points.length });
+      if (txt === key && ob.stage.startsWith('defuse')) txt = t('obj.defuse.defuse', { n: done, total: ob.points.length });
+      setText(r.obText, txt === key ? ob.stage : txt);
+      const clockOn = ob.timeLeft >= 0;
+      setStyle(r.obClock, 'display', clockOn ? 'block' : 'none');
+      if (clockOn) { setText(r.obClock, fmtTime(ob.timeLeft)); setCls(r.obClock, 'crit', ob.timeLeft < 15); }
+      const hpOn = ob.maxHp > 0;
+      setStyle(r.obBar.el, 'display', hpOn ? 'block' : 'none');
+      if (hpOn) { setBar(r.obBar, ob.hp / ob.maxHp); setCls(r.obBar.el, 'low', ob.hp / ob.maxHp < 0.3); }
+      ob.points.forEach((pt, i) => {
+        if (pt.done || marks >= r.objMarks.length) return;
+        if (ob.kind === 'rescue' && ((ob.stage === 'find' && i !== 0) || (ob.stage !== 'find' && i !== 1))) return;
+        this.placeObjMark(r.objMarks[marks++], world, pt.x, pt.y);
+      });
+    }
+    for (let i = marks; i < r.objMarks.length; i++) setStyle(r.objMarks[i].el, 'display', 'none');
+
+    // Modo horda: oleada, enemigos que faltan, cuenta de descanso y rótulo al empezar cada oleada
+    const hd = world.horde;
+    setCls(r.waveInfo, 'on', !!hd);
+    if (hd) {
+      setText(r.wvN, t('hud.wave', { n: hd.wave }));
+      setText(r.wvLeft, `${t('hud.enemies')}: ${hd.left}`);
+      setText(r.wvRest, hd.rest > 0 ? t('hud.nextWave', { n: Math.ceil(hd.rest) }) : '');
+    }
+    const waveOn = now < this.waveUntil;
+    if (waveOn) setText(r.waveMsg, this.waveText);
+    setCls(r.waveMsg, 'on', waveOn);
     if (showPrompt) setText(r.prompt, t('hud.interact', { key: actionLabel('interact', s.bindings) }));
 
     // ── v1.3 ──

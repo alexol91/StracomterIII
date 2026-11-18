@@ -226,6 +226,13 @@ Añadidos que no están en el documento, aprobados por el dueño. Lo que cambia 
 * **Mando**: soporte de mando estándar con vibración; sin probar con un mando real.
 * Equilibrio medido con el bot (una campaña por celda, con mucha varianza): Fácil 0 muertes, Normal 2-3, Difícil 0-1. Antes de los oficios, Normal eran 0-2.
 
+## v1.3, oleada de progresión (decisión del dueño, 2026-11-18)
+
+* **Armería** en Estrategia: los puntos ganados son también créditos (la puntuación total no baja al gastar). Munición 150, botiquín 180, granada 120, cegadora y humo 100, mejora extra 700 (×1,5 cada vez), cambiar las mejoras ofrecidas 150. **No se puede comprar la vuelta de un compañero muerto**: contradice el encargo y queda fuera salvo que el dueño diga lo contrario.
+* **Objetivos de zona**: en las plantas 2-8, dos de las seis zonas (siempre pares) no se ganan limpiando sino cumpliendo un objetivo, con +50 % de puntos: desactivar dos cargas contra reloj (150 s; 180 en fácil, 130 en difícil), defender un servidor 120 s, o rescatar a un rehén y llevarlo a la salida. Fracasar el objetivo cuenta como derrota. **Cambia la regla del encargo de que toda zona termina al no quedar enemigos**, solo en esas zonas.
+* **Modificadores** al empezar campaña (enemigos rápidos, sin aura, jefes dobles, solo pistola, escasez), que multiplican los puntos, y **segunda vuelta** tras ganar (+25 % enemigos, +15 % vida, puntos ×1,5, dos mejoras iniciales). Con modificadores o en segunda vuelta no se guardan récords de nota.
+* **Supervivencia**: modo nuevo por oleadas sin fin en el mapa mediano de una planta, jefe cada 5 oleadas, mejora cada 2 y récord local de oleada. No se guarda la partida. El bot llega a la oleada 20 en Normal.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo

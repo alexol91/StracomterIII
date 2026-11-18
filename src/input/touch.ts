@@ -77,6 +77,8 @@ const TXT: Record<string, { es: string; en: string }> = {
   useItem: { es: 'Objeto', en: 'Item' },
   interact: { es: 'Puerta', en: 'Door' },
   revive: { es: 'Reanimar', en: 'Revive' },
+  defuse: { es: 'Desactivar', en: 'Defuse' },
+  rescue: { es: 'Liberar', en: 'Free' },
   cycle: { es: 'Cambiar objeto', en: 'Next item' },
   crouch: { es: 'Agacharse', en: 'Crouch' },
   weapon: { es: 'Arma', en: 'Weapon' },
@@ -381,7 +383,7 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   let interactHeld = false;
   bindPress(interactBtn, () => { input.interact = true; interactHeld = true; }, () => { interactHeld = false; });
   let interactShown = false;
-  let interactRevive = false;
+  let interactKey = 'interact';
   const interactCap = interactBtn.querySelector('.tl-cap') as HTMLElement;
 
   // Órdenes de escuadra: botón + menú 2x2 que se repliega al elegir
@@ -449,10 +451,12 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
     update(dt: number, world: IWorld | null): TouchHeld {
       clock += dt;
       const rev = !!world && world.interactRevive >= 0;
-      const want = !!world && (world.interactDoor >= 0 || rev);
-      if (rev !== interactRevive) {
-        interactRevive = rev;
-        const key = rev ? 'revive' : 'interact';
+      const obj = world && world.objective && world.objective.interact >= 0 ? world.objective.kind : null;
+      const want = !!world && (world.interactDoor >= 0 || rev || obj !== null);
+      // Rótulo según el caso: reanimar > objetivo (desactivar/liberar) > puerta.
+      const key = rev ? 'revive' : obj === 'defuse' ? 'defuse' : obj === 'rescue' ? 'rescue' : 'interact';
+      if (key !== interactKey) {
+        interactKey = key;
         interactCap.textContent = TXT[key][lang];
         interactBtn.setAttribute('aria-label', TXT[key][lang]);
       }

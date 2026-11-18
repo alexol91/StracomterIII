@@ -675,3 +675,42 @@ button.tut-btn.on { border-color: var(--acc); color: var(--acc); }
 .lo-opt .statl { grid-template-columns: 3.6rem 1fr 0; font-size: 0.62rem; }
 .lo-opt.sel { background: rgba(245, 179, 1, 0.1); border-color: var(--acc); box-shadow: inset 0.3rem 0 0 var(--acc); }
 .lo-opt:hover, .lo-opt:focus-visible { border-color: #fff; }
+
+/* ───────────── v1.3 oleada 2: armería, objetivos, modificadores, horda ───────────── */
+.fl.wide { padding: 0 0.9rem; min-width: 5rem; font-size: 0.9rem; letter-spacing: 0.1em; text-transform: uppercase; }
+.su-total { font: 700 1.6rem var(--f-head); color: var(--acc); }
+.armory { padding: 0.5rem 0.8rem; margin-bottom: 0.7rem; }
+.ar-head { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+.ar-cr { font: 700 1.1rem var(--f-head); letter-spacing: 0.1em; color: var(--acc); }
+.ar-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ar-item { display: flex; align-items: center; gap: 0.4rem; min-height: 44px; padding: 0 0.8rem; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line-strong); color: #fff; font: 600 0.9rem var(--f-head); letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; outline: none; }
+.ar-item:hover:not(:disabled), .ar-item:focus-visible { background: #fff; color: #0b0f14; }
+.ar-item .ico { font-size: 1.2rem; color: var(--acc); }
+.ar-item:hover .ico, .ar-item:focus-visible .ico { color: #0b0f14; }
+.ar-item .ar-p { color: var(--acc); margin-left: 0.3rem; }
+.ar-item:hover .ar-p, .ar-item:focus-visible .ar-p { color: #0b0f14; }
+.ar-item.off { opacity: 0.35; cursor: not-allowed; }
+.ar-pick { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-top: 0.4rem; }
+.zline.obj { color: #dfe6ee; font-family: var(--f-head); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+.zline.obj .obj-bonus { color: var(--acc); margin-left: auto; font-size: 0.72rem; }
+.mchips { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.mchip { font: 700 0.68rem var(--f-head); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid var(--acc); color: var(--acc); padding: 0.05rem 0.5rem; clip-path: polygon(0.3rem 0, 100% 0, calc(100% - 0.3rem) 100%, 0 100%); }
+
+/* HUD: objetivo y oleadas */
+.objp { width: 100%; display: none; flex-direction: column; align-items: center; gap: 0.15rem; font-size: 0.85rem; text-align: center; }
+.objp.on { display: flex; }
+.objp .ob-t { display: flex; gap: 0.4rem; align-items: center; background: rgba(8, 12, 18, 0.6); border-left: 2px solid var(--acc); padding: 0.05rem 0.7rem; }
+.objp .ob-clock { font: 700 1.8rem/1 var(--f-head); letter-spacing: 0.06em; }
+.objp .ob-clock.crit { color: var(--danger); animation: edgepulse 0.5s ease-in-out infinite alternate; }
+.objp .sbar { width: 100%; }
+.wave-info { width: 100%; display: none; flex-direction: column; align-items: center; font-size: 0.8rem; letter-spacing: 0.14em; }
+.wave-info.on { display: flex; }
+.wave-info .wv-n { font: 700 1.1rem var(--f-head); color: var(--acc); }
+.wave-msg { position: absolute; left: 50%; top: 28%; transform: translateX(-50%); display: none; white-space: nowrap; font: 700 clamp(1.8rem, 11vh, 3.4rem) var(--f-head); letter-spacing: 0.22em; color: #fff; text-shadow: 0 2px 20px rgba(0, 0, 0, 0.85); }
+.wave-msg.on { display: block; animation: rise 0.4s both; }
+.wave-msg::after { content: ''; display: block; height: 2px; margin-top: 0.3rem; background: var(--acc); }
+.obj-mark { flex-direction: column; gap: 0; color: var(--acc); font: 700 0.85rem var(--f-head); filter: drop-shadow(0 0 4px #000); }
+.obj-mark .ico { font-size: 1.5rem; }
+.obj-mark .arr { display: none; font-style: normal; font-size: 0.9rem; }
+.obj-mark.edge .arr { display: block; }
+.hud-chips { display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: center; }

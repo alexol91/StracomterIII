@@ -3,7 +3,7 @@
 
 import type {
   AiDebugInfo, ClassId, Door, Entity, FurnitureInst, GameEvent, ItemType, MapDef, OrderKind,
-  Pickup, PlayerInput, Projectile, SmokeCloud, Theme, Threat, WallRect, WorldStatus, ZoneStats,
+  HordeState, Objective, ObjectiveKind, Pickup, PlayerInput, Projectile, SmokeCloud, Theme, Threat, WallRect, WorldStatus, ZoneStats,
 } from './sim/types';
 
 // ───────────────────────── Simulación (src/sim) ─────────────────────────
@@ -61,6 +61,11 @@ export interface IWorld {
   cheats: { god: boolean; noclip: boolean; aiDebug: boolean; chutaos: boolean };
   /** v1.2 — true en cuanto se usa cualquier truco en esta zona: la partida no puntúa para récords */
   cheated: boolean;
+  /** v1.3 — objetivo de la zona (kind 'clear' = limpiar, lo de siempre) y estado del modo horda (null fuera de él) */
+  objective: Objective;
+  horde: HordeState | null;
+  /** v1.3 — modo horda: aplica la mejora elegida entre oleadas y reanuda */
+  hordePick?(id: string): void;
   /** v1.3 — avisos de ataques inminentes (para dibujar en el suelo) y nubes de humo activas */
   threats: Threat[];
   smokes: SmokeCloud[];
@@ -93,6 +98,21 @@ export type Grade = 'S' | 'A' | 'B' | 'C' | 'D';
 export interface RecordEntry { grade: Grade; score: number; time: number; date: string }
 
 export interface CampaignState {
+  /** v1.3 — puntos gastables en la Armería (se ganan igual que `score`, que sigue siendo el total) */
+  credits?: number;
+  /** v1.3 — suministros comprados para la próxima zona */
+  bought?: { grenades: number; flashes: number; smokes: number };
+  /** v1.3 — veces que se ha comprado una mejora extra (encarece la siguiente) */
+  extraUpgrades?: number;
+  /** v1.3 — modificadores activos (ids de MUTATORS) y vuelta de la campaña (0 = primera) */
+  mutators?: string[];
+  ngPlus?: number;
+  /** v1.3 — modo horda: planta cuyo mapa y ambiente se usan */
+  horde?: { floor: number; best: number };
+  /** v1.3 — las tres mejoras ofrecidas tras la última zona (para re-sortearlas) y las de una compra de mejora extra pendiente */
+  upgradeChoices?: UpgradeId[];
+  pendingUpgrade?: UpgradeId[];
+  rerolls?: number;
   /** v1.3 — variante de arma principal elegida por clase (0 por defecto) */
   loadout?: Partial<Record<ClassId, 0 | 1>>;
   /** v1.2 — mejoras elegidas en esta campaña */
@@ -114,6 +134,9 @@ export interface CampaignState {
 }
 
 export interface ZoneInfo {
+  /** v1.3 — objetivo de la zona y multiplicador de su recompensa en puntos */
+  objective?: ObjectiveKind;
+  objectiveBonus?: number;
   floor: number;
   zone: number;
   map: MapDef;
@@ -151,8 +174,12 @@ export interface ZoneSummary {
 
 export interface KVStorage { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
 
+export interface ShopItem { id: string; price: number; available: boolean; /** hay que elegir operador */ needsTarget?: boolean }
+/** v1.3 — modificador de campaña: clave i18n `mut.<id>` y multiplicador de puntos */
+export interface MutatorDef { id: string; scoreMult: number }
+
 export interface ICampaign {
-  newCampaign(difficulty: Difficulty, controlled: ClassId): CampaignState;
+  newCampaign(difficulty: Difficulty, controlled: ClassId, opts?: { mutators?: string[]; ngPlus?: boolean }): CampaignState;
   newQuickPlay(difficulty: Difficulty, controlled: ClassId, floor: number): CampaignState;
   /** Las zonas elegibles de una planta (6; en la azotea, 1). */
   zonesOf(floor: number): ZoneInfo[];
@@ -168,6 +195,24 @@ export interface ICampaign {
   chooseUpgrade(state: CampaignState, id: UpgradeId): void;
   /** v1.2 — mejores marcas guardadas en el dispositivo: clave `${dificultad}:${planta}` */
   records(): Record<string, RecordEntry>;
+  // ── v1.3, oleada 2 ──
+  /** las tres mejoras pendientes tras comprar una mejora extra en la Armería ([] si no hay compra pendiente) */
+  shopUpgradeChoices(state: CampaignState): UpgradeId[];
+  /** segunda vuelta: opciones entre las que elegir las 2 mejoras iniciales (se aplican con chooseUpgrade) */
+  ngStartChoices(state: CampaignState): UpgradeId[];
+  /** Armería: artículos con su precio actual y si se pueden comprar ahora */
+  shopItems(state: CampaignState): ShopItem[];
+  /** compra (para 'medkit' hay que indicar a quién); descuenta `credits` y guarda. false si no se puede */
+  buy(state: CampaignState, id: string, target?: ClassId): boolean;
+  /** cambia las tres mejoras ofrecidas pagando; devuelve las nuevas o null si no alcanza */
+  rerollUpgrades(state: CampaignState): UpgradeId[] | null;
+  /** datos permanentes del dispositivo: victorias, segunda vuelta desbloqueada y mejor oleada por planta en horda */
+  meta(): { wins: number; ngUnlocked: boolean; hordeBest: Record<number, number> };
+  /** modo horda en el mapa de una planta; no se guarda como campaña */
+  newHorde(difficulty: Difficulty, controlled: ClassId, floor: number): CampaignState;
+  /** horda: las tres mejoras a ofrecer ahora, y cierre de la partida (guarda récord) */
+  hordeChoices(state: CampaignState): UpgradeId[];
+  finishHorde(state: CampaignState, world: IWorld): { wave: number; best: number; newRecord: boolean };
   save(state: CampaignState): void;
   load(): CampaignState | null;
   hasSave(): boolean;

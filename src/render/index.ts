@@ -17,6 +17,7 @@ import { assetsDone, getAssets, loadAssets, type AssetPart, type Assets } from '
 import { ENEMY_MIX } from '../sim/data';
 import { RbLibrary, sharedRbLibrary, VARIANT_GUN } from './rbchars';
 import { ThreatLayer } from './threats';
+import { ObjectiveLayer } from './objective';
 import { FOG, LevelLayer, makeStars, pbrIdsFor, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
@@ -124,7 +125,11 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   const fx = new Fx();
   const pickups = new PickupLayer();
   const threats = new ThreatLayer();
-  scene.add(chars.group, fx.group, pickups.group, threats.group);
+  const objective = new ObjectiveLayer({
+    spark: (x, y, z) => fx.emitSpark(x, y, z), smoke: (x, y, z) => fx.emitSmoke(x, y, z), flash: (x, y, z) => fx.emitFlash(x, y, z),
+    bigExplosion: (x, y) => { if (world) fx.handle([{ type: 'explosion', x, y, z: 0.5, radius: 5 }], world); },
+  });
+  scene.add(chars.group, fx.group, pickups.group, threats.group, objective.group);
 
   let disposed = false;
   let world: IWorld | null = null;
@@ -164,7 +169,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (debugLayer) { scene.remove(debugLayer.group); debugLayer.dispose(); debugLayer = null; }
     if (stars) { scene.remove(stars); stars = null; }
     worldOwned.disposeAll();
-    chars.clear(); pickups.clear(); fx.clear(); threats.clear();
+    chars.clear(); pickups.clear(); fx.clear(); threats.clear(); objective.clear();
     darkK = 1; darkApplied = false;
     camInit = false;
   }
@@ -322,6 +327,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (!world) return;
     fx.handle(events, world);
     chars.onEvents(events);
+    objective.onEvents(events as never, world);
     for (const ev of events) if (ev.type === 'ping') threats.ping(ev.what, ev.x, ev.y, world.entityById(ev.targetId));
     for (const ev of events) if (ev.type === 'spawn') scanVariantGuns(world.entityById(ev.id));
     for (const ev of events) if (ev.type === 'spawn' && rbWanted() && !rb.has(ev.kind) && !extraKinds.has(ev.kind)) { extraKinds.add(ev.kind); ensureRb(); }
@@ -481,6 +487,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     pickups.update(w, w.time);
     fx.update(dt, w, w.time, camera);
     threats.update(w, w.time, camera, dt);
+    objective.update(w, w.time, dt);
     applyBlackout(w, dt);
 
     if (w.cheats.aiDebug) {
@@ -516,7 +523,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     clearWorld();
     world = null;
     composer?.dispose(); composer = null;
-    chars.dispose(); fx.dispose(); pickups.dispose(); threats.dispose();
+    chars.dispose(); fx.dispose(); pickups.dispose(); threats.dispose(); objective.dispose();
     disposeRamp();
     renderer.dispose();
   }

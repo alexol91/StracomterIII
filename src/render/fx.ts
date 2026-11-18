@@ -312,6 +312,11 @@ export class Fx {
     this.tracerMatEnemy.color.setHex(cb ? 0xffee00 : 0xff5a2a);
   }
 
+  /** Efectos sueltos para los objetivos (coordenadas three: x, altura, z). */
+  emitSpark(x: number, y: number, z: number): void { this.real.shieldSpark(x, y, z); }
+  emitSmoke(x: number, y: number, z: number): void { this.real.legacy(x, y, z, 0.1, 0.9, 0.1, 1.6, 0.18, 0x2a2a2c, 0, 0.5); }
+  emitFlash(x: number, y: number, z: number): void { this.real.flashBang(x, y, z, 2); }
+
   /** Calidad de las marcas de bala: 220 en alta, 90 en media, ninguna en baja. */
   setDecalQuality(q: 'low' | 'medium' | 'high'): void {
     this.real.setQuality(q);

@@ -194,6 +194,8 @@ export interface Entity {
   bossName: string;
   /** v1.3 (jefes) — world.time hasta el que está expuesto (recargando / aturdido tras embestir): recibe ×1,5. Ver damageTakenMult en ai_enemy.ts */
   exposedUntil?: number;
+  /** v1.3 (oleada 2) — rehén de la misión de rescate: team 'ally', no combate, no es miembro de la escuadra */
+  hostage?: true;
   /** v1.3 (jefes) — el jefe de escoltas se ha enfurecido (sus dos escoltas han caído) */
   enraged?: boolean;
   /** v1.3 (jefes) — id del jefe al que esta escolta está curando AHORA (para dibujar el vínculo), o -1/ausente */
@@ -274,6 +276,8 @@ export type GameEvent =
   /** un blindado ha parado la bala con el escudo */
   | { type: 'shieldHit'; id: number; x: number; y: number; z: number }
   | { type: 'lights'; on: boolean }
+  | { type: 'objective'; what: 'start' | 'progress' | 'done' | 'failed' | 'tick'; kind: ObjectiveKind; x: number; y: number }
+  | { type: 'wave'; wave: number; boss: boolean }
   | { type: 'dryfire'; id: number }
   | { type: 'explosion'; x: number; y: number; z: number; radius: number }
   | { type: 'hurt'; id: number; amount: number; zone: HitZone | 'blast' | 'knife'; fromX: number; fromY: number; attackerId: number }
@@ -297,7 +301,28 @@ export type GameEvent =
   | { type: 'cleared' }
   | { type: 'playerDead' };
 
-export type WorldStatus = 'playing' | 'cleared' | 'dead';
+/** 'failed' (v1.3) = objetivo de zona fracasado (la carga estalla, cae el servidor o muere el rehén): cuenta como derrota */
+export type WorldStatus = 'playing' | 'cleared' | 'dead' | 'failed';
+
+// ── v1.3, oleada 2: objetivos de zona y modo horda ──
+export type ObjectiveKind = 'clear' | 'defuse' | 'defend' | 'rescue';
+export interface ObjectivePoint { x: number; y: number; done: boolean; /** 0..1 de la acción mantenida */ progress: number }
+export interface Objective {
+  kind: ObjectiveKind;
+  /** segundos que quedan (cuenta atrás de la carga o de la defensa); -1 si no hay reloj */
+  timeLeft: number;
+  /** cargas a desactivar, posición del servidor, o [rehén, punto de extracción] */
+  points: ObjectivePoint[];
+  /** vida del servidor o del rehén (0 si no aplica) */
+  hp: number; maxHp: number;
+  /** id de la entidad rehén, o -1 */
+  hostageId: number;
+  /** paso actual, clave i18n `obj.<kind>.<stage>` (p. ej. 'find', 'escort', 'hold', 'defuse1') */
+  stage: string;
+  /** punto de objetivo con el que se puede interactuar ahora (índice) o -1 */
+  interact: number;
+}
+export interface HordeState { wave: number; /** enemigos que faltan de la oleada */ left: number; /** >0: descanso entre oleadas */ rest: number; bossWave: boolean; /** hay que elegir mejora antes de seguir */ pickUpgrade: boolean }
 
 /** Datos de depuración de IA (ai.debug). */
 export interface AiDebugInfo {

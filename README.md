@@ -58,7 +58,8 @@ las flechas del teclado.
 ## Consola de trucos
 
 `help` lista los comandos: `spawn`, `team`, `kill all|bad|me`, `god`, `noclip`, `ammo`, `health`,
-`floor <n>`, `zone <n>`, `tp <x> <y>`, `info [id]`, `ai.debug`, `chutaos on|off`. Usar un truco marca la partida
+`floor <n>`, `zone <n>`, `tp <x> <y>`, `info [id]`, `ai.debug`, `chutaos on|off`,
+`objective <clear|defuse|defend|rescue>`. Usar un truco marca la partida
 y deja de puntuar para los récords.
 
 ## Comprobar que funciona sin abrir el navegador
@@ -68,6 +69,8 @@ npm test                              # pruebas de la simulación y de los mapas
 npm run partida                       # un bot juega la campaña entera con la simulación real
 npm run partida -- 3 5                # solo planta 3, zona 5
 GOD=1 npm run partida -- campaña 5    # campaña por las zonas grandes, sin poder morir
+OBJ=defuse npm run partida -- 3 4     # fuerza un objetivo de zona (defuse, defend, rescue)
+npm run partida -- horda 3            # modo supervivencia en el mapa de la planta 3
 npx tsx tools/dump-maps.ts            # dibuja todos los mapas en tools/out/index.html
 ```
 

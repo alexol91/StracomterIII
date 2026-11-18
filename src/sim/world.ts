@@ -1,12 +1,12 @@
 // El mundo: entidades, combate, movimiento, puertas, objetos, auras, órdenes y cámara.
 // La IA enemiga está en ai_enemy.ts, la de los compañeros en ai_ally.ts y el ritmo de apariciones en director.ts.
 
-import type { IWorld } from '../contracts';
+import type { CampaignState, IWorld } from '../contracts';
 import {
   ALLY_ITEM_THRESHOLDS, AMMO_CAP, AMMO_START, AURA_RADIUS, BLAST_RADIUS, CLASS_STATS, CROUCH_HEIGHT, ENEMY_AMMO,
   ENEMY_STATS, GRENADE_COOLDOWN, GRENADE_COUNT, GRENADE_DAMAGE, HEAD_MULT, INVENTORY_SLOTS, ITEM_EFFECT,
   KNIFE_DAMAGE, KNIFE_PERIOD, KNIFE_RANGE, LIMB_MULT, STAND_HEIGHT, UnitStats, VISION, WEAPON_RANGE, isClass, statsOf,
-  BARK_COOLDOWN, BOUNCER, BURST_RIFLE, DOWNED, FLASH, PING_DOOR_RANGE, PRIMARY_VARIANTS, ROLL, SHOTGUN, SMOKE, SNIPER, TACTICAL_START, variantStats,
+  BARK_COOLDOWN, BOUNCER, MUTATOR_SPEED, NG_PLUS, OBJECTIVE, UPGRADES, BURST_RIFLE, DOWNED, FLASH, PING_DOOR_RANGE, PRIMARY_VARIANTS, ROLL, SHOTGUN, SMOKE, SNIPER, TACTICAL_START, variantStats,
   AIM_SPEED_MULT, CAM_DIST_AIM, FOV_AIM, FOV_NORMAL, GUN_FEEL, RECOIL_MAX_PITCH, RECOIL_MAX_YAW, RECOIL_RECOVER, SHOULDER_AIM,
   SHOULDER_NORMAL, SPRINT_MULT, DRAW_TIME, PISTOL, PISTOL_FEEL, WEAPON_SPEED, SPRINT_RAISE, STAGGER_COOLDOWN, STAGGER_TIME, computeMods, type Mods,
 } from './data';
@@ -17,7 +17,7 @@ import { Level, NAV_RADIUS } from './level';
 import { Nav } from './nav';
 import type {
   AiDebugInfo, ClassId, EnemyKind, Entity, GameEvent, HitZone, ItemType, Kind, MapDef, OrderKind, Pickup,
-  GrenadeType, PlayerInput, Projectile, SmokeCloud, Team, Threat, Vec2, WeaponSlot, WorldStatus, ZoneStats,
+  GrenadeType, HordeState, Objective, ObjectiveKind, PlayerInput, Projectile, SmokeCloud, Team, Threat, Vec2, WeaponSlot, WorldStatus, ZoneStats,
 } from './types';
 import { WEAPON_SLOTS } from './types';
 
@@ -86,6 +86,18 @@ export interface WorldConfig {
   upgrades?: string[];
   /** v1.3 — variante del arma principal por clase (0 si falta) */
   loadout?: Partial<Record<ClassId, 0 | 1>>;
+  /** v1.3 (oleada 2) — objetivo de la zona ('clear' o ausente = limpiar) */
+  objective?: ObjectiveKind;
+  /** modificadores activos (ids de MUTATORS) y vuelta (0/1) */
+  mutators?: string[];
+  ngPlus?: number;
+  /** multiplicador de los puntos que dan los enemigos (modificadores × segunda vuelta) */
+  scoreMult?: number;
+  /** suministros comprados en la Armería para esta zona (los recibe el operador controlado) */
+  bought?: { grenades: number; flashes: number; smokes: number };
+  /** modo horda: el mundo lleva `horde` y el estado de campaña al que aplicar las mejoras elegidas */
+  horde?: boolean;
+  hordeState?: CampaignState;
 }
 
 const _v: Vec2 = [0, 0];
@@ -128,6 +140,18 @@ export class World implements IWorld {
   private lastBark: Record<Team, number> = { ally: -99, enemy: -99 };
   private burstLeft = 0;
   private lastHackAt = -99;
+  /** v1.3 (oleada 2) — objetivo de zona, modo horda y modificadores */
+  objective: Objective = { kind: 'clear', timeLeft: -1, points: [], hp: 0, maxHp: 0, hostageId: -1, stage: 'clear', interact: -1 };
+  horde: HordeState | null = null;
+  private mut = { rapidos: false, sinAura: false, jefesDobles: false, soloPistola: false, escasez: false };
+  private scoreMult = 1;
+  private enemyHpMult = 1;
+  private difficulty: 'easy' | 'normal' | 'hard' = 'normal';
+  private heldInteract = false;
+  private hordeState?: CampaignState;
+  private tickSec = -1;
+  private upgradeIds: string[] = [];
+  private nextSendAt = 0;
   /** v1.2 — efectos de las mejoras de campaña, calculados al construir el mundo */
   mods: Mods;
   /** v1.2 — desplazamiento de la cámara por retroceso (radianes); se recupera solo */
@@ -166,13 +190,26 @@ export class World implements IWorld {
   constructor(cfg: WorldConfig) {
     this.mods = computeMods(cfg.upgrades);
     this.loadout = cfg.loadout ?? {};
+    const mu = cfg.mutators ?? [];
+    this.mut = { rapidos: mu.includes('rapidos'), sinAura: mu.includes('sin-aura'), jefesDobles: mu.includes('jefes-dobles'), soloPistola: mu.includes('solo-pistola'), escasez: mu.includes('escasez') };
+    this.scoreMult = cfg.scoreMult ?? 1;
+    this.enemyHpMult = (cfg.ngPlus ?? 0) > 0 ? NG_PLUS.hp : 1;
+    this.difficulty = cfg.director.difficulty ?? 'normal';
+    this.hordeState = cfg.hordeState;
+    this.upgradeIds = (cfg.upgrades ?? []).slice();
+    if (cfg.horde) this.horde = { wave: 0, left: 0, rest: 0, bossWave: false, pickUpgrade: false };
     this.rng = mulberry32(cfg.seed ?? (cfg.floor * 1000 + cfg.zone * 37 + 7));
     this.floor = cfg.floor; this.zone = cfg.zone;
     this.score = cfg.baseScore ?? 0;
     this.level = new Level(cfg.map, cfg.floor);
     this.nav = new Nav(this.level);
     this.pField = new Float32Array(this.level.gw * this.level.gh);
-    cfg.map.objetos.forEach(o => this.pickups.push({ id: this.nextId++, type: o.tipo, x: o.pos[0], y: o.pos[1], taken: false }));
+    let ammoBoxes = 0;
+    cfg.map.objetos.forEach(o => {
+      // escasez: la mitad de las cajas de munición del mapa (alternas)
+      if (this.mut.escasez && o.tipo.startsWith('municion') && ammoBoxes++ % 2 === 1) return;
+      this.pickups.push({ id: this.nextId++, type: o.tipo, x: o.pos[0], y: o.pos[1], taken: false });
+    });
 
     // la escuadra: el jugador en el inicio y los compañeros en formación detrás
     const [sx, sy] = cfg.map.inicio_jugador;
@@ -208,6 +245,8 @@ export class World implements IWorld {
       if (c === cfg.controlled) { u.isPlayer = true; this.player = u; }
     }
     if (!this.player) throw new Error('El personaje controlado está muerto');
+    if (cfg.bought) { this.player.grenades += cfg.bought.grenades; this.player.flashes += cfg.bought.flashes; this.player.smokes += cfg.bought.smokes; }
+    if (this.mut.soloPistola) { this.player.weapon = 'secondary'; this.player.lastWeapon = 'knife'; }
     this.order.x = this.player.x; this.order.y = this.player.y;
     this.cam.yaw = yaw0;
     this.updatePlayerField(true);
@@ -215,6 +254,7 @@ export class World implements IWorld {
     this.director = new Director(this, cfg.director);
     this.computeCam(yaw0, -0.12, 4.2); // antes de colocar a nadie: el director mira qué ve la cámara
     this.director.begin();
+    if (cfg.objective && cfg.objective !== 'clear') this.initObjective(cfg.objective);
   }
 
   // ───────────────────────── entidades ─────────────────────────
@@ -222,6 +262,10 @@ export class World implements IWorld {
   spawnUnit(kind: Kind, x: number, y: number, emit = true): Unit {
     let stats = statsOf(kind);
     const cls = isClass(kind) ? kind : null;
+    if (!cls && (this.mut.rapidos || this.enemyHpMult !== 1)) {
+      // modificadores (copia de las estadísticas): rápidos = +20 % de velocidad; segunda vuelta = +15 % de vida
+      stats = { ...stats, speed: stats.speed * (this.mut.rapidos ? MUTATOR_SPEED : 1), hp: Math.round(stats.hp * this.enemyHpMult) };
+    }
     if (cls) {
       // v1.2: las mejoras de campaña modifican una COPIA de las estadísticas de los aliados (la tabla del documento no se toca)
       const m = this.mods;
@@ -336,6 +380,13 @@ export class World implements IWorld {
   step(dt: number, input: PlayerInput): void {
     this.events.length = 0;
     this.noises.length = 0;
+    // horda: entre oleadas, con una mejora por elegir, el mundo está en pausa lógica (no avanza nada) hasta hordePick()
+    if (this.horde?.pickUpgrade) {
+      input.reload = input.grenade = input.ability = input.interact = input.useItem = input.cycleItem = false;
+      input.order = null; input.weaponSlot = null; input.weaponLast = false; input.weaponCycle = 0; input.roll = false; input.ping = false;
+      return;
+    }
+    this.heldInteract = input.interact || input.interactHold;
     this.time += dt;
     this.pathBudget = 4;
     this.soundBudget = 1;
@@ -354,6 +405,7 @@ export class World implements IWorld {
       if (!u.alive) continue;
       this.tickTimers(u, dt);
       if (u.downed) { u.wishX = u.wishY = 0; continue; }
+      if (u.hostage) { this.hostageThink(u, dt); continue; }
       if (u.team === 'ally' && !u.isPlayer) allyThink(this, u, dt);
     }
     this.enemyAI.update(dt);
@@ -366,6 +418,7 @@ export class World implements IWorld {
       if (d.anim !== target) d.anim += Math.sign(target - d.anim) * Math.min(Math.abs(target - d.anim), dt * 5);
     }
     this.director.update(dt);
+    this.updateObjective(dt);
     this.updateV13(dt);
     this.updatePlayerField(false);
     this.computeCam(input.yaw, input.pitch, this.camDistEff);
@@ -374,6 +427,241 @@ export class World implements IWorld {
     const ft = this.order.targetId >= 0 ? this.entityById(this.order.targetId) : undefined;
     // al caer el blanco enfocado, vuelve la orden que había antes
     if (this.order.kind === 'focus' && (!ft || !ft.alive)) { this.order = this.prevOrder ? { ...this.prevOrder } : { kind: 'follow', x: p.x, y: p.y, targetId: -1 }; this.prevOrder = null; }
+  }
+
+  // ───────────────────────── v1.3, oleada 2: objetivos de zona ─────────────────────────
+
+  private areaM2(): number {
+    const pts = this.level.map.perimetro;
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) { const q = pts[(i + 1) % pts.length]; a += pts[i][0] * q[1] - q[0] * pts[i][1]; }
+    return Math.abs(a) / 2;
+  }
+
+  /** Puntos transitables del suelo (rejilla de 2 m) con su distancia andando desde el inicio del jugador. */
+  private objCandidates(): { x: number; y: number; d: number }[] {
+    const L = this.level, [sx, sy] = L.map.inicio_jugador;
+    const f = this.nav.field(sx, sy, true, 3, Infinity);
+    const out: { x: number; y: number; d: number }[] = [];
+    for (let y = L.oy + 1; y < L.oy + L.gh * 0.25; y += 2) for (let x = L.ox + 1; x < L.ox + L.gw * 0.25; x += 2) {
+      const c = L.cellOf(x, y);
+      if (c < 0 || !L.passable(c, true) || L.doorCell[c] || !(f[c] < Infinity)) continue;
+      out.push({ x: L.cellX(c), y: L.cellY(c), d: f[c] });
+    }
+    return out;
+  }
+
+  /**
+   * Pone el objetivo de la zona (también lo usa la consola para cambiarlo en caliente). Todo se deriva de la geometría del mapa:
+   * ninguna coordenada a mano. 'clear' deja la zona como siempre.
+   */
+  initObjective(kind: ObjectiveKind): void {
+    const old = this.objective;
+    if (old.hostageId >= 0) { const h = this.entityById(old.hostageId); if (h) { h.alive = false; h.hostage = undefined; } }
+    this.objective = { kind, timeLeft: -1, points: [], hp: 0, maxHp: 0, hostageId: -1, stage: kind === 'clear' ? 'clear' : '', interact: -1 };
+    const o = this.objective;
+    if (kind === 'clear') return;
+    const L = this.level, [sx, sy] = L.map.inicio_jugador;
+    const cands = this.objCandidates();
+    const far = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+    if (kind === 'defuse') {
+      // dos cargas: la A lo más lejos (andando) del inicio, la B lo más lejos de A y del inicio, a ≥ 10 m entre sí
+      let A = cands[0], B = cands[0];
+      for (const c of cands) if (c.d > A.d) A = c;
+      let bs = -1;
+      for (const c of cands) {
+        const sep = far(c, A);
+        if (sep < Math.min(OBJECTIVE.defuseMinSep, far(A, { x: sx, y: sy }) * 0.5)) continue;
+        const sc = Math.min(sep, far(c, { x: sx, y: sy }) * 1.2) + c.d * 0.05;
+        if (sc > bs) { bs = sc; B = c; }
+      }
+      o.points = [A, B].map(c => ({ x: c.x, y: c.y, done: false, progress: 0 }));
+      const extra = Math.max(0, Math.ceil((this.areaM2() - OBJECTIVE.defuseAreaBase) / 500)) * OBJECTIVE.defuseExtraPer500m2;
+      o.timeLeft = OBJECTIVE.defuseTime[this.difficulty] + extra;
+      o.stage = 'defuse1';
+    } else if (kind === 'defend') {
+      // el servidor, en la sala más central: el punto transitable más cercano al centro del mapa (a ≥ 6 m del inicio si se puede)
+      const pts = L.map.perimetro;
+      const cx = (Math.min(...pts.map(p => p[0])) + Math.max(...pts.map(p => p[0]))) / 2, cy = (Math.min(...pts.map(p => p[1])) + Math.max(...pts.map(p => p[1]))) / 2;
+      let best = cands[0], bs = Infinity;
+      for (const c of cands) {
+        const sc = far(c, { x: cx, y: cy }) + (far(c, { x: sx, y: sy }) < 6 ? 50 : 0);
+        if (sc < bs) { bs = sc; best = c; }
+      }
+      o.points = [{ x: best.x, y: best.y, done: false, progress: 0 }];
+      o.hp = o.maxHp = OBJECTIVE.defendHp;
+      o.timeLeft = OBJECTIVE.defendTime;
+      o.stage = 'reach';
+    } else {
+      // rehén en la zona del punto del jefe; sale de ahí hasta el punto de inicio
+      const c = L.nearestFree(L.map.punto_jefe[0], L.map.punto_jefe[1], true, 20);
+      const hx = c >= 0 ? L.cellX(c) : L.map.punto_jefe[0], hy = c >= 0 ? L.cellY(c) : L.map.punto_jefe[1];
+      const h = this.spawnUnit('enemy1', hx, hy, false);
+      this.enemyAI.unregister(h);
+      h.team = 'ally'; h.hostage = true; h.hp = h.maxHp = OBJECTIVE.rescueHp; h.mag = h.ammo = 0; h.crouch = true; h.aiState = 'rehén';
+      o.hostageId = h.id; o.hp = o.maxHp = OBJECTIVE.rescueHp;
+      o.points = [{ x: hx, y: hy, done: false, progress: 0 }, { x: sx, y: sy, done: false, progress: 0 }];
+      o.stage = 'find';
+    }
+    this.tickSec = -1;
+    this.events.push({ type: 'objective', what: 'start', kind, x: o.points[0].x, y: o.points[0].y });
+  }
+
+  private objDone(): void {
+    const o = this.objective;
+    this.events.push({ type: 'objective', what: 'done', kind: o.kind, x: o.points[0]?.x ?? 0, y: o.points[0]?.y ?? 0 });
+    this.status = 'cleared'; this.pacing = 'descanso';
+    this.morale = Math.min(100, this.morale + 10);
+    this.events.push({ type: 'phase', phase: 'descanso' });
+    this.events.push({ type: 'cleared' });
+  }
+  private objFail(): void {
+    const o = this.objective;
+    this.events.push({ type: 'objective', what: 'failed', kind: o.kind, x: o.points[0]?.x ?? 0, y: o.points[0]?.y ?? 0 });
+    this.status = 'failed';
+  }
+
+  /** Quita a los enemigos que quedan sin puntos ni bajas (huyen): al acabar la defensa. */
+  private despawnEnemies(): void {
+    for (const e of this.entities) if (e.alive && e.team === 'enemy') { e.alive = false; e.deadAt = this.time; e.wishX = e.wishY = 0; e.vx = e.vy = 0; }
+  }
+
+  private updateObjective(dt: number): void {
+    const o = this.objective;
+    if (this.status !== 'playing' || o.kind === 'clear') return;
+    const p = this.player;
+    o.interact = -1;
+    const held = this.heldInteract && p.alive && this.interactRevive < 0;
+    if (o.kind === 'defuse') {
+      if (p.alive) o.points.forEach((pt, i) => { if (o.interact < 0 && !pt.done && Math.hypot(pt.x - p.x, pt.y - p.y) <= OBJECTIVE.defuseRange) o.interact = i; });
+      o.points.forEach((pt, i) => {
+        if (pt.done) return;
+        if (held && i === o.interact) {
+          pt.progress += dt / OBJECTIVE.defuseHold;
+          if (pt.progress >= 1) { pt.progress = 1; pt.done = true; this.events.push({ type: 'objective', what: 'progress', kind: 'defuse', x: pt.x, y: pt.y }); }
+        } else pt.progress = 0;                       // soltar reinicia
+      });
+      const n = o.points.filter(q => q.done).length;
+      o.stage = 'defuse' + Math.min(2, n + 1);
+      if (n >= o.points.length) { this.objDone(); return; }
+      o.timeLeft -= dt;
+      if (o.timeLeft <= 10 && Math.ceil(o.timeLeft) !== this.tickSec && o.timeLeft > 0) { this.tickSec = Math.ceil(o.timeLeft); this.events.push({ type: 'objective', what: 'tick', kind: 'defuse', x: o.points[0].x, y: o.points[0].y }); }
+      if (o.timeLeft <= 0) { o.timeLeft = 0; this.objFail(); }
+    } else if (o.kind === 'defend') {
+      const sv = o.points[0];
+      if (o.stage === 'reach') {
+        if (p.alive && Math.hypot(sv.x - p.x, sv.y - p.y) <= OBJECTIVE.defendReach) {
+          o.stage = 'hold'; o.timeLeft = OBJECTIVE.defendTime;
+          this.director.beginHold();
+          this.events.push({ type: 'objective', what: 'progress', kind: 'defend', x: sv.x, y: sv.y });
+        }
+        return;
+      }
+      o.timeLeft -= dt;
+      this.defendFire(dt);
+      if (o.hp <= 0) { o.hp = 0; this.objFail(); return; }
+      if (o.timeLeft <= 0) { o.timeLeft = 0; this.despawnEnemies(); this.objDone(); }
+    } else {
+      const h = this.entityById(o.hostageId);
+      if (!h || !h.alive) { o.hp = 0; this.objFail(); return; }
+      o.hp = h.hp;
+      o.points[0].x = h.x; o.points[0].y = h.y;
+      // los enemigos le disparan sólo si no ven a otro blanco (disparos reales: una pared siempre para la bala)
+      for (const e of this.entities) {
+        if (!e.alive || e.team !== 'enemy' || e.downed || !e.brain || e.brain.visId >= 0 || !e.brain.belief) continue; // sólo si ya hay combate (te buscan) y no ven a otro blanco
+        const d = Math.hypot(e.x - h.x, e.y - h.y);
+        if (d > OBJECTIVE.defendFireRange || e.reloading > 0 || e.mag <= 0 || e.fireCd > 0 || this.time < e.staggerUntil || this.isBlinded(e) || !this.canSee(e, h)) continue;
+        e.brain.faceYaw = Math.atan2(h.y - e.y, h.x - e.x);
+        const dyaw = angDiff(e.brain.faceYaw, e.yaw);
+        if (Math.abs(dyaw) > 0.25) { e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), 5.5 * dt); continue; }
+        if (this.shotLine(e, h) < 0) continue;
+        this.fire(e, h.x, h.y, this.height(h) * 0.6, 0.04);
+        e.fireCd = 1 / e.stats.rof;
+      }
+      if (o.stage === 'find') {
+        if (p.alive && Math.hypot(h.x - p.x, h.y - p.y) <= OBJECTIVE.rescueRange) {
+          o.interact = 0;
+          if (held) { o.stage = 'escort'; o.points[0].done = true; h.crouch = false; this.events.push({ type: 'objective', what: 'progress', kind: 'rescue', x: h.x, y: h.y }); }
+        }
+      } else {
+        const [ex, ey] = [o.points[1].x, o.points[1].y];
+        if (Math.hypot(p.x - ex, p.y - ey) <= OBJECTIVE.rescueExtractRange && Math.hypot(h.x - ex, h.y - ey) <= OBJECTIVE.rescueExtractRange) { o.points[1].done = true; this.objDone(); }
+      }
+    }
+  }
+
+  /** Defensa: los enemigos sin blanco visible acuden al servidor y, a ≤ 12 m con línea de visión, le disparan (daño normal). */
+  private defendFire(dt: number): void {
+    const o = this.objective, sv = o.points[0];
+    const send = this.time >= this.nextSendAt;
+    if (send) this.nextSendAt = this.time + 1.5;
+    for (const e of this.entities) {
+      if (!e.alive || e.team !== 'enemy' || e.downed || !e.brain) continue;
+      const b = e.brain;
+      if (b.visId >= 0) continue;                                    // con un blanco a la vista pelea con ese
+      const d = Math.hypot(e.x - sv.x, e.y - sv.y);
+      if (send && !b.belief && d > 4 && (b.state === 'patrol' || b.state === 'investigate')) this.enemyAI.goInvestigate(e, sv.x + (this.rng() - 0.5) * 3, sv.y + (this.rng() - 0.5) * 3);
+      if (d > OBJECTIVE.defendFireRange || e.reloading > 0 || e.mag <= 0 || e.fireCd > 0 || this.time < e.staggerUntil || this.isBlinded(e)) continue;
+      if (e.kind === 'megaboss' || e.bossVariant === 'embestida') continue;
+      if (this.sightBlocked(e.x, e.y, sv.x, sv.y)) continue;
+      b.faceYaw = Math.atan2(sv.y - e.y, sv.x - e.x);
+      const dyaw = angDiff(b.faceYaw, e.yaw);
+      if (Math.abs(dyaw) > 0.25) { e.yaw += Math.sign(dyaw) * Math.min(Math.abs(dyaw), 5.5 * dt); continue; }   // gira hacia el servidor antes de disparar
+      e.mag--; e.lastShotAt = this.time; e.fireCd = 1 / e.stats.rof;
+      const z = 1.0;
+      this.events.push({ type: 'shot', id: e.id, kind: e.kind, team: e.team, fx: e.x, fy: e.y, fz: this.muzzleZ(e), tx: sv.x, ty: sv.y, tz: z, hit: 'wall', surface: 'furniture', nx: (e.x - sv.x) / (d || 1), ny: (e.y - sv.y) / (d || 1) });
+      o.hp -= e.stats.damage;
+    }
+  }
+
+  /** Rehén: quieto hasta que lo liberan; después sigue al jugador (navegación de aliado) y se agacha si hay enemigos a la vista. */
+  private hostageThink(u: Unit, dt: number): void {
+    void dt;
+    u.wishX = u.wishY = 0;
+    const o = this.objective;
+    if (o.stage !== 'escort') { u.crouch = true; return; }
+    const p = this.player;
+    let danger = false;
+    for (const e of this.entities) if (e.alive && e.team === 'enemy' && Math.hypot(e.x - u.x, e.y - u.y) < 18 && this.canSee(e, u)) { danger = true; break; }
+    u.crouch = danger;
+    const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
+    let tx = p.x - cy * 1.5, ty = p.y - sy * 1.5;
+    if (!this.level.walkableAt(tx, ty, false) || !this.level.walkLine(p.x, p.y, tx, ty, false)) { tx = p.x; ty = p.y; }
+    if (Math.hypot(tx - u.x, ty - u.y) > 0.8 || Math.hypot(p.x - u.x, p.y - u.y) > 2.2) this.navigate(u, tx, ty, OBJECTIVE.rescueSpeed * (danger ? 0.6 : 1), null, 0.8);
+    u.aiState = 'sigue';
+  }
+
+  /** Deja un objeto en el suelo (suministros de la horda). */
+  dropPickup(type: ItemType, x: number, y: number): void { this.pickups.push({ id: this.nextId++, type, x, y, taken: false }); }
+
+  /** Modo horda: aplica la mejora elegida entre oleadas y reanuda. */
+  hordePick(id: string): void {
+    if (!this.horde || !this.horde.pickUpgrade) return;
+    const def = UPGRADES.find(x => x.id === id);
+    if (def) {
+      if (!this.upgradeIds.includes(id)) this.upgradeIds.push(id);
+      if (this.hordeState) { const ups = (this.hordeState.upgrades ??= []); if (!ups.includes(id)) ups.push(id); }
+      const old = this.mods;
+      this.mods = computeMods(this.upgradeIds);
+      this.refreshAllyStats(old);
+    }
+    this.horde.pickUpgrade = false;
+  }
+
+  /** Recalcula las estadísticas de los aliados vivos tras cambiar `mods` (vida, velocidad, cargador, recarga, habilidad, granadas). */
+  private refreshAllyStats(old: Mods): void {
+    const m = this.mods;
+    for (const u of this.entities) {
+      if (!u.alive || !u.cls || u.hostage) continue;
+      const base = CLASS_STATS[u.cls];
+      const vs = variantStats(u.cls, u.primaryVariant, base);
+      const hpOld = u.maxHp;
+      const st = { ...vs, hp: base.hp + m.hpBonus, speed: base.speed * m.speedMult, magSize: Math.max(1, Math.round(vs.magSize * m.magMult)), reloadTime: vs.reloadTime * m.reloadMult };
+      u.stats = st; u.maxHp = st.hp; u.hp = Math.min(u.maxHp, u.hp + Math.max(0, u.maxHp - hpOld));
+      u.magSize = st.magSize; u.magSize2 = Math.max(1, Math.round(PISTOL.magSize * m.magMult));
+      u.abilityCdMax = (u.cls === 'captain' || u.cls === 'technic' ? 20 : 25) * m.abilityCdMult;
+      u.grenades += m.extraGrenades - old.extraGrenades; u.flashes += m.extraGrenades - old.extraGrenades; u.smokes += m.extraGrenades - old.extraGrenades;
+    }
   }
 
   /** Mantenimiento v1.3 de cada paso: avisos y humo caducados, luces, derribados (reanimación, plazo, zona limpia). */
@@ -455,6 +743,7 @@ export class World implements IWorld {
   /** Cambia el arma en la mano del jugador (v1.2). Devuelve false si no hace nada. */
   switchWeapon(u: Unit, slot: WeaponSlot): boolean {
     if (slot === u.weapon) return false;
+    if (slot === 'primary' && u.isPlayer && this.mut.soloPistola) return false; // modificador «solo pistola»
     if (slot === 'grenade') {
       if (this.grenadeTotal(u) <= 0) return false;                    // vacía solo si no queda de ningún tipo
       if (this.grenadeStock(u, u.grenadeType) <= 0) this.cycleGrenadeType(u);
@@ -477,6 +766,7 @@ export class World implements IWorld {
       i = (i + dir + n) % n;
       const s = WEAPON_SLOTS[i];
       if (s === 'grenade' && this.grenadeTotal(u) <= 0) continue;
+      if (s === 'primary' && u.isPlayer && this.mut.soloPistola) continue;
       return this.switchWeapon(u, s);
     }
     return false;
@@ -618,7 +908,7 @@ export class World implements IWorld {
     if (p.weapon === 'grenade' && this.grenadeTotal(p) <= 0) this.switchWeapon(p, p.lastWeapon === 'grenade' ? 'primary' : p.lastWeapon);
     if (input.ability) this.useAbility(p);
     // (si hay un derribado al alcance, `interact` es para reanimar y no abre la puerta)
-    if (input.interact && !dn && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
+    if (input.interact && !dn && this.objective.interact < 0 && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
     if (input.cycleItem) {
       for (let k = 1; k <= INVENTORY_SLOTS; k++) {
         const i = (p.invSel + k) % INVENTORY_SLOTS;
@@ -1175,7 +1465,8 @@ export class World implements IWorld {
     this.events.push({ type: 'death', id: t.id, kind: t.kind, team: t.team, x: t.x, y: t.y,
       killerId: attacker ? attacker.id : -1, headshot, fromX: fromX ?? t.x, fromY: fromY ?? t.y });
     if (t.team === 'enemy') {
-      this.score += t.stats.points; this.stats.scoreGained += t.stats.points; this.stats.kills++;
+      const pts = Math.round(t.stats.points * this.scoreMult);
+      this.score += pts; this.stats.scoreGained += pts; this.stats.kills++;
       if (attacker && attacker.isPlayer) {
         this.streak = this.time - this.lastPlayerKillAt < 4 ? this.streak + 1 : 1;
         this.lastPlayerKillAt = this.time;
@@ -1191,6 +1482,7 @@ export class World implements IWorld {
       let squadAmmo = 0;
       for (const e of this.entities) if (e.alive && e.team === 'ally') squadAmmo += e.mag + e.ammo;
       if (squadAmmo < 40) pAmmo = 1;
+      if (this.mut.escasez) pAmmo *= 0.5; // escasez: la mitad de botín de munición
       if (boss || r < pAmmo + 0.1 + this.mods.dropBonus) {
         this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : r < pAmmo ? 'municion_20' : 'vida_20', x: t.x, y: t.y, taken: false });
       }
@@ -1354,7 +1646,7 @@ export class World implements IWorld {
     for (const pk of this.pickups) {
       if (pk.taken) continue;
       for (const u of this.entities) {
-        if (!u.alive || u.downed || u.team !== 'ally') continue;
+        if (!u.alive || u.downed || u.hostage || u.team !== 'ally') continue;
         if (Math.abs(u.x - pk.x) > 0.85 || Math.abs(u.y - pk.y) > 0.85 || Math.hypot(u.x - pk.x, u.y - pk.y) > 0.85) continue;
         const free = u.inventory.indexOf(null);
         if (free >= 0) { u.inventory[free] = pk.type; if (!u.inventory[u.invSel]) u.invSel = free; }
@@ -1371,7 +1663,7 @@ export class World implements IWorld {
     const allies = this.entities.filter(e => e.alive && !e.downed && e.team === 'ally');
     if (this.auraHpAcc >= 2) {
       this.auraHpAcc -= 2;
-      const cap = allies.find(a => a.cls === 'captain');
+      const cap = this.mut.sinAura ? undefined : allies.find(a => a.cls === 'captain');
       if (cap) {
         // la moral sube con el aura del Capitán; con la moral hundida el aura no cura
         this.morale = Math.min(100, this.morale + 1);

@@ -46,6 +46,8 @@ export const GUN_KICK_TIME = 0.06;
 /** Escudo antidisturbios, hombreras y bandolera (cm, espacio del modelo: +Z delante, +X izquierda). */
 export const RIOT_SHIELD = { pos: [14, 118, 36] as [number, number, number], size: [55, 85, 4] as [number, number, number], visorY: 28 };
 export const PAD_POS = { x: 26, y: 152, size: [22, 14, 26] as [number, number, number], plate: [0, 128, 24] as [number, number, number], plateSize: [46, 40, 6] as [number, number, number] };
+/** Tinte claro/civil del rehén */
+export const CIVIL_TINT: TintSpec = { tono: 0.58, satMul: 0, satAdd: 0.12, valMul: 1.15 };
 export const BANDOLIER = { pos: [0, 126, 17] as [number, number, number], rotZ: 0.62 };
 /** Duración (s) de la voltereta y de la transición al levantarse un derribado. */
 export const ROLL_TIME = 0.5;
@@ -647,6 +649,8 @@ export class RbView {
   private riotDown = 0;
   private reviveRing: THREE.Mesh | null = null;
   private wasDowned = false;
+  private captive = false;
+  private hostage = false;
   mark: THREE.Mesh | null = null;
   shield: THREE.Mesh | null = null;
   ring: THREE.Mesh | null = null;
@@ -682,6 +686,14 @@ export class RbView {
   /** Oficio, variante de jefe y variante de arma de esta entidad: tinte, arma en la mano y accesorios por código. */
   private setupFor(e: Entity): void {
     const kind = this.tpl.kind;
+    if ((e as { hostage?: boolean }).hostage === true) {
+      // rehén: sin brazalete, sin arma y con tinte claro de civil
+      this.hostage = true;
+      this.normalSet = this.tpl.tintSet('civil', CIVIL_TINT);
+      this.inner.traverse((o) => { if (o.name === 'brazalete') o.visible = false; });
+      for (const g of this.slotGuns.values()) g.mesh.visible = false;
+      return;
+    }
     if (e.variant && VARIANT_TINT[e.variant]) this.normalSet = this.tpl.tintSet(e.variant, VARIANT_TINT[e.variant]);
     const hand = this.hand;
     const add = (name: string, mul = 1): GunEntry | null => {
@@ -727,6 +739,9 @@ export class RbView {
     }
     return this.glowMats;
   }
+
+  /** Rehén atado: agachado hasta que empieza la escolta. */
+  setCaptive(on: boolean): void { this.captive = on; }
 
   /** El granadero lanza: el torso hace un movimiento de brazo. */
   triggerThrow(time: number): void { this.throwUntil = time + 0.7; this.throwNew = true; }
@@ -801,6 +816,7 @@ export class RbView {
       }
       return;
     }
+    if (this.hostage && this.captive && e.alive) { this.setLayer('legs', 'Crouch_Idle_Loop', false, 1); this.setLayer('torso', 'Crouch_Idle_Loop', false, 1); return; }
     // derribado: pose tumbada (la muerte congelada al 60 %); al reanimarlo se levanta en 0,4 s
     if (e.downed) { this.playFull('Death01', true, 1, 0.6, 0.25); return; }
     if (this.fullName === 'Death01') this.endFull(REVIVE_FADE);
@@ -897,7 +913,7 @@ export class RbView {
     const slot = e.isPlayer ? (e.weapon ?? 'primary') : 'primary';
     if (slot !== this.slot) {
       this.slot = slot;
-      for (const [k, g] of this.slotGuns) g.mesh.visible = k === slot;
+      for (const [k, g] of this.slotGuns) g.mesh.visible = k === slot && !this.hostage;
       this.drawDur = Math.max(0.1, (e.drawUntil ?? 0) - time);
       this.recoil = -1;                          // fuerza recolocar el arma nueva
     }

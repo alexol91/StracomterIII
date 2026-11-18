@@ -17,3 +17,14 @@ export function upgradeInfo(id: string): UpgradeInfo {
   const tx = d ? (d[getLang()] ?? d.es ?? d.en) : undefined;
   return { id, name: tx?.name ?? id, desc: tx?.desc ?? '', icon: d?.icon ?? 'star' };
 }
+
+/** Ids de los modificadores de campaña y su multiplicador de puntos (tabla MUTATORS de data.ts, leída con cuidado). */
+export const MUTATOR_IDS = ['rapidos', 'sin-aura', 'jefes-dobles', 'solo-pistola', 'escasez'];
+
+export function mutatorMult(id: string): number {
+  const m = (data as unknown as { MUTATORS?: unknown }).MUTATORS;
+  let def: { scoreMult?: number } | undefined;
+  if (Array.isArray(m)) def = (m as { id: string; scoreMult?: number }[]).find((x) => x.id === id);
+  else if (m && typeof m === 'object') def = (m as Record<string, { scoreMult?: number }>)[id];
+  return def?.scoreMult ?? 1.15;
+}

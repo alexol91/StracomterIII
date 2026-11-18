@@ -69,6 +69,10 @@ export class Sfx {
   private shotgunIds = new Set<number>();
   private skip = new Set<GameEvent>();
   private lastCasing = -9;
+  private lastProg = -9;
+  private tickN = 0;
+  private lastTick = -9;
+  private nextBeep = new Map<number, number>();
   private lastConfirm = -9;
   /** Capas sintetizadas (transitorio, sub-grave, mecánica, cola de sala, casquillos). Apagable. */
   layers = true;
@@ -667,13 +671,15 @@ export class Sfx {
       }
       case 'step': {
         const own = e.id === pid;
-        if (!own && dist({ x: e.x, y: e.y }) > STEP_RANGE) return null;
+        const en = own ? world.player : world.entityById(e.id);
+        const rush = !own && en?.variant === 'asaltante' && en.sprinting === true; // se le oye venir
+        if (!own && dist({ x: e.x, y: e.y }) > (rush ? 24 : STEP_RANGE)) return null;
         if (own && hasV('v:step')) {
           if (now - this.lastStepV < 0.45) return null;
           this.lastStepV = now;
           return { key: 'stepv', d: 0, own: true, play: () => { this.voice(world, null, 'v:step', 0.8); } };
         }
-        const sprint = own && world.player.sprinting === true;
+        const sprint = (own && world.player.sprinting === true) || rush;
         return at('step', e.x, e.y, sprint ? 0.42 : 0.2, (r) => {
           this.nz(r, 0, sprint ? 0.08 : 0.06, 0.5, 'lowpass', 450 + Math.random() * 150, 180, 0.8, 0.01);
           if (sprint) { // roce del equipo al correr
@@ -841,6 +847,52 @@ export class Sfx {
           else this.osc(r, 'sawtooth', 120, 40, 0.05, 0.6, 0.08, 0.01);     // baja el zumbido
         });
       }
+      case 'objective': {
+        const w = e.what;
+        if (w === 'tick') {
+          if (now - this.lastTick > 2.5) this.tickN = 0;
+          this.lastTick = now;
+          const f = 900 + Math.min(this.tickN, 12) * 70; // cada vez más agudo
+          this.tickN++;
+          return global('otick', 0.4, (r) => this.osc(r, 'sine', f, f, 0, 0.07, 0.25, 0.002));
+        }
+        this.tickN = 0;
+        if (w === 'progress') {
+          if (now - this.lastProg < 0.12) return null;
+          this.lastProg = now;
+          return at('oprog', e.x, e.y, 0.4, (r) => { // clics de herramienta
+            this.nz(r, 0, 0.015, 0.5, 'bandpass', 3000 + Math.random() * 1500, 2500, 3);
+            this.nz(r, 0.04, 0.012, 0.3, 'highpass', 4500, 4500);
+          });
+        }
+        if (w === 'start') return global('ostart', 0.5, (r) => { // aviso de radio breve
+          this.nz(r, 0, 0.02, 0.5, 'highpass', 2500, 2500);
+          this.nz(r, 0.02, 0.2, 0.1, 'bandpass', 1800, 1500, 1.5);
+          this.osc(r, 'sine', 900, 900, 0.05, 0.06, 0.12);
+          this.osc(r, 'sine', 1200, 1200, 0.14, 0.07, 0.12);
+          this.nz(r, 0.24, 0.02, 0.4, 'highpass', 2500, 2500);
+        });
+        if (w === 'done') return global('odone', 0.5, (r) =>
+          [440, 554, 659].forEach((f, i) => this.osc(r, 'triangle', f, f, i * 0.09, i === 2 ? 0.4 : 0.12, 0.25, 0.01)));
+        return global('ofail', 0.6, (r) => { // alarma descendente
+          for (let i = 0; i < 2; i++) this.osc(r, 'sawtooth', 600, 300, i * 0.3, 0.28, 0.14, 0.01);
+          this.osc(r, 'sine', 80, 40, 0, 0.5, 0.4);
+        });
+      }
+      case 'wave': {
+        const boss = e.boss;
+        return global('wave', 0.7, (r) => {
+          if (boss) { // más grave y largo
+            for (let i = 0; i < 8; i++) this.nz(r, i * 0.1, 0.1, 0.25 + i * 0.05, 'bandpass', 500, 400, 1);
+            this.osc(r, 'sine', 70, 35, 0.8, 0.7, 0.8, 0.01);
+            this.nz(r, 0.8, 0.8, 0.5, 'lowpass', 900, 150);
+          } else { // redoble corto y acento
+            for (let i = 0; i < 5; i++) this.nz(r, i * 0.06, 0.05, 0.2 + i * 0.07, 'bandpass', 1800, 1500, 1);
+            this.osc(r, 'sine', 100, 50, 0.3, 0.3, 0.5, 0.005);
+            this.nz(r, 0.3, 0.1, 0.4, 'bandpass', 1900, 1400, 1);
+          }
+        });
+      }
       case 'itemUsed':
         if (hasV('v:sexo') && now - this.lastSexo >= 2) {
           this.lastSexo = now;
@@ -978,6 +1030,23 @@ export class Sfx {
     }
   }
 
+  /** Cargas de «desactivar»: pitido posicional suave, más rápido cuanto menos tiempo queda. */
+  private beepCharges(world: IWorld): void {
+    const ob = world.objective;
+    if (!ob || ob.kind !== 'defuse' || !(ob.timeLeft >= 0)) { if (this.nextBeep.size) this.nextBeep.clear(); return; }
+    const now = this.ctx.currentTime;
+    const interval = Math.max(0.2, Math.min(1.4, 0.2 + ob.timeLeft * 0.035));
+    ob.points.forEach((p, i) => {
+      if (p.done) return;
+      if (now < (this.nextBeep.get(i) ?? 0)) return;
+      this.nextBeep.set(i, now + interval);
+      this.play(world, { x: p.x, y: p.y }, 0.3, (r) => {
+        this.osc(r, 'sine', 1500, 1500, 0, 0.05, 0.25, 0.002);
+        this.nz(r, 0, 0.008, 0.2, 'highpass', 4000, 4000);
+      });
+    });
+  }
+
   handleEvents(world: IWorld): void {
     if (this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
@@ -989,6 +1058,7 @@ export class Sfx {
       for (const [id, st] of [...this.mv]) this.cutMv(id, st);
       this.lastHurt.clear();
       this.lastShot.clear();
+      this.nextBeep.clear();
     }
     // Cambio de modo: «go» de confirmación (y se cortan las ráfagas de broma al desactivar)
     if (chut !== this.lastChut) {
@@ -1002,6 +1072,7 @@ export class Sfx {
     }
     // Ráfaga de broma: se corta (fundido de 80 ms) ~0,4 s después del último disparo
     for (const [id, st] of [...this.mv]) if (now - st.last > 0.4) this.cutMv(id, st);
+    try { this.beepCharges(world); } catch { /* nada */ }
     const evs = world.events;
     if (!evs || evs.length === 0) return;
     try { this.setRoom(world); } catch { /* nada */ }

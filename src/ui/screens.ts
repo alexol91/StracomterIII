@@ -2,7 +2,7 @@
 // Derrota, Victoria, Créditos y Opciones. No saben nada del flujo de la aplicación: reciben callbacks.
 // Navegables con teclado (flechas + Enter, Esc para volver; lo gestiona main con stepNav/goBack) y con el dedo.
 
-import type { Action, CampaignState, RecordEntry, Settings, ZoneInfo, ZoneSummary } from '../contracts';
+import type { Action, CampaignState, Difficulty, RecordEntry, Settings, ShopItem, ZoneInfo, ZoneSummary } from '../contracts';
 import type { ClassId, ItemType } from '../sim/types';
 import { CLASS_IDS } from '../sim/types';
 import { CLASS_STATS } from '../sim/data';
@@ -11,7 +11,7 @@ import { t, getLang } from './i18n';
 import { drawMiniMap } from './minimap';
 import { ACTIONS, defaultBindings, keyLabel } from './settings';
 import { createSquadPreview, type SquadPreview } from '../render/preview';
-import { upgradeInfo } from './upgrades';
+import { MUTATOR_IDS, mutatorMult, upgradeInfo } from './upgrades';
 import { VERSION } from './version';
 
 /** Contenedor de pantallas: solo hay una visible a la vez. Se puede redibujar (cambio de idioma). */
@@ -130,7 +130,7 @@ function fmtNum(n: number): string {
 
 export interface TitleParams {
   hasSave: boolean;
-  onNew(): void; onContinue(): void; onQuick(): void; onOptions(): void; onCredits(): void; onRecords(): void;
+  onNew(): void; onContinue(): void; onQuick(): void; onOptions(): void; onCredits(): void; onRecords(): void; onHorde(): void;
   onLang(l: 'es' | 'en'): void;
 }
 
@@ -149,6 +149,7 @@ export function titleScreen(p: TitleParams): HTMLElement {
   items.push(menuItem(t('menu.newCampaign'), p.onNew, i++, { autofocus: true, sound: 'confirm' }));
   if (p.hasSave) items.push(menuItem(t('menu.continue'), p.onContinue, i++, { sound: 'confirm' }));
   items.push(menuItem(t('menu.quick'), p.onQuick, i++));
+  items.push(menuItem(t('menu.horde'), p.onHorde, i++));
   items.push(menuItem(t('menu.records'), p.onRecords, i++));
   items.push(menuItem(t('menu.options'), p.onOptions, i++));
   items.push(menuItem(t('menu.credits'), p.onCredits, i++));
@@ -172,6 +173,8 @@ export function titleScreen(p: TitleParams): HTMLElement {
 export interface ClassParams {
   /** null en campaña; planta elegida en partida rápida */
   quickFloor: number | null;
+  /** modo supervivencia: mejor oleada por planta y selector de dificultad */
+  horde?: { best: Record<number, number>; diff: Difficulty; onDiff(d: Difficulty): void };
   onFloor(n: number): void;
   onPick(c: ClassId): void;
   onBack(): void;
@@ -224,7 +227,7 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
   const head = h('div', { class: 'screen-head' },
     h('div', null,
       h('span', { class: 'tag' }, '// 01'),
-      h('h2', { class: 'h-title' }, p.quickFloor === null ? t('class.title') : t('class.titleQuick')),
+      h('h2', { class: 'h-title' }, p.horde ? t('class.titleHorde') : p.quickFloor === null ? t('class.title') : t('class.titleQuick')),
     ),
     button(t('menu.back'), p.onBack, 'small', 'back'),
   );
@@ -233,13 +236,25 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
     const floors = h('div', { class: 'floor-pick' }, h('span', { class: 'tag' }, t('quick.floor')));
     for (let n = 1; n <= 9; n++) {
       const b = h<HTMLButtonElement>('button', {
-        type: 'button', class: 'fl' + (n === p.quickFloor ? ' on' : ''), title: t(`floor.${n}.name`),
+        type: 'button', class: 'fl' + (n === p.quickFloor ? ' on' : ''), title: t(`floor.${n}.name`) + (p.horde ? ` · ${t('horde.bestLabel')}: ${p.horde.best[n] ?? 0}` : ''),
         onclick: (e: Event) => { e.stopPropagation(); uiSound('click'); p.onFloor(n); },
       }, pad2(n));
       floors.appendChild(b);
     }
     kids.push(floors);
-    kids.push(h('p', { class: 'hint', style: 'margin-bottom:0.6rem' }, t('strat.head', { n: pad2(p.quickFloor), name: t(`floor.${p.quickFloor}.name`) })));
+    kids.push(h('p', { class: 'hint', style: 'margin-bottom:0.6rem' }, t('strat.head', { n: pad2(p.quickFloor), name: t(`floor.${p.quickFloor}.name`) })
+      + (p.horde ? ` — ${t('horde.bestLabel')}: ${p.horde.best[p.quickFloor] ?? 0}` : '')));
+    if (p.horde) {
+      const hd = p.horde;
+      const row = h('div', { class: 'floor-pick' }, h('span', { class: 'tag' }, t('opt.difficulty')));
+      for (const d of ['easy', 'normal', 'hard'] as Difficulty[]) {
+        row.appendChild(h('button', {
+          type: 'button', class: 'fl wide' + (d === hd.diff ? ' on' : ''), 'data-nav': true,
+          onclick: (e: Event) => { e.stopPropagation(); uiSound('click'); hd.onDiff(d); },
+        }, t('opt.diff.' + d)));
+      }
+      kids.push(row);
+    }
   } else {
     kids.push(h('p', { class: 'hint', style: 'margin-bottom:0.6rem' }, t('class.hint')));
   }
@@ -280,6 +295,75 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
   return screen;
 }
 
+// ───────────────────────────── Preparar campaña: modificadores y segunda vuelta ─────────────────────────────
+
+export interface SetupParams {
+  diff: Difficulty;
+  onDiff(d: Difficulty): void;
+  mutators: string[];
+  onToggle(id: string, on: boolean): void;
+  ngUnlocked: boolean;
+  ng: boolean;
+  onNg(on: boolean): void;
+  onStart(): void;
+  onBack(): void;
+}
+
+export function setupMultiplier(mutators: string[], ng: boolean): number {
+  return mutators.reduce((m, id) => m * mutatorMult(id), 1) * (ng ? 1.5 : 1);
+}
+const fmtMult = (n: number): string => (Math.round(n * 100) / 100).toString().replace('.', getLang() === 'es' ? ',' : '.');
+
+export function setupScreen(s: Screens, p: SetupParams): HTMLElement {
+  s.setBack(p.onBack);
+  const total = h('b', { class: 'su-total' });
+  const paint = (): void => { total.textContent = '×' + fmtMult(setupMultiplier(p.mutators, p.ng)); };
+  const mkRow = (name: string, desc: string, mult: string, get: () => boolean, set: (v: boolean) => void): HTMLElement => {
+    const sw = h<HTMLButtonElement>('button', {
+      type: 'button', class: 'sw', role: 'switch', 'aria-checked': String(get()), 'aria-label': name, 'data-nav': true,
+      onclick: (e: Event) => {
+        const b = e.currentTarget as HTMLElement;
+        const v = b.getAttribute('aria-checked') !== 'true';
+        b.setAttribute('aria-checked', String(v));
+        uiSound('click');
+        set(v);
+        paint();
+      },
+    });
+    return h('div', { class: 'opt-row' },
+      h('span', { class: 'l' }, h('b', null, name), h('div', { class: 'hint' }, desc)),
+      h('div', { class: 'ctl' }, h('span', { class: 'val' }, mult), sw));
+  };
+  const rows = MUTATOR_IDS.map((id) => mkRow(t('mut.' + id), t(`mut.${id}.desc`), t('mut.mult', { n: fmtMult(mutatorMult(id)) }),
+    () => p.mutators.includes(id), (v) => p.onToggle(id, v)));
+  if (p.ngUnlocked) rows.push(mkRow(t('setup.ng'), t('setup.ngDesc'), '×1,5', () => p.ng, (v) => p.onNg(v)));
+  const diffRow = h('div', { class: 'floor-pick' }, h('span', { class: 'tag' }, t('opt.difficulty')));
+  const dbtns: HTMLButtonElement[] = [];
+  for (const d of ['easy', 'normal', 'hard'] as Difficulty[]) {
+    const b = h<HTMLButtonElement>('button', {
+      type: 'button', class: 'fl wide' + (d === p.diff ? ' on' : ''), 'data-nav': true,
+      onclick: (e: Event) => { e.stopPropagation(); uiSound('click'); p.onDiff(d); dbtns.forEach((x, i) => x.classList.toggle('on', (['easy', 'normal', 'hard'] as Difficulty[])[i] === d)); },
+    }, t('opt.diff.' + d));
+    dbtns.push(b);
+    diffRow.appendChild(b);
+  }
+  paint();
+  return scr('bg-blur',
+    h('div', { class: 'stack', style: 'max-width:46rem' },
+      h('div', { class: 'screen-head' },
+        h('div', null, h('span', { class: 'tag' }, '// 02'), h('h2', { class: 'h-title' }, t('setup.title')), h('p', { class: 'hint' }, t('setup.hint'))),
+        button(t('menu.back'), p.onBack, 'small', 'back')),
+      diffRow,
+      h('div', { class: 'options tech' },
+        h('h3', { class: 'h-title opt-sec', style: 'margin-top:0' }, '// ' + t('setup.mut')),
+        ...rows,
+        h('div', { class: 'opt-row' }, h('span', { class: 'l' }, t('setup.total')), h('div', { class: 'ctl' }, total))),
+      h('div', { class: 'btn-row', style: 'margin-top:0.8rem' },
+        (() => { const b = button(t('setup.start'), p.onStart, 'primary', 'confirm'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })()),
+    ),
+  );
+}
+
 // ───────────────────────────── Estrategia ─────────────────────────────
 
 export interface StrategyParams {
@@ -288,6 +372,9 @@ export interface StrategyParams {
   onEnter(zone: number): void;
   onControl(c: ClassId): void;
   onLoadout(c: ClassId, v: 0 | 1): void;
+  /** Armería: artículos disponibles y compra (para 'medkit' se indica operador) */
+  shop?: ShopItem[];
+  onBuy?(id: string, target?: ClassId): void;
   onMenu(): void;
 }
 
@@ -299,9 +386,18 @@ const WEAPON_BARS: Record<ClassId, [[number, number, number], [number, number, n
   explosives: [[1, 0.3, 0.6], [0.8, 0.35, 0.5]],
 };
 
+const OBJ_ICON: Record<string, string> = { clear: 'target', defuse: 'warn', defend: 'shield', rescue: 'cross' };
+
 function slotChip(it: ItemType | null): HTMLElement {
   if (!it) return h('span', { class: 'slot-i empty' }, '·');
   return h('span', { class: 'slot-i', title: t('item.' + it) }, itemIcon(it), it.slice(it.indexOf('_') + 1));
+}
+
+/** Chapas pequeñas de los modificadores activos (y de la segunda vuelta). */
+export function mutChips(st: { mutators?: string[]; ngPlus?: number }): HTMLElement | null {
+  const names = [...(st.mutators ?? []).map((id) => t('mut.' + id)), ...((st.ngPlus ?? 0) > 0 ? [t('setup.ng')] : [])];
+  if (names.length === 0) return null;
+  return h('div', { class: 'mchips' }, ...names.map((n) => h('span', { class: 'mchip' }, n)));
 }
 
 export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
@@ -403,6 +499,41 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
   paintLo();
   party.appendChild(loBox);
 
+  // Armería: tira de artículos con precio; el botiquín pide elegir operador
+  const armory = h('div', { class: 'armory tech' });
+  if (p.shop && p.shop.length > 0 && st.credits !== undefined) {
+    const bought = st.bought;
+    const pend = bought ? [bought.grenades ? `${bought.grenades}× ${t('shop.grenade')}` : '', bought.flashes ? `${bought.flashes}× ${t('shop.flash')}` : '', bought.smokes ? `${bought.smokes}× ${t('shop.smoke')}` : ''].filter(Boolean) : [];
+    armory.appendChild(h('div', { class: 'ar-head' },
+      h('span', { class: 'tag' }, '// ' + t('shop.title')),
+      h('b', { class: 'ar-cr' }, `${t('shop.credits')}: ${st.credits ?? 0}`),
+      pend.length ? h('span', { class: 'hint' }, `${t('shop.bought')}: ${pend.join(', ')}`) : null));
+    const row = h('div', { class: 'ar-row' });
+    const pick = h('div', { class: 'ar-pick', style: 'display:none' });
+    const ICO: Record<string, string> = { ammo: 'ammo', medkit: 'med', grenade: 'grenade', flash: 'bolt', smoke: 'smoke', upgrade: 'star' };
+    for (const it of p.shop) {
+      const off = !it.available;
+      row.appendChild(h('button', {
+        type: 'button', class: 'ar-item' + (off ? ' off' : ''), 'data-nav': true, disabled: off, title: t(`shop.${it.id}.desc`),
+        onclick: () => {
+          if (off) { uiSound('error'); return; }
+          if (it.needsTarget || it.id === 'medkit') {
+            uiSound('click');
+            pick.textContent = '';
+            pick.style.display = 'flex';
+            pick.appendChild(h('span', { class: 'tag' }, t('shop.pickTarget')));
+            for (const c of CLASS_IDS) {
+              if (st.members[c].hp <= 0) continue;
+              pick.appendChild(h('button', { type: 'button', class: 'lo-tab', 'data-nav': true, onclick: () => { p.onBuy?.(it.id, c); } }, t('kind.' + c)));
+            }
+          } else p.onBuy?.(it.id);
+        },
+      }, icon(ICO[it.id] ?? 'star'), h('span', { class: 'ar-n' }, t(`shop.${it.id}`)), h('span', { class: 'ar-p' }, t('shop.price', { n: it.price }))));
+    }
+    armory.appendChild(row);
+    armory.appendChild(pick);
+  }
+
   // Zonas: tarjetas de «plano táctico». Un clic selecciona; ENTRAR (o Enter) despliega.
   const zones = h('div', { class: 'zones' });
   const cards: HTMLElement[] = [];
@@ -424,6 +555,8 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
         h('div', { class: 'zline' }, `${t('size.' + z.size)} · ${t('strat.area', { n: Math.round(z.areaM2).toLocaleString(getLang() === 'es' ? 'es-ES' : 'en-US') })}`),
         h('div', { class: 'zline' }, z.diafano ? t('layout.diafano') : t('layout.pasillos')),
         h('div', { class: 'zline reward' }, itemIcon(z.reward), t('reward.' + z.reward)),
+        z.objective ? h('div', { class: 'zline obj' }, icon(OBJ_ICON[z.objective] ?? 'target'), t('objk.' + z.objective),
+          (z.objectiveBonus ?? 1) > 1 ? h('b', { class: 'obj-bonus' }, t('obj.bonus', { n: Math.round(((z.objectiveBonus ?? 1) - 1) * 100) })) : null) : null,
         z.hasMiniBoss ? h('div', { class: 'zline boss' }, icon('warn'), t('boss.mini')) : null,
         z.hasMegaBoss ? h('div', { class: 'zline boss' }, icon('warn'), t('boss.mega')) : null,
       ),
@@ -449,6 +582,8 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
       ),
     ),
     h('p', { class: 'hint', style: 'margin-bottom:0.7rem' }, t('strat.hint')),
+    mutChips(st),
+    armory.childElementCount > 0 ? armory : null,
     h('div', { class: 'strat-body' }, party, zones),
   );
 }
@@ -539,7 +674,7 @@ export function summaryScreen(s: Screens, p: SummaryParams): HTMLElement {
 
 // ───────────────────────────── Elegir mejora ─────────────────────────────
 
-export function upgradeScreen(s: Screens, p: { choices: string[]; onPick(id: string): void }): HTMLElement {
+export function upgradeScreen(s: Screens, p: { choices: string[]; onPick(id: string): void; reroll?: { price: number | null; onReroll(): void } }): HTMLElement {
   s.setBack(null);
   const cards = p.choices.map((id, i) => {
     const u = upgradeInfo(id);
@@ -561,14 +696,25 @@ export function upgradeScreen(s: Screens, p: { choices: string[]; onPick(id: str
     h('div', { class: 'stack' },
       h('div', { class: 'screen-head' }, h('div', null, h('span', { class: 'tag' }, '// 03'), h('h2', { class: 'h-title' }, t('up.title')), h('p', { class: 'hint' }, t('up.hint')))),
       h('div', { class: 'ups' }, ...cards),
+      p.reroll ? h('div', { class: 'btn-row', style: 'margin-top:0.8rem' }, (() => { const rr = p.reroll!; const b = button(rr.price !== null ? t('up.rerollPrice', { n: rr.price }) : t('up.reroll'), rr.onReroll, 'small'); b.setAttribute('data-nav', ''); return b; })()) : null,
     ),
   );
 }
 
 // ───────────────────────────── Récords ─────────────────────────────
 
-export function recordsScreen(s: Screens, p: { records: Record<string, RecordEntry>; onBack(): void }): HTMLElement {
+let recTab: 'campaign' | 'horde' = 'campaign';
+export function recordsScreen(s: Screens, p: { records: Record<string, RecordEntry>; hordeBest?: Record<number, number>; onBack(): void }): HTMLElement {
   s.setBack(p.onBack);
+  if (recTab === 'horde') {
+    const hb = p.hordeBest ?? {};
+    const hg = h('div', { class: 'rec-grid', style: 'grid-template-columns:minmax(9rem,2fr) 1fr' }, h('span', { class: 'tag' }, t('rec.floor')), h('span', { class: 'tag' }, t('horde.bestLabel')));
+    for (let f = 1; f <= 9; f++) {
+      hg.appendChild(h('span', { class: 'rf' }, `${pad2(f)} · ${t(`floor.${f}.name`)}`));
+      hg.appendChild(hb[f] ? h('span', { class: 'rc' }, h('b', null, String(hb[f])), h('small', null, t('rec.wave', { n: hb[f] }))) : h('span', { class: 'rc none' }, '—'));
+    }
+    return recordsShell(s, p.onBack, h('div', { class: 'tech rec-box' }, hg));
+  }
   const diffs: ('easy' | 'normal' | 'hard')[] = ['easy', 'normal', 'hard'];
   const any = Object.keys(p.records).length > 0;
   const grid = h('div', { class: 'rec-grid' }, h('span', { class: 'tag' }, t('rec.floor')), ...diffs.map((d) => h('span', { class: 'tag' }, t('opt.diff.' + d))));
@@ -583,26 +729,54 @@ export function recordsScreen(s: Screens, p: { records: Record<string, RecordEnt
         : h('span', { class: 'rc none' }, '—'));
     }
   }
+  return recordsShell(s, p.onBack, any ? h('div', { class: 'tech rec-box' }, grid) : h('div', { class: 'tech rec-box' }, h('p', { class: 'hint', style: 'padding:1rem' }, t('rec.empty'))));
+}
+
+function recordsShell(s: Screens, onBack: () => void, body: HTMLElement): HTMLElement {
+  const tabs = h('div', { class: 'tabs', role: 'tablist' },
+    ...(['campaign', 'horde'] as const).map((id) => h('button', {
+      type: 'button', class: 'tab' + (recTab === id ? ' on' : ''), role: 'tab', 'data-nav': true,
+      onclick: () => { uiSound('click'); recTab = id; s.refresh(); },
+    }, t('rec.tab.' + id))));
   return scr('bg-blur',
     h('div', { class: 'stack' },
       h('div', { class: 'screen-head' },
         h('div', null, h('span', { class: 'tag' }, '// 06'), h('h2', { class: 'h-title' }, t('rec.title')), h('p', { class: 'hint' }, t('rec.hint'))),
-        (() => { const b = button(t('menu.back'), p.onBack, 'primary', 'back'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })()),
-      any ? h('div', { class: 'tech rec-box' }, grid) : h('div', { class: 'tech rec-box' }, h('p', { class: 'hint', style: 'padding:1rem' }, t('rec.empty'))),
+        (() => { const b = button(t('menu.back'), onBack, 'primary', 'back'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })()),
+      tabs,
+      body,
     ),
   );
 }
 
 // ───────────────────────────── Derrota ─────────────────────────────
 
-export function defeatScreen(s: Screens, p: { floor: number; zone: number; onRetry(): void; onMenu(): void }): HTMLElement {
+export function defeatScreen(s: Screens, p: { floor: number; zone: number; reason?: string; onRetry(): void; onMenu(): void }): HTMLElement {
   s.setBack(null);
   return scr('bg-defeat',
     h('div', { class: 'center-col' },
       h('h1', { class: 'h-title defeat-title' }, t('def.title')),
+      p.reason ? h('div', { class: 'defeat-sub', style: 'color:var(--danger)' }, p.reason) : null,
       h('div', { class: 'defeat-sub' }, t('def.sub', { floor: pad2(p.floor), zone: pad2(p.zone) })),
       h('div', { class: 'btn-row center', style: 'margin-top:0.6rem' },
         (() => { const b = button(t('def.retry'), p.onRetry, 'primary', 'confirm'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })(),
+        button(t('def.menu'), p.onMenu, '', 'back'),
+      ),
+    ),
+  );
+}
+
+// ───────────────────────────── Fin de supervivencia ─────────────────────────────
+
+export function hordeEndScreen(s: Screens, p: { wave: number; best: number; newRecord: boolean; onRetry(): void; onMenu(): void }): HTMLElement {
+  s.setBack(null);
+  return scr('bg-defeat',
+    h('div', { class: 'center-col' },
+      h('h1', { class: 'h-title defeat-title' }, t('horde.end', { n: p.wave })),
+      h('div', { class: 'defeat-sub' }, t('horde.best', { n: p.best })),
+      p.newRecord ? h('div', { class: 'flag rec' }, icon('star'), t('sum.newRecord')) : null,
+      h('div', { class: 'btn-row center', style: 'margin-top:0.6rem' },
+        (() => { const b = button(t('horde.retry'), p.onRetry, 'primary', 'confirm'); b.setAttribute('data-nav', ''); b.setAttribute('data-autofocus', ''); return b; })(),
         button(t('def.menu'), p.onMenu, '', 'back'),
       ),
     ),
