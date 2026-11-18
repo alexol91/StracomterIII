@@ -177,24 +177,37 @@ export function allyThink(w: World, u: Unit, dt: number): void {
       if (ok && !suppressing && w.time > b.burstUntil) {
         // Los compañeros apoyan, no ganan la partida solos: ráfagas cortas y pausas largas. El Explosivo, tiro a tiro.
         const slow = u.cls === 'explosives' ? 2.4 : 0;
-        if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + 0.8 + slow + w.rng() * (0.9 + slow * 0.6); b.burstUntil = 0; ok = false; }
+        if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + 0.5 + slow + w.rng() * (0.6 + slow * 0.6); b.burstUntil = 0; ok = false; }
         else b.burstUntil = w.time + (u.cls === 'explosives' ? 0.05 : 0.35 + w.rng() * 0.45);
       }
       if (ok && u.cls === 'explosives') {
         // el Explosivo no dispara si la explosión alcanzaría a un compañero o a sí mismo
-        if (d < 4.5) ok = false;
-        else for (const a of w.entities) { if (a.alive && a.team === 'ally' && Math.hypot(a.x - t.x, a.y - t.y) < 3.2) { ok = false; break; } }
+        // Se comprueba el punto donde REALMENTE estallaría (puede dar antes en un mueble o una pared).
+        if (d < 5) ok = false;
+        else {
+          const mz = w.muzzleZ(u);
+          const tt = L.ray(u.x, u.y, mz, t.x, t.y, 0.3, 'bullet');
+          const ix = u.x + (t.x - u.x) * tt, iy = u.y + (t.y - u.y) * tt;
+          if (tt < 0.85) ok = false; // algo en medio: no arriesga
+          else for (const a of w.entities) {
+            if (!a.alive || a.team !== 'ally') continue;
+            if (Math.hypot(a.x - ix, a.y - iy) < 3.6 || Math.hypot(a.x - t.x, a.y - t.y) < 3.6) { ok = false; break; }
+            // nadie cruzando la línea de tiro
+            if (a !== u) { const ex = t.x - u.x, ey = t.y - u.y; const k = Math.max(0, Math.min(1, ((a.x - u.x) * ex + (a.y - u.y) * ey) / (ex * ex + ey * ey))); if (Math.hypot(a.x - u.x - ex * k, a.y - u.y - ey * k) < 1.2) { ok = false; break; } }
+          }
+        }
       }
       const az = ok ? w.shotLine(u, t) : -1;
       if (ok && az >= 0) {
         const moving = Math.hypot(u.vx, u.vy) > 0.5 ? 0.025 : 0;
-        w.fire(u, t.x, t.y, u.cls === 'explosives' ? 0.3 : az, 0.085 + moving, suppressing);
+        w.fire(u, t.x, t.y, u.cls === 'explosives' ? 0.3 : az, u.cls === 'explosives' ? 0.02 : 0.07 + moving, suppressing);
         u.fireCd = 1 / (u.stats.rof * (suppressing ? 2 : 1));
       }
     }
     if (u.mag <= 0 && u.ammo > 0) w.startReload(u);
     if (label === 'formación' || label === 'mantiene') label = 'dispara';
-    if (w.order.kind === 'hold' && !want) u.crouch = true;
+    // quieto y bajo fuego: se agacha (menos blanco, y aprovecha los muebles)
+    if (Math.hypot(u.wishX, u.wishY) < 0.3 && (w.order.kind === 'hold' || w.time - b.hurtAt < 2.5)) u.crouch = true;
     // habilidades
     if (u.abilityCd <= 0) {
       if (u.cls === 'captain' && (b.bossVisible || b.visible >= 4)) w.useAbility(u);

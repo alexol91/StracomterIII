@@ -31,8 +31,15 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
   const states: Record<string, number> = {};
   let path: [number, number][] | null = null, pathAt = -9, enemyHits = 0, enemyShots = 0, doorsE = 0;
   const t0 = Date.now();
+  if (process.env.VERBOSE) world.onUnstuck = u => {
+    let near = 0; for (const e of world.entities) if (e !== u && e.alive && Math.hypot(e.x - u.x, e.y - u.y) < 1.1) near++;
+    const w = u.path && u.path[u.pathI];
+    console.log(`     ATASCO t=${world.time.toFixed(1)} ${u.kind}#${u.id} ${u.aiState} (${u.x.toFixed(2)},${u.y.toFixed(2)}) vecinos=${near} celdaOk=${world.level.walkableAt(u.x, u.y, true)} wp=${w ? w[0].toFixed(2) + ',' + w[1].toFixed(2) + ' ' + u.pathI + '/' + u.path!.length : '-'} meta=(${u.goalX.toFixed(2)},${u.goalY.toFixed(2)}) v=(${u.vx.toFixed(2)},${u.vy.toFixed(2)}) quiere=(${u.wishX.toFixed(1)},${u.wishY.toFixed(1)})`);
+  };
   let lastProgress = 0, lastKills = 0, playerKills = 0;
   const lastHit = new Map<number, number>();
+  const dmgLog: Record<string, number> = {};
+  const pDmg: Record<string, number> = {};
   const pasivo = process.env.PASIVO === '1';
   while (world.status === 'playing' && world.time < maxTime) {
     // ── bot ──
@@ -63,8 +70,21 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       // ir hacia el enemigo vivo más cercano (el bot «sabe» dónde están: es un bot de pruebas)
       let goal: Unit | null = null, gd = Infinity;
       for (const e of world.entities) { if (e.alive && e.team === 'enemy') { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < gd) { gd = d; goal = e; } } }
+      // como haría una persona: si va tocado o seco y hay botín, primero a por él
+      let gx = goal ? goal.x : p.x, gy = goal ? goal.y : p.y;
+      const needHp = p.hp < p.maxHp * 0.75, needAmmo = total < 40;
+      if (needHp || needAmmo) {
+        let bd = 30;
+        for (const pk of world.pickups) {
+          if (pk.taken) continue;
+          const med = pk.type.startsWith('vida');
+          if ((med && !needHp) || (!med && !needAmmo)) continue;
+          const d = Math.hypot(pk.x - p.x, pk.y - p.y);
+          if (d < bd) { bd = d; gx = pk.x; gy = pk.y; goal = goal ?? p; }
+        }
+      }
       if (goal) {
-        if (!path || world.time - pathAt > 1) { path = world.nav.path(p.x, p.y, goal.x, goal.y, { doors: true }); pathAt = world.time; }
+        if (!path || world.time - pathAt > 1) { path = world.nav.path(p.x, p.y, gx, gy, { doors: true }); pathAt = world.time; }
         if (path && path.length) {
           while (path.length > 1 && Math.hypot(path[0][0] - p.x, path[0][1] - p.y) < 0.5) path.shift();
           const wantYaw = Math.atan2(path[0][1] - p.y, path[0][0] - p.x);
@@ -83,12 +103,21 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if ((med && p.hp < p.maxHp * 0.5) || (!med && total < 15)) input.useItem = true;
       else if ((p.hp < p.maxHp * 0.5 && p.inventory.some(i => i && i.startsWith('vida'))) || (total < 15 && p.inventory.some(i => i && i.startsWith('municion')))) input.cycleItem = true;
     }
+    // esquiva cohetes y granadas que van a caerle cerca
+    for (const pr of world.projectiles) {
+      const tt = Math.max(0, Math.min(pr.fuse, 1.5));
+      const ix = pr.x + pr.vx * tt, iy = pr.y + pr.vy * tt;
+      if (pr.team === 'enemy' && Math.hypot(ix - p.x, iy - p.y) < 4.5) { input.moveR = (Math.floor(world.time / 3) % 2 ? 1 : -1); input.moveF = 0; input.fire = false; break; }
+    }
     world.step(1 / 60, input);
 
     // ── medidas ──
     for (const ev of world.events) {
       if (ev.type === 'shot' && ev.team === 'enemy') { enemyShots++; if (ev.hit === 'entity') enemyHits++; }
       if (ev.type === 'hurt') lastHit.set(ev.id, ev.attackerId);
+      if (ev.type === 'hurt' && ev.id === p.id) { const k = (world.entityById(ev.attackerId)?.kind ?? '?') + ':' + ev.zone; pDmg[k] = (pDmg[k] || 0) + ev.amount; }
+      if (ev.type === 'hurt' && process.env.VERBOSE) { const v = world.entityById(ev.id); if (v && v.team === 'ally' && !v.isPlayer) { const k = v.kind + '<' + (world.entityById(ev.attackerId)?.kind ?? '?') + ':' + ev.zone; dmgLog[k] = (dmgLog[k] || 0) + ev.amount; } }
+      if (ev.type === 'death' && ev.team === 'ally' && process.env.VERBOSE) console.log(`     t=${world.time.toFixed(0)} cae ${ev.kind}; último golpe de ${world.entityById(lastHit.get(ev.id) ?? -1)?.kind}`);
       if (ev.type === 'death' && ev.team === 'enemy' && lastHit.get(ev.id) === p.id) playerKills++;
     }
     for (const n of world.noises) if (n.kind === 'door' && n.team === 'enemy') doorsE++;
@@ -98,6 +127,8 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
     if (world.stats.kills !== lastKills) { lastKills = world.stats.kills; lastProgress = world.time; }
     if (world.time - lastProgress > 240) break; // sin bajas en 4 minutos: algo va mal
   }
+  if (process.env.VERBOSE) console.log('     daño a compañeros:', Object.entries(dmgLog).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + '=' + Math.round(v)).join(' '));
+  if (process.env.VERBOSE) console.log('     daño al jugador:', Object.entries(pDmg).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + '=' + Math.round(v)).join(' '));
   let maxStuck = 0, unstuck = 0;
   for (const e of world.entities) { if (e.team === 'enemy') { maxStuck = Math.max(maxStuck, e.stuckMax); unstuck += e.brain?.unstuck || 0; } }
   return {
@@ -137,7 +168,12 @@ if (isMain) {
       const loaded = campaign.load();
       if (st.floor > 1 && (!loaded || loaded.floor !== st.floor)) { console.log('FALLO: no se guardó la planta', st.floor); ok = false; }
       if (loaded) st = loaded;
-      const w = campaign.startZone(st, zone) as World;
+      // elige como una persona: si va tocado, la zona que da vida; si no, la de munición
+      const me = st.members[st.controlled];
+      const hurt = me.hp < 0.7 * 160 || Object.values(st.members).some(m => m.hp > 0 && m.hp < 50);
+      const base = zone % 2 === 1 ? zone : zone - 1;
+      const z = st.floor === 9 ? 1 : hurt ? base + 1 : base;
+      const w = campaign.startZone(st, z) as World;
       const r = playZone(w, 1200, god);
       console.log(fmt(r));
       if (r.result !== 'cleared') { ok = false; console.log('  → la campaña se para aquí'); break; }

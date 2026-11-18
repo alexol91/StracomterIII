@@ -53,7 +53,7 @@ export const ENEMY_STATS: Record<EnemyKind, UnitStats> = {
   enemy1:   { hp: 45,  speed: 2.0, rof: 2,    damage: 1,  explosive: false, magSize: 10, reloadTime: 1.8, points: 3,   radius: BODY_RADIUS, height: STAND_HEIGHT },
   enemy2:   { hp: 50,  speed: 1.9, rof: 1.25, damage: 3,  explosive: false, magSize: 10, reloadTime: 2.0, points: 5,   radius: BODY_RADIUS, height: STAND_HEIGHT },
   enemy3:   { hp: 65,  speed: 1.7, rof: 1.66, damage: 2,  explosive: false, magSize: 12, reloadTime: 2.0, points: 7,   radius: BODY_RADIUS, height: STAND_HEIGHT },
-  miniboss: { hp: 200, speed: 1.1, rof: 2,    damage: 30, explosive: true,  magSize: 4,  reloadTime: 2.5, points: 50,  radius: 0.55, height: 2.2 },
+  miniboss: { hp: 200, speed: 1.1, rof: 2,    damage: 30, explosive: true,  magSize: 2,  reloadTime: 2.6, points: 50,  radius: 0.55, height: 2.2 },
   megaboss: { hp: 500, speed: 0.8, rof: 5,    damage: 10, explosive: false, magSize: 40, reloadTime: 2.0, points: 500, radius: 0.65, height: 2.6 },
 };
 

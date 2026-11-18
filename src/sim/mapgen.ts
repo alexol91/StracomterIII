@@ -346,7 +346,7 @@ function rangoDe(floor: number, size: Size): Rango {
 
 function areaObjetivo(floor: number, size: Size, rng: Rng): number {
   if (floor === 8 && size === 'grande') return 745;
-  if (floor === 9) return size === 'grande' ? 900 : size === 'mediano' ? 625 : 400;
+  if (floor === 9) return size === 'grande' ? 900 : size === 'mediano' ? 784 : 676;
   const [lo, hi] = RANGOS[size].area;
   const t = (floor - 2) / 6;
   // crece con la planta: planta 2 cerca del mínimo, planta 8 cerca del máximo.
@@ -667,22 +667,24 @@ function mkFurn(tipo: FurnitureType, x: number, y: number, ang: number): Furn {
   return { tipo, x: r3(x), y: r3(y), ang, poly, bb: bboxOf(poly), gid: 0 };
 }
 
+let __why = '';
 function canPlace(c: Ctx, f: Furn): boolean {
-  for (const [x, y] of f.poly) if (!pointInPoly(x, y, c.perim)) return false;
-  for (const e of c.facade) if (polyDist(f.poly, e) < 0.02) return false;
+  const R = (m: string) => { __why = m; return false; };
+  for (const [x, y] of f.poly) if (!pointInPoly(x, y, c.perim)) return R('perim');
+  for (const e of c.facade) if (polyDist(f.poly, e) < 0.02) return R('facade');
   for (const w of c.solid) {
     if (bbGap(f.bb, w.bb) > 0.5) continue;
-    if (polyDist(f.poly, w.poly) < 0.02) return false;
+    if (polyDist(f.poly, w.poly) < 0.02) return R('wall');
   }
-  for (const o of c.openings) if (ptPolyDist(o[0], o[1], f.poly) < 1.4) return false;
-  for (const e of c.excl) if (ptPolyDist(e.x, e.y, f.poly) < e.r) return false;
+  for (const o of c.openings) if (ptPolyDist(o[0], o[1], f.poly) < 1.4) return R('door');
+  for (const e of c.excl) if (ptPolyDist(e.x, e.y, f.poly) < e.r) return R('excl');
   for (const o of c.furn) {
     if (bbGap(f.bb, o.bb) >= 1.15) continue;
     const g = polyDist(f.poly, o.poly);
-    if (g < 0.02) return false;
+    if (g < 0.012) return R('overlap');
     if (f.tipo === 'silla' || o.tipo === 'silla') continue;
     // o adosados del todo o ≥ 1,15 m de paso (1,0 exigido; el margen absorbe la rejilla de 0,2 m)
-    if (g > 0.08) return false;
+    if (g > 0.08) return R('gap '+g.toFixed(2)+' '+o.tipo);
   }
   return true;
 }
@@ -716,9 +718,15 @@ function silla(c: Ctx, x: number, y: number): Piece {
 
 function deskPods(c: Ctx, r: Rect, budget: number): number {
   const W = r.x1 - r.x0 - 0.06, H = r.y1 - r.y0 - 0.06;
-  const n = W >= 12 ? 3 : 2;
-  const podW = n * 1.75 - 0.02, podH = FD('escritorio') + 0.02 + 0.8;
   const gx = 1.3, gy = 1.3;
+  const podH = FD('escritorio') + 0.02 + 0.8;
+  // elige el tamaño de módulo (1-3 escritorios adosados) que más escritorios mete por fila
+  let n = 2, mejor = -1;
+  for (const k of [3, 2, 1]) {
+    const c = Math.floor((W + gx) / (k * 1.75 - 0.02 + gx));
+    if (c * k > mejor) { mejor = c * k; n = k; }
+  }
+  const podW = n * 1.75 - 0.02;
   const cols = Math.floor((W + gx) / (podW + gx)), rows = Math.floor((H + gy) / (podH + gy));
   if (cols < 1 || rows < 1) return 0;
   const usedW = cols * podW + (cols - 1) * gx, usedH = rows * podH + (rows - 1) * gy;
@@ -772,29 +780,33 @@ function rackRows(c: Ctx, r: Rect, budget: number, aisle: number, dbl: boolean):
   const alongX = w >= h;
   const L = alongX ? w : h, Wc = alongX ? h : w;
   const tp = dbl ? 0.57 * 2 + 0.02 : 0.57;
-  const nPairs = Math.floor((Wc - 2 * 1.2 + aisle) / (tp + aisle));
-  if (nPairs < 1) return 0;
-  const used = nPairs * tp + (nPairs - 1) * aisle;
-  const mCross = (Wc - used) / 2;
-  const perRow = dbl ? 2 : 1;
+  const nMax = Math.floor((Wc - 2 * 1.2 + aisle) / (tp + aisle));
+  if (nMax < 1) return 0;
   const maxK = Math.floor((L - 2 * 1.3) / 1.35);
   if (maxK < 2) return 0;
-  const k = Math.max(2, Math.min(maxK, Math.round(budget / (nPairs * perRow))));
+  const perRow = dbl ? 2 : 1;
+  // filas largas: se llena el largo y se reparte el presupuesto en nº de filas
+  const nRows = Math.max(1, Math.min(nMax, Math.max(nMax >= 2 ? 2 : 1, Math.round(budget / (8 * perRow)))));
+  const k = Math.max(Math.min(4, maxK), Math.min(maxK, Math.round(budget / (nRows * perRow))));
   const rowLen = k * 1.35 - 0.02;
   const a0 = (alongX ? r.x0 : r.y0) + (L - rowLen) / 2;
-  const cr0 = (alongX ? r.y0 : r.x0) + mCross;
+  const cr0 = alongX ? r.y0 : r.x0;
+  const free = Wc - nRows * tp;
+  const mCross = nRows > 1 ? Math.max(1.2, (free - (nRows - 1) * aisle) / 2) : free / 2;
+  const sep = nRows > 1 ? (free - 2 * mCross) / (nRows - 1) : 0;
   let placed = 0;
-  for (let p = 0; p < nPairs; p++) {
-    const cc = cr0 + p * (tp + aisle) + tp / 2;
+  for (let p = 0; p < nRows; p++) {
+    const cc = cr0 + mCross + p * (tp + sep) + tp / 2;
     const rows = dbl ? [cc - 0.295, cc + 0.295] : [cc];
     for (const rc of rows) {
-      // si la fila es muy larga se parte en dos con un cruce de 1,5 m
-      const segs: [number, number][] = k > 8 ? [[0, Math.ceil(k / 2)], [Math.ceil(k / 2), k]] : [[0, k]];
-      for (const [s0, s1] of segs) {
+      // la fila se coloca en tramos de 4 estanterías adosadas (si uno choca con algo, los demás siguen) y,
+      // si es muy larga, se parte en dos con un cruce de 1,5 m
+      const shiftOf = (i: number) => (k > 8 ? (i >= Math.ceil(k / 2) ? 0.75 : -0.75) : 0);
+      for (let s0 = 0; s0 < k; s0 += 4) {
         const pcs: Piece[] = [];
-        const gapShift = k > 8 && s0 > 0 ? 1.5 : 0;
-        for (let i = s0; i < s1; i++) {
-          const a = a0 + 0.665 + i * 1.35 + gapShift - (k > 8 ? 0.75 : 0);
+        for (let i = s0; i < Math.min(k, s0 + 4); i++) {
+          if (k > 8 && i === Math.ceil(k / 2) && pcs.length) { placed += put(c, pcs); pcs.length = 0; }
+          const a = a0 + 0.665 + i * 1.35 + shiftOf(i);
           pcs.push(alongX ? ['estanteria', a, rc, 0] : ['estanteria', rc, a, 90]);
         }
         placed += put(c, pcs);
@@ -902,20 +914,19 @@ function despacho(c: Ctx, r: Rect, rica: boolean): number {
     };
     void u0;
     const ang = side < 2 ? 0 : 90;
-    const pcs: Piece[] = [];
     const [dx, dy] = toW(mid, 2.585);
-    pcs.push(['escritorio', dx, dy, ang]);
     const [sx, sy] = toW(mid + rr(c.rng, -0.2, 0.2), 1.42);
-    pcs.push(silla(c, sx, sy));
+    const n0 = put(c, [['escritorio', dx, dy, ang], silla(c, sx, sy)]);
+    if (!n0) continue;
+    placed += n0;
     if (rica) {
       const [b1x, b1y] = toW(mid - 0.75, 4.8);
       const [b2x, b2y] = toW(mid + 0.75, 4.8);
       const ba = side === 0 ? 0 : side === 1 ? 180 : side === 2 ? 90 : -90;
-      pcs.push(['butaca', b1x, b1y, ba]);
-      pcs.push(['butaca', b2x, b2y, ba]);
+      placed += put(c, [['butaca', b1x, b1y, ba]]);
+      placed += put(c, [['butaca', b2x, b2y, ba]]);
     }
-    placed += put(c, pcs);
-    if (placed) break;
+    break;
   }
   placed += wallShelves(c, r, rica ? 3 : 2);
   if (rica) placed += sofaRuns(c, r, 2);
@@ -924,11 +935,22 @@ function despacho(c: Ctx, r: Rect, rica: boolean): number {
 }
 
 function furnishLeaf(c: Ctx, l: Leaf, budget: number): number {
+  const n = furnishLeaf0(c, l, budget);
+  if (process.env.DBG_ROOM) console.log('LEAF', l.role, JSON.stringify(l.r), Math.round(budget), n);
+  if (n > 0 || l.role === 'pas' || l.role === 'laberinto') return n;
+  // sala que no admitió su patrón: al menos un escritorio con su silla, estanterías y una maceta
+  const r: Rect = { x0: l.r.x0 + 0.185, y0: l.r.y0 + 0.185, x1: l.r.x1 - 0.185, y1: l.r.y1 - 0.185 };
+  const n2 = despacho(c, r, false);
+  if (process.env.DBG_ROOM && n2 === 0) console.log('SALA VACIA', l.role, JSON.stringify(l.r), __why);
+  return n2;
+}
+
+function furnishLeaf0(c: Ctx, l: Leaf, budget: number): number {
   // los límites de hoja son ejes de muro: se mete medio grosor (+ holgura) para no pisarlos
   const r: Rect = { x0: l.r.x0 + 0.185, y0: l.r.y0 + 0.185, x1: l.r.x1 - 0.185, y1: l.r.y1 - 0.185 };
   const b = Math.max(1, Math.round(budget));
   switch (l.role) {
-    case 'cub': return deskPods(c, r, Math.round(b * 0.85)) + wallShelves(c, r, Math.max(1, Math.round(b * 0.1))) + plants(c, r, 1);
+    case 'cub': return deskPods(c, r, Math.round(b * 0.9)) + wallShelves(c, r, 1) + plants(c, r, 1);
     case 'dev': return devDoubles(c, r, Math.round(b * 0.75)) + wallShelves(c, r, Math.max(2, Math.round(b * 0.25)));
     case 'des': return despacho(c, r, false);
     case 'dir': return despacho(c, r, true);
@@ -945,7 +967,7 @@ function furnishLeaf(c: Ctx, l: Leaf, budget: number): number {
   }
 }
 
-const PESO: Record<string, number> = { cub: 4, dev: 4, rack: 6, lab: 2.4, des: 1.2, dir: 1.6, ctl: 0.8, cafe: 1.5, sala: 1.8, sj: 5, ante: 1.3, arc: 2.2, pas: 0.12, laberinto: 0 };
+const PESO: Record<string, number> = { cub: 5, dev: 5, rack: 8, lab: 2.4, des: 1.2, dir: 1.6, ctl: 0.8, cafe: 1.5, sala: 1.8, sj: 5, ante: 1.3, arc: 2.2, pas: 0.12, laberinto: 0 };
 
 // ---------------------------------------------------------------------------------------------
 // Objetos
@@ -1172,19 +1194,21 @@ function intentoSalas(floor: number, size: Size, plan: Plan, intento: number): M
     const tot = live.reduce((s, l) => s + wa(l), 0) || 1;
     void grupos;
     for (const l of live) furnishLeaf(ctx, l, (T0 * wa(l)) / tot);
-    // rellena si falta (estanterías pegadas a pared, macetas…) y recorta si sobra
+    // rellena hasta el objetivo con el patrón propio de las salas más «de la planta», y recorta si sobra
     const grandes = live.filter((l) => l.role !== 'pas' && (PESO[l.role] ?? 1) > 0).sort((a, b) => wa(b) - wa(a));
-    for (let it = 0; it < 12 && ctx.furn.length < rgMob[0] + 3 && grandes.length; it++) {
+    for (let it = 0; it < 14 && ctx.furn.length < T0 && grandes.length; it++) {
       for (const l of grandes) {
-        if (ctx.furn.length >= rgMob[0] + 3) break;
-        if (l.role === 'rack') rackRows(ctx, l.r, 6, 2, true);
-        else if (l.role === 'cub') deskPods(ctx, l.r, 4);
-        else if (l.role === 'dev') devDoubles(ctx, l.r, 4);
-        else if (l.role === 'sj') tableGrid(ctx, l.r, 2, 1.3);
-        else { wallShelves(ctx, l.r, 2); plants(ctx, l.r, 1); }
+        if (ctx.furn.length >= T0) break;
+        const r: Rect = { x0: l.r.x0 + 0.185, y0: l.r.y0 + 0.185, x1: l.r.x1 - 0.185, y1: l.r.y1 - 0.185 };
+        if (l.role === 'rack') { wallShelves(ctx, r, 2); }
+        else if (l.role === 'cub') deskPods(ctx, r, 6);
+        else if (l.role === 'dev') devDoubles(ctx, r, 8);
+        else if (l.role === 'sj') tableGrid(ctx, r, 3, 1.3);
+        else if (l.role === 'lab') rackRows(ctx, r, 6, 1.5, false);
+        else { wallShelves(ctx, r, 2); plants(ctx, r, 1); }
       }
     }
-    while (ctx.furn.length > rgMob[1]) {
+    while (ctx.furn.length > Math.min(rgMob[1], T0 + 2)) {
       const g = ctx.furn[ctx.furn.length - 1].gid;
       while (ctx.furn.length && ctx.furn[ctx.furn.length - 1].gid === g) ctx.furn.pop();
     }
@@ -1279,9 +1303,10 @@ function intentoComercial(floor: number, size: Size, intento: number): MapInfo |
   }
   if (puertas.length < nPart) return null;
   for (let k = 0, tries = 0; k < nPil && tries < 300; tries++) {
-    const s = 0.9;
+    // «pilar» = tramo corto de muro (grosor normal) de 1-1,5 m, suelto
+    const len = rr(rng, 1.0, 1.5), vert = rng() < 0.5;
     const x = rr(rng, bb.x0 + 3, bb.x1 - 3), y = rr(rng, bb.y0 + 3, bb.y1 - 3);
-    const rect: Rect = { x0: x - s / 2, x1: x + s / 2, y0: y - s / 2, y1: y + s / 2 };
+    const rect: Rect = vert ? { x0: x - T / 2, x1: x + T / 2, y0: y - len / 2, y1: y + len / 2 } : { x0: x - len / 2, x1: x + len / 2, y0: y - T / 2, y1: y + T / 2 };
     if (!inPer(x, y, 2.5) || !libre(rect, 2.4)) continue;
     if (Math.hypot(x - start[0], y - start[1]) < 4 || Math.hypot(x - boss![0], y - boss![1]) < 4) continue;
     muros.push(mkRectV(rect.x0, rect.y0, rect.x1, rect.y1));
@@ -1301,12 +1326,14 @@ function intentoComercial(floor: number, size: Size, intento: number): MapInfo |
   for (let t = 0; t < 4000 && ctx.furn.length < objetivo; t++) {
     const x = rr(rng, bb.x0 + 1.5, bb.x1 - 1.5), y = rr(rng, bb.y0 + 1.5, bb.y1 - 1.5);
     if (!inPer(x, y, 1.2)) continue;
-    const tipo = Math.floor(rng() * 5);
-    if (tipo === 0) put(ctx, [['mesa_con_sillas', x, y, 0], ['sofa', x - 0.665 - 0.02 - 0.295, y, 0], ['sofa', x + 0.665 + 0.02 + 0.295, y, 180]]);
-    else if (tipo === 1) put(ctx, [['sofa', x, y, 0], ['sofa', x, y + 1.62, 0], ['sofa', x, y + 3.24, 0], ['maceta', x + 0.5, y - 1.3, 0]]);
-    else if (tipo === 2) put(ctx, [['mesa_con_sillas', x, y, Math.round(rr(rng, -25, 25)) || 12], ['mesa_con_sillas', x + 1.35, y, 0]]);
-    else if (tipo === 3) put(ctx, [['mesa', x, y, 90], ['mesa', x, y + 0.58, 90], silla(ctx, x - 0.3, y - 0.56), silla(ctx, x + 0.3, y + 1.15)]);
-    else put(ctx, [['maceta', x, y, 0], ['maceta', x + 1.3, y + 0.4, 0]]);
+    const q = rng();
+    if (q < 0.22) put(ctx, [['mesa_con_sillas', x, y, 0], ['sofa', x - 0.665 - 0.02 - 0.295, y, 0], ['sofa', x + 0.665 + 0.02 + 0.295, y, 180]]);
+    else if (q < 0.40) put(ctx, [['sofa', x, y, 0], ['sofa', x, y + 1.62, 0], ['sofa', x, y + 3.24, 0], ['maceta', x + 0.9, y - 1.4, 0]]);
+    else if (q < 0.55) put(ctx, [['mesa_con_sillas', x, y, Math.round(rr(rng, -25, 25)) || 12], ['mesa_con_sillas', x + 1.35, y, 0]]);
+    else if (q < 0.70) put(ctx, [['mesa', x, y, 90], ['mesa', x, y + 0.58, 90], silla(ctx, x - 0.3, y - 0.56), silla(ctx, x + 0.3, y + 1.15)]);
+    else if (q < 0.82) put(ctx, [['butaca', x, y, 0], ['mesa', x + 0.6, y, 0], ['butaca', x + 1.2, y, 180]]);
+    else if (q < 0.92) put(ctx, [['sofa', x, y, 90], ['sofa', x + 1.62, y, 90], ['mesa', x + 0.8, y + 0.9, 90]]);
+    else put(ctx, [['maceta', x, y, 0], ['maceta', x + 1.3, y + 0.4, 0], ['maceta', x + 0.4, y + 1.5, 0]]);
   }
   while (ctx.furn.length > rg.mob[1]) {
     const g = ctx.furn[ctx.furn.length - 1].gid;
@@ -1332,7 +1359,7 @@ function intentoComercial(floor: number, size: Size, intento: number): MapInfo |
 function intentoAzotea(floor: number, size: Size, intento: number): MapInfo | null {
   const rng = mulberry32(seedDe(floor, size, intento));
   const rg = rangoDe(floor, size);
-  const S = size === 'grande' ? 30 : size === 'mediano' ? 25 : 20;
+  const S = size === 'grande' ? 30 : size === 'mediano' ? 28 : 26;
   const perim: P2[] = [[0, 0], [S, 0], [S, S], [0, S]];
   const cx = S / 2, cy = S / 2;
   const R_HELI = 6;

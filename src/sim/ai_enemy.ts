@@ -53,6 +53,10 @@ interface Brain {
   lastSawAt: number;
   specialAt: number;
   unstuck: number;
+  /** ya está en su puesto de cobertura (aunque no clave el punto exacto) */
+  atHide: boolean;
+  peekDone: boolean;
+  hideDone: boolean;
 }
 
 export class Squad {
@@ -72,7 +76,8 @@ export class Squad {
   constructor(public id: number, public home: Vec2, public hunt: boolean) { this.rally = home; }
 }
 
-const SPREAD: Record<EnemyKind, number> = { enemy1: 0.055, enemy2: 0.045, enemy3: 0.038, miniboss: 0.03, megaboss: 0.05 };
+// Dispersión (sigma, rad). Además, un blanco que corre es mucho más difícil: la velocidad del jugador es su defensa.
+const SPREAD: Record<EnemyKind, number> = { enemy1: 0.085, enemy2: 0.07, enemy3: 0.055, miniboss: 0.03, megaboss: 0.07 };
 /** distancia a la que le gusta pelear a cada tipo [mín, máx] */
 const BAND: Record<EnemyKind, [number, number]> = { enemy1: [5, 11], enemy2: [8, 16], enemy3: [11, 21], miniboss: [6, 14], megaboss: [5, 14] };
 
@@ -120,7 +125,7 @@ export class EnemyAI {
       visId: -1, senseAt: this.w.time + this.w.rng() * 0.1, role: 'assault', cover: null, hide: null, peek: null, peeking: false,
       phaseUntil: 0, coverCheckAt: 0, cycles: 0, band: 0, dest: null, patrolI: 0, waitUntil: 0, searchPts: [], inv: null,
       reactAt: 0, burstUntil: 0, restUntil: 0, faceYaw: u.yaw, alerted: false, hunt: s.hunt, home: s.home, lastSawAt: -99,
-      specialAt: this.w.time + 3, unstuck: 0,
+      specialAt: this.w.time + 3, unstuck: 0, atHide: false, peekDone: false, hideDone: false,
     };
   }
 
@@ -399,7 +404,7 @@ export class EnemyAI {
     if (b.state === 'cover' && st !== 'cover') this.releaseCover(u, b);
     b.state = st; b.stateAt = w.time;
     b.commitUntil = w.time + commit * (0.85 + w.rng() * 0.3);
-    u.path = null; u.repathAt = 0;
+    u.path = null; u.repathAt = 0; b.atHide = false;
     if (st !== 'cover') { u.crouch = false; b.peeking = false; }
     if (st === 'patrol' || st === 'investigate' || st === 'search') b.waitUntil = Math.max(b.waitUntil, 0);
   }
@@ -642,7 +647,7 @@ export class EnemyAI {
     if (az < 0) return false;
     const tv = Math.hypot(t.vx, t.vy);
     const moving = Math.hypot(u.vx, u.vy) > 0.4 ? 0.02 : 0;
-    w.fire(u, t.x, t.y, az, (SPREAD[u.ekind!] + tv * 0.005 + moving) * spreadMul);
+    w.fire(u, t.x, t.y, az * 0.85, (SPREAD[u.ekind!] + tv * 0.013 + (t.crouch ? 0.015 : 0) + moving) * spreadMul);
     u.fireCd = 1 / u.stats.rof;
     return true;
   }
@@ -705,14 +710,16 @@ export class EnemyAI {
     const bl = b.belief;
     if (!bl) { this.setState(u, b, 'patrol', 1); return; }
     const hide = b.hide ?? [u.x, u.y];
-    const atHide = Math.hypot(hide[0] - u.x, hide[1] - u.y) < 0.45;
+    const dHide = Math.hypot(hide[0] - u.x, hide[1] - u.y);
+    if (dHide > 1.6) b.atHide = false;
+    const atHide = dHide < 0.45 || b.atHide;
     const lowCover = !!b.cover && !b.cover.high;
 
     // de camino a la cobertura
     if (b.phaseUntil === 0 && !atHide) {
       u.aiState = 'a cubierto';
       u.crouch = false;
-      w.navigate(u, hide[0], hide[1], sp, null, 0.35);
+      if (w.navigate(u, hide[0], hide[1], sp, null, 0.35)) b.atHide = true;
       if (tgt) { this.face(u, b, tgt); this.tryShoot(u, b, tgt, 1.7); } else this.faceMove(u, b);
       if (w.time - b.stateAt > 9) { this.releaseCover(u, b); this.decide(u, b); }
       return;
@@ -745,15 +752,17 @@ export class EnemyAI {
     if (u.reloading > 0) b.peeking = false; // recargar, siempre escondido
 
     if (b.peeking) {
+      b.hideDone = false;
       u.aiState = b.role === 'suppress' ? 'fija' : 'dispara';
       u.crouch = false;
       const pk = b.peek ?? hide;
-      if (Math.hypot(pk[0] - u.x, pk[1] - u.y) > 0.3) w.navigate(u, pk[0], pk[1], sp, null, 0.25);
+      if (Math.hypot(pk[0] - u.x, pk[1] - u.y) > 0.3 && w.time - b.phaseUntil < -0.0 && !b.peekDone) { if (w.navigate(u, pk[0], pk[1], sp, null, 0.25)) b.peekDone = true; }
       if (tgt) { this.face(u, b, tgt); this.tryShoot(u, b, tgt, 1); }
       else b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
     } else {
       u.aiState = u.reloading > 0 ? 'recarga' : 'cubierto';
-      if (!atHide) w.navigate(u, hide[0], hide[1], sp, null, 0.3);
+      b.peekDone = false;
+      if (dHide > 0.45 && !b.hideDone) { if (w.navigate(u, hide[0], hide[1], sp, null, 0.3)) b.hideDone = true; }
       u.crouch = lowCover && atHide;
       b.faceYaw = Math.atan2(bl.y - u.y, bl.x - u.x);
     }

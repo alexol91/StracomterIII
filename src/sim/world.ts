@@ -113,6 +113,8 @@ export class World implements IWorld {
   private soundFields = new Map<number, { f: Float32Array; t: number; ver: number }>();
   private soundBudget = 0;
   private lastInput: PlayerInput | null = null;
+  /** diagnóstico (pruebas): se llama cuando hay que sacar a alguien de un atasco */
+  onUnstuck: ((u: Unit) => void) | null = null;
   private dryAt = -1;
 
   constructor(cfg: WorldConfig) {
@@ -558,7 +560,7 @@ export class World implements IWorld {
     if (d > maxDist) { dx *= maxDist / d; dy *= maxDist / d; d = maxDist; }
     if (d < 0.5) { dx = Math.cos(u.yaw) * 0.5; dy = Math.sin(u.yaw) * 0.5; d = 0.5; }
     const z0 = this.muzzleZ(u);
-    const T = kind === 'rocket' ? Math.max(0.5, d / 11) : Math.max(0.45, Math.min(1.2, d / 13));
+    const T = kind === 'rocket' ? Math.max(0.6, d / 9) : Math.max(0.45, Math.min(1.2, d / 13));
     const g = kind === 'rocket' ? 2 : 9.8;
     this.projectiles.push({
       id: this.nextId++, kind, ownerId: u.id, team: u.team, x: u.x, y: u.y, z: z0,
@@ -821,6 +823,8 @@ export class World implements IWorld {
   navigate(u: Unit, tx: number, ty: number, speed: number, penalty: Float32Array | null = null, arrive = 0.35): boolean {
     const d = Math.hypot(tx - u.x, ty - u.y);
     if (d < arrive) { u.wishX = u.wishY = 0; u.path = null; return true; }
+    // Casi ha llegado pero no puede acercarse más (otro cuerpo en el sitio, un mueble pegado): vale como llegar.
+    if (d < arrive + 0.9 && this.time - u.refT > 0.5 && this.time - u.spawnAt > 1) { u.wishX = u.wishY = 0; u.path = null; u.refT = this.time; return true; }
     const L = this.level;
     const moved = Math.hypot(tx - u.goalX, ty - u.goalY) > 1.0;
     if (!u.path || moved || this.time >= u.repathAt || u.navVer !== L.version) {
@@ -879,7 +883,8 @@ export class World implements IWorld {
         const b = ents[j];
         if (!b.alive) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
-        const rr = a.radius + b.radius;
+        // entre IAs del mismo bando se dejan apretar (si no, dos grupos se taponan en una puerta de 1,33 m)
+        const rr = (a.radius + b.radius) * (a.team === b.team && !a.isPlayer && !b.isPlayer ? 0.55 : 1);
         if (Math.abs(dx) >= rr || Math.abs(dy) >= rr) continue;
         const d = Math.hypot(dx, dy);
         if (d >= rr) continue;
@@ -896,7 +901,8 @@ export class World implements IWorld {
     for (const u of ents) {
       if (!u.alive) continue;
       if (!(u.isPlayer && this.cheats.noclip)) {
-        this.level.resolve(u.x, u.y, NAV_RADIUS, _v);
+        // algo menos que el inflado de la rejilla: así un hueco de una celda nunca encaja el cuerpo contra dos esquinas
+        this.level.resolve(u.x, u.y, NAV_RADIUS - 0.06, _v);
         u.x = _v[0]; u.y = _v[1];
       }
       // atascos: si quiere moverse y no avanza
@@ -907,6 +913,7 @@ export class World implements IWorld {
         if (st > u.stuckMax) u.stuckMax = st;
         if (st > 0.9) u.repathAt = 0; // pide otro camino
         if (st > 1.8) {
+          if (this.onUnstuck) this.onUnstuck(u);
           // sácalo a la celda libre más cercana y oblígale a replantearse el destino
           const c = this.level.nearestFree(u.x + (this.rng() - 0.5) * 1.5, u.y + (this.rng() - 0.5) * 1.5, true);
           if (c >= 0) { u.x = this.level.cellX(c); u.y = this.level.cellY(c); }
