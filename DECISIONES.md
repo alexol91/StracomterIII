@@ -120,6 +120,21 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
   una puerta de 1,33 m se taponaban.
 * Subtítulos desactivados por defecto (se activan en Opciones).
 
+## V2: mapas más grandes (decisión del dueño, 2026-11-18)
+
+Tras jugar, el dueño encontró pequeños los pasillos, las salas y los mapas. **Se aparta de la tabla de
+tamaños de la sección 11 y de «constrúyelos tal cual» para los mapas de muestra:**
+
+* **Los tres mapas reales de la planta 1 se amplían ×1,6 en planta** (`SAMPLE_MAP_SCALE` en
+  `src/sim/maps.ts`). Se escalan las posiciones; los muebles y el grosor de los muros conservan su tamaño
+  real, y las puertas pasan a ~2,1 m. La distribución sigue siendo la original.
+* **Plantas 2 a 9 regeneradas:** pequeño 450-800 m², mediano 1.000-1.700, grande 1.900-3.000; salas de
+  6-7 m de lado mínimo, pasillos de 3,4-4,2 m, puertas de 1,6 m; azotea de 50×50 m. Más muebles, en
+  conjuntos (islas de escritorios, filas de racks, rincones de sofá).
+* El número de enemigos por zona no cambia (es la tabla de la sección 8): hay más espacio por enemigo.
+* Efecto secundario bueno: la regla de aparecer a 12 m ya cabe en todos los mapas, y el MiniBoss ya no se
+  ve desde la entrada en ninguno.
+
 ## Cambio de estilo gráfico (decisión del dueño, 2026-11-18)
 
 Tras jugar la primera versión, el dueño pidió subir la calidad gráfica hacia un estilo de «hero shooter»
@@ -141,11 +156,6 @@ marcado, estilo cómic», «modelos sencillos») y de «ningún asset descargado
   se fuerza con `?quality=low|high`.
 
 ## Lo que se ha recortado
-
-* **El MiniBoss se ve desde la entrada en dos mapas** (pequeños de las plantas 2 y 6). Está donde el mapa
-  marca el punto del jefe y ese punto tiene línea de visión con el inicio. No aparece delante de ti —está
-  de guardia desde el principio— pero incumple el espíritu de «no verlos aparecer». El resto de enemigos
-  sí lo cumple (comprobado en `tests/director.test.ts`).
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo
   es simple**: el flanqueador busca un punto al otro lado del objetivo y va por un camino que evita lo

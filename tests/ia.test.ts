@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { playZone } from '../tools/partida';
 import { emptyInput } from '../src/sim/types';
 import type { Unit, World } from '../src/sim/world';
-import { DT, calmar, dist, killAllies, quickWorld, run } from './helpers';
+import { DT, calmar, dist, killAllies, muroConCruces, puertaConCruce, quickWorld, run } from './helpers';
 
 describe('21.6 · no se atascan', () => {
   const zonas: [number, number][] = [[1, 1], [1, 3], [1, 5], [4, 3], [7, 5]];
@@ -155,18 +155,19 @@ describe('14 · oído', () => {
 
   it('14 · el sonido se propaga por donde se anda: la puerta cerrada amortigua y el tabique obliga a rodear', () => {
     const { world } = quickWorld(1, 1);
-    const door = world.level.doors.find(d => d.vertical && Math.abs(d.cy - 2.18) < 0.1)!;
+    const k = puertaConCruce(world, 1.2);
     // soundDist tiene un presupuesto de cálculos por paso (restrictivo: sin presupuesto devuelve Infinity): un paso antes de cada consulta
-    const consulta = (sx: number, sy: number, lx: number, ly: number) => { run(world, 1 / 60 * 2); return world.soundDist(sx, sy, lx, ly, 60); };
-    const cerrada = consulta(5.6, door.cy, 3.2, door.cy);
-    world.toggleDoor(door.id, true, null);
-    const abierta = consulta(5.6, door.cy, 3.2, door.cy);
+    const consulta = (sx: number, sy: number, lx: number, ly: number) => { run(world, 1 / 60 * 2); return world.soundDist(sx, sy, lx, ly, 120); };
+    const cerrada = consulta(k.b[0], k.y, k.a[0], k.y);
+    world.toggleDoor(k.id, true, null);
+    const abierta = consulta(k.b[0], k.y, k.a[0], k.y);
     expect(abierta).toBeLessThan(Infinity);
     expect(cerrada).toBeGreaterThan(abierta);                         // la puerta cerrada cuenta como un tramo largo
-    world.toggleDoor(door.id, false, null);
-    // el tabique macizo (sin pasar por la puerta) obliga a rodear: más largo que la recta
-    const recta = Math.hypot(5.6 - 3.2, 0);
-    const tabique = consulta(5.6, 3.2, 3.2, 3.2);
+    world.toggleDoor(k.id, false, null);
+    // un muro macizo (sin pasar por la puerta) obliga a rodear: más largo que la recta
+    const m = muroConCruces(world, 1, 1.2).find(c => Math.abs(c.rect.x0 - k.rect.x0) > 0.5 || Math.abs(c.rect.y0 - k.rect.y0) > 0.5) ?? muroConCruces(world, 1, 1.2)[0];
+    const recta = Math.hypot(m.b[0] - m.a[0], 0);
+    const tabique = consulta(m.b[0], m.y, m.a[0], m.y);
     expect(tabique).toBeGreaterThan(recta + 0.5);
   });
 });

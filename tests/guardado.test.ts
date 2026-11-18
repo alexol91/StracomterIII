@@ -68,6 +68,7 @@ describe('21.14 / 19 · guardado y carga', () => {
     world.kill(world.entities.find(e => e.kind === muerto)!);
     const antes = JSON.parse(JSON.stringify(state.members)) as CampaignState['members'];
     expect(playZone(world, 600, true).result).toBe('cleared');
+    const snap = world.memberSnapshot();               // antes de cobrar: ¿tenía hueco en el inventario?
     const sum = campaign.completeZone(state, world);
     expect(sum.fallen).toEqual([muerto]);
     expect(sum.rewarded.sort()).toEqual(CLASS_IDS.filter(c => c !== muerto).sort());
@@ -76,7 +77,9 @@ describe('21.14 / 19 · guardado y carga', () => {
       const inv = cargado.members[c].inv;
       if (c === muerto) expect(inv.every(x => x === null), 'el muerto no cobra').toBe(true);
       else {
-        expect(inv.includes('municion_50'), `${c} cobra la recompensa de la zona 3`).toBe(true);
+        // con hueco libre entra en el inventario; con el inventario lleno se aplica al momento (+50 balas)
+        if (snap[c]!.inv.includes(null)) expect(inv.includes('municion_50'), `${c} cobra la recompensa de la zona 3`).toBe(true);
+        else expect(cargado.members[c].ammo, `${c} (inventario lleno) recibe las balas`).toBe(Math.min(999, snap[c]!.ammo + 50));
         // y no se pierde lo que llevaba antes (los objetos recogidos de lo que ya tenía)
         void antes;
       }

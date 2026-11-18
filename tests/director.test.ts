@@ -101,10 +101,8 @@ describe('9 · al empezar una zona', () => {
     expect(malos, `${malos.length} de ${total} empiezan a la vista`).toEqual([]);
   });
 
-  // CONOCIDO Y NO CUMPLIDO (ver DECISIONES.md): el jefe se coloca donde el mapa lo marca (§7) y en los mapas
-  // pequeños de las plantas 2 y 6 ese punto se ve desde la entrada. No «aparece» delante de ti (está ahí desde
-  // el principio, de guardia), pero se le ve. `it.fails` deja constancia: si un día se arregla, esta prueba avisará.
-  it.fails('9 · el jefe (miniboss/MegaBoss) tampoco empieza a la vista del jugador', () => {
+  // Con los mapas ampliados de la V2 el punto del jefe ya no tiene línea de visión con la entrada.
+  it('9 · el jefe (miniboss/MegaBoss) tampoco empieza a la vista del jugador', () => {
     const malos: string[] = [];
     for (const [f, z] of zonas) {
       const { world } = quickWorld(f, z);

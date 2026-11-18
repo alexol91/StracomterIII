@@ -18,10 +18,12 @@
 //    comprueba el generador internamente al construir el plano.
 //  - No se mira que el mapa «se lea» distinto por planta (eso es de las capturas de tools/dump-maps.ts).
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { generateMap, generateMapInfo } from '../src/sim/mapgen';
 import { FURNITURE } from '../src/sim/data';
 import type { MapDef, Vec2 } from '../src/sim/types';
+
+vi.setConfig({ testTimeout: 120000 });
 
 type Size = 'pequeno' | 'mediano' | 'grande';
 type Pt = [number, number];
@@ -34,15 +36,18 @@ const CASOS: [number, Size][] = [];
 for (let f = 2; f <= 8; f++) for (const s of ['pequeno', 'mediano', 'grande'] as const) CASOS.push([f, s]);
 CASOS.push([9, 'grande']);
 
+// V2: mapas más grandes y espaciosos (decisión del dueño; se aparta de la tabla del documento).
 const TABLA: Record<Size, { area: [number, number]; muros: [number, number]; puertas: [number, number]; mob: [number, number]; obj: [number, number] }> = {
-  pequeno: { area: [150, 350], muros: [5, 8], puertas: [2, 3], mob: [12, 24], obj: [2, 5] },
-  mediano: { area: [400, 900], muros: [9, 15], puertas: [5, 6], mob: [30, 42], obj: [5, 8] },
-  grande: { area: [700, 1170], muros: [12, 18], puertas: [4, 7], mob: [27, 47], obj: [5, 8] },
+  pequeno: { area: [450, 800], muros: [6, 12], puertas: [3, 5], mob: [25, 45], obj: [4, 7] },
+  mediano: { area: [1000, 1700], muros: [12, 22], puertas: [6, 10], mob: [55, 80], obj: [8, 12] },
+  grande: { area: [1900, 3000], muros: [16, 30], puertas: [8, 14], mob: [70, 110], obj: [10, 14] },
 };
+const PUERTA_W = 1.6;
+const CALLE = 1.8;
 
 function rango(f: number, s: Size) {
-  if (f === 8 && s === 'grande') return { area: [700, 780], muros: [26, 28], puertas: [13, 15], mob: [0, 0], obj: [16, 16] } as typeof TABLA.grande;
-  if (f === 9) return { area: [800, 1000], muros: [3, 18], puertas: [0, 2], mob: [12, 18], obj: [5, 8] } as typeof TABLA.grande;
+  if (f === 8 && s === 'grande') return { area: [1850, 2150], muros: [30, 45], puertas: [16, 24], mob: [0, 0], obj: [16, 16] } as typeof TABLA.grande;
+  if (f === 9) return { area: [900, 2700], muros: [5, 7], puertas: [0, 0], mob: [28, 40], obj: [10, 12] } as typeof TABLA.grande;
   return TABLA[s];
 }
 
@@ -118,29 +123,43 @@ const centro = (P: Pt[]): Pt => { const b = bbox(P); return [(b.x0 + b.x1) / 2, 
 const CELDA = 0.2, RADIO = 0.4;
 interface Rejilla { nx: number; ny: number; libre: Uint8Array }
 
-/** `bloqueos`: polígonos extra tratados como obstáculo (p. ej. una abertura tapiada). Las puertas NO se
- *  pasan aquí salvo que se tapien: en estas pruebas están abiertas. */
+const baseCache = new WeakMap<MapDef, Rejilla>();
+/** Rejilla base (puertas abiertas) de un mapa, y copia con `bloqueos` (p. ej. una abertura tapiada) si se piden. */
 function rejilla(m: MapDef, bloqueos: Pt[][]): Rejilla {
-  const per = m.perimetro as Pt[];
-  const nx = Math.ceil(m.ancho_m / CELDA) + 1, ny = Math.ceil(m.alto_m / CELDA) + 1;
-  const libre = new Uint8Array(nx * ny);
-  const obst: { P: Pt[]; bb: ReturnType<typeof bbox> }[] = [];
-  for (const w of m.muros) obst.push({ P: w as Pt[], bb: bbox(w as Pt[]) });
-  for (const f of m.mobiliario) { const P = mueblePoly(f); obst.push({ P, bb: bbox(P) }); }
-  for (const b of bloqueos) obst.push({ P: b, bb: bbox(b) });
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const p: Pt = [(i + 0.5) * CELDA, (j + 0.5) * CELDA];
-      if (!dentro(p, per) || dPtPerim(p, per) <= RADIO) continue;
-      let ok = true;
-      for (const o of obst) {
-        if (p[0] < o.bb.x0 - RADIO || p[0] > o.bb.x1 + RADIO || p[1] < o.bb.y0 - RADIO || p[1] > o.bb.y1 + RADIO) continue;
-        if (dPtPoly(p, o.P) <= RADIO) { ok = false; break; }
+  let base = baseCache.get(m);
+  if (!base) {
+    const per = m.perimetro as Pt[];
+    const nx = Math.ceil(m.ancho_m / CELDA) + 1, ny = Math.ceil(m.alto_m / CELDA) + 1;
+    const libre = new Uint8Array(nx * ny);
+    const obst: { P: Pt[]; bb: ReturnType<typeof bbox> }[] = [];
+    for (const w of m.muros) obst.push({ P: w as Pt[], bb: bbox(w as Pt[]) });
+    for (const f of m.mobiliario) { const P = mueblePoly(f); obst.push({ P, bb: bbox(P) }); }
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const p: Pt = [(i + 0.5) * CELDA, (j + 0.5) * CELDA];
+        if (!dentro(p, per) || dPtPerim(p, per) <= RADIO) continue;
+        let ok = true;
+        for (const o of obst) {
+          if (p[0] < o.bb.x0 - RADIO || p[0] > o.bb.x1 + RADIO || p[1] < o.bb.y0 - RADIO || p[1] > o.bb.y1 + RADIO) continue;
+          if (dPtPoly(p, o.P) <= RADIO) { ok = false; break; }
+        }
+        if (ok) libre[j * nx + i] = 1;
       }
-      if (ok) libre[j * nx + i] = 1;
+    }
+    base = { nx, ny, libre };
+    baseCache.set(m, base);
+  }
+  if (!bloqueos.length) return base;
+  const libre = base.libre.slice();
+  for (const b of bloqueos) {
+    const bb = bbox(b);
+    for (let j = Math.max(0, Math.floor((bb.y0 - RADIO) / CELDA)); j <= Math.min(base.ny - 1, Math.ceil((bb.y1 + RADIO) / CELDA)); j++) {
+      for (let i = Math.max(0, Math.floor((bb.x0 - RADIO) / CELDA)); i <= Math.min(base.nx - 1, Math.ceil((bb.x1 + RADIO) / CELDA)); i++) {
+        if (libre[j * base.nx + i] && dPtPoly([(i + 0.5) * CELDA, (j + 0.5) * CELDA], b) <= RADIO) libre[j * base.nx + i] = 0;
+      }
     }
   }
-  return { nx, ny, libre };
+  return { nx: base.nx, ny: base.ny, libre };
 }
 function celdaCercana(g: Rejilla, p: Pt): number {
   const ci = Math.floor(p[0] / CELDA), cj = Math.floor(p[1] / CELDA);
@@ -180,8 +199,12 @@ function m2Aislados(g: Rejilla, vis: Uint8Array): number {
 // ----------------------------------------------------------------------------------------------
 
 describe('generateMap: determinismo', () => {
-  it.each(CASOS)('planta %i %s: dos llamadas dan el mismo JSON', (f, s) => {
-    expect(JSON.stringify(generateMap(f, s))).toBe(JSON.stringify(generateMap(f, s)));
+  it.each(CASOS)('planta %i %s: dos llamadas dan el mismo JSON y la primera tarda < 1,5 s', (f, s) => {
+    const t0 = performance.now();
+    const a = JSON.stringify(generateMap(f, s));
+    const ms = performance.now() - t0;
+    expect(a).toBe(JSON.stringify(generateMap(f, s)));
+    expect(ms, `${f}/${s} tardó ${ms.toFixed(0)} ms`).toBeLessThan(1500);
   });
   it('la planta 9 no falla con ningún tamaño', () => {
     for (const s of ['pequeno', 'mediano', 'grande'] as const) {
@@ -231,11 +254,11 @@ describe.each(CASOS)('planta %i %s', (f, s) => {
       const bb = bbox(p as Pt[]);
       const dims = [bb.x1 - bb.x0, bb.y1 - bb.y0].sort((x, y) => x - y);
       expect(dims[0]).toBeCloseTo(0.33, 1);
-      expect(dims[1]).toBeCloseTo(1.33, 1);
+      expect(dims[1]).toBeCloseTo(PUERTA_W, 1);
     }
     for (const v of I().vanos) {
       const bb = bbox(v as Pt[]);
-      expect(Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0)).toBeGreaterThanOrEqual(1.6);
+      expect(Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0)).toBeGreaterThanOrEqual(2.4);
     }
   });
 
@@ -287,18 +310,35 @@ describe.each(CASOS)('planta %i %s', (f, s) => {
     }
   });
 
-  it('holguras: ≥1,2 m en puertas y vanos, ≥2,5 m del inicio, ≥2 m del jefe', () => {
+  it('holguras: ≥1,2 m en puertas y vanos, ≥4 m del inicio, ≥2 m del jefe', () => {
     const m = M();
     const P = m.mobiliario.map(mueblePoly);
     const aberturas = [...m.puertas, ...I().vanos].map((a) => centro(a as Pt[]));
     P.forEach((p, i) => {
       for (const c of aberturas) expect(dPtPoly(c, p), `${m.mobiliario[i].tipo} ${m.mobiliario[i].pos} tapa una abertura`).toBeGreaterThanOrEqual(1.2);
-      expect(dPtPoly(m.inicio_jugador as Pt, p), `inicio / ${m.mobiliario[i].tipo} ${m.mobiliario[i].pos}`).toBeGreaterThanOrEqual(2.5);
+      expect(dPtPoly(m.inicio_jugador as Pt, p), `inicio / ${m.mobiliario[i].tipo} ${m.mobiliario[i].pos}`).toBeGreaterThanOrEqual(4);
       expect(dPtPoly(m.punto_jefe as Pt, p), `jefe / ${m.mobiliario[i].tipo} ${m.mobiliario[i].pos}`).toBeGreaterThanOrEqual(f === 9 ? 6 : 2);
     });
   });
 
-  it('entre muebles no adosados hay ≥1,0 m de paso (las sillas solo no pueden solaparse)', () => {
+  it('desde el inicio hay ≥8 m despejados (con holgura de personaje) en alguna dirección', () => {
+    const m = M();
+    const per = m.perimetro as Pt[];
+    const obst: Pt[][] = [...m.muros as Pt[][], ...m.mobiliario.map(mueblePoly)];
+    let algunaOk = false;
+    for (let k = 0; k < 24 && !algunaOk; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      let ok = true;
+      for (let d = 0.25; d <= 8 && ok; d += 0.25) {
+        const p: Pt = [m.inicio_jugador[0] + Math.cos(a) * d, m.inicio_jugador[1] + Math.sin(a) * d];
+        ok = dentro(p, per) && dPtPerim(p, per) >= RADIO && obst.every((P) => dPtPoly(p, P) >= RADIO);
+      }
+      algunaOk = ok;
+    }
+    expect(algunaOk).toBe(true);
+  });
+
+  it('entre conjuntos de muebles hay calles de ≥1,8 m (≥1,0 si es una maceta; las sillas solo no pueden solaparse)', () => {
     const m = M();
     const P = m.mobiliario.map(mueblePoly);
     for (let i = 0; i < P.length; i++) {
@@ -306,7 +346,12 @@ describe.each(CASOS)('planta %i %s', (f, s) => {
         if (m.mobiliario[i].tipo === 'silla' || m.mobiliario[j].tipo === 'silla') continue;
         const d = dPoly(P[i], P[j]);
         if (d <= 0.1) continue; // adosados
-        expect(d, `${m.mobiliario[i].tipo} ${m.mobiliario[i].pos} / ${m.mobiliario[j].tipo} ${m.mobiliario[j].pos}`).toBeGreaterThanOrEqual(1.0);
+        // piezas de una misma fila adosada (A-B-C): A y C quedan a menos de 1,8 m pero B las une
+        const min = m.mobiliario[i].tipo === 'maceta' || m.mobiliario[j].tipo === 'maceta' ? 1.0 : CALLE;
+        if (d >= min) continue;
+        const puente = P.some((q, k) => k !== i && k !== j && m.mobiliario[k].tipo !== 'silla' && dPoly(q, P[i]) <= 0.1 && dPoly(q, P[j]) <= 0.1);
+        if (puente) continue;
+        expect(d, `${m.mobiliario[i].tipo} ${m.mobiliario[i].pos} / ${m.mobiliario[j].tipo} ${m.mobiliario[j].pos}`).toBeGreaterThanOrEqual(min);
       }
     }
   });
@@ -354,7 +399,7 @@ describe.each(CASOS)('planta %i %s', (f, s) => {
       for (let i = 0; i < m.objetos.length; i++) for (let j = i + 1; j < m.objetos.length; j++) {
         min = Math.min(min, Math.hypot(m.objetos[i].pos[0] - m.objetos[j].pos[0], m.objetos[i].pos[1] - m.objetos[j].pos[1]));
       }
-      expect(min).toBeGreaterThanOrEqual(2.5);
+      expect(min).toBeGreaterThanOrEqual(3.5);
     }
     // seis tipos a partes (casi) iguales
     const cuenta: Record<string, number> = {};
@@ -409,8 +454,8 @@ describe('rasgos propios de cada planta', () => {
     const m = info(8, 'grande').map;
     expect(m.mobiliario.length).toBe(0);
     expect(m.objetos.length).toBe(16);
-    expect(m.muros.length).toBeGreaterThanOrEqual(26);
-    expect(m.puertas.length).toBeGreaterThanOrEqual(13);
+    expect(m.muros.length).toBeGreaterThanOrEqual(30);
+    expect(m.puertas.length).toBeGreaterThanOrEqual(16);
   });
 
   it('planta 6 diáfana: pocos tabiques, ninguno cierra una sala (el suelo sigue en un solo trozo sin puertas)', () => {
@@ -424,18 +469,31 @@ describe('rasgos propios de cada planta', () => {
     }
   });
 
-  it('planta 9: helipuerto de 6 m despejado, casetones y 12-18 estanterías', () => {
+  it('planta 9: ~50×50 m, helipuerto de 6 m despejado, 5-7 muros (casetones) y 28-40 estanterías en islas de 2-4', () => {
     const m = info(9, 'grande').map;
     expect(m.punto_jefe[0]).toBeCloseTo(m.ancho_m / 2, 1);
     expect(m.punto_jefe[1]).toBeCloseTo(m.alto_m / 2, 1);
-    expect(m.ancho_m).toBeGreaterThanOrEqual(28);
+    expect(m.ancho_m).toBeGreaterThanOrEqual(48);
+    expect(m.puertas.length).toBe(0);
+    expect(m.muros.length).toBeGreaterThanOrEqual(5);
+    expect(m.muros.length).toBeLessThanOrEqual(7);
+    // casetones de 4×4 a 6×6 (o tramos en L)
+    const bloques = m.muros.map((w) => bbox(w as Pt[])).filter((b) => Math.min(b.x1 - b.x0, b.y1 - b.y0) > 1);
+    expect(bloques.length).toBeGreaterThanOrEqual(4);
+    for (const b of bloques) { expect(b.x1 - b.x0).toBeGreaterThanOrEqual(3.9); expect(b.x1 - b.x0).toBeLessThanOrEqual(6.1); }
     for (const f of m.mobiliario) {
       expect(f.tipo).toBe('estanteria');
       expect(dPtPoly(m.punto_jefe as Pt, mueblePoly(f))).toBeGreaterThanOrEqual(6);
     }
     for (const w of m.muros) expect(dPtPoly(m.punto_jefe as Pt, w as Pt[])).toBeGreaterThanOrEqual(6);
-    expect(m.muros.length).toBeGreaterThanOrEqual(3);
-    expect(m.puertas.length).toBeLessThanOrEqual(2);
+    // islas: componentes conexas (separación ≤ 0.1 m) de 2 a 4 piezas
+    const P = m.mobiliario.map(mueblePoly);
+    const comp = P.map((_, i) => i);
+    const raiz = (i: number): number => (comp[i] === i ? i : (comp[i] = raiz(comp[i])));
+    for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) if (dPoly(P[i], P[j]) <= 0.1) comp[raiz(i)] = raiz(j);
+    const tam = new Map<number, number>();
+    for (let i = 0; i < P.length; i++) tam.set(raiz(i), (tam.get(raiz(i)) ?? 0) + 1);
+    for (const n of tam.values()) { expect(n).toBeGreaterThanOrEqual(2); expect(n).toBeLessThanOrEqual(4); }
   });
 
   it('la superficie crece con la planta (2 cerca del mínimo, 7 cerca del máximo del rango)', () => {

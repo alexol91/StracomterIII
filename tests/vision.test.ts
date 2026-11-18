@@ -20,12 +20,9 @@ import { playZone } from '../tools/partida';
 import { FURNITURE } from '../src/sim/data';
 import { Level } from '../src/sim/level';
 import { emptyInput, type FurnitureType, type MapDef } from '../src/sim/types';
-import { DT, calmar, killAllies, place, quickWorld } from './helpers';
+import { DT, calmar, killAllies, muroConCruces, place, puertaConCruce, quickWorld } from './helpers';
 
 // ───────────────────────── 1. Paredes y puertas (21.5) ─────────────────────────
-
-/** Tabique de la planta 1 (mapa pequeño): muro vertical x∈[4.24,4.57], y∈[2.85,4.52]; puerta en y∈[1.52,2.85]. */
-const TABIQUE_X = 4.4;
 
 function escenario() {
   const fx = quickWorld(1, 1);
@@ -33,18 +30,21 @@ function escenario() {
   calmar(world);                          // sin enemigos del director y con el director parado
   killAllies(world);                      // sólo cuentan el enemigo y el jugador
   world.cheats.god = true;                // el jugador no puede morir a media prueba
-  const enemy = world.spawnUnit("enemy1", 3.2, 3.2, false);
+  const enemy = world.spawnUnit('enemy1', world.player.x, world.player.y, false);
   return { ...fx, enemy, player: world.player };
 }
 
 describe('21.5 · no ven ni disparan a través de paredes', () => {
-  for (const y of [3.0, 3.2, 3.4]) {
-    it(`21.5 · tabique cerrado, enemigo a un lado y jugador a 2,4 m al otro (y=${y}): 10 s sin disparos y sin visión`, () => {
+  for (const pos of ['principio', 'medio', 'final'] as const) {
+    it(`21.5 · tabique cerrado, enemigo a un lado y jugador a ~2,4 m al otro (tramo ${pos} del muro): 10 s sin disparos y sin visión`, () => {
       const { world, enemy, player } = escenario();
-      const [ex, py] = [3.2, y];
+      // el muro y los puntos salen del propio nivel (world.level.walls), no de coordenadas fijas
+      const cr = muroConCruces(world, 1, 1.2);
+      const k = pos === 'principio' ? cr[0] : pos === 'medio' ? cr[Math.floor(cr.length / 2)] : cr[cr.length - 1];
+      const [ex, py] = k.a;
       const hold = () => { place(world, enemy, ex, py, 0); };       // el enemigo no puede rodear el tabique
       hold();
-      place(world, player, 5.6, py, Math.PI);
+      place(world, player, k.b[0], k.b[1], Math.PI);
       const inp = emptyInput();
       inp.yaw = Math.PI;
       // el jugador DISPARA contra el muro: hace ruido, el enemigo sabe que hay alguien y quiere ir a mirar
@@ -68,11 +68,11 @@ describe('21.5 · no ven ni disparan a través de paredes', () => {
 
   it('21.5 · puerta cerrada: enemigo y jugador enfrentados a 2,4 m, 10 s sin disparos ni visión', () => {
     const { world, enemy, player } = escenario();
-    const door = world.level.doors.find(d => d.vertical && Math.abs(d.cy - 2.18) < 0.1)!;
-    expect(door).toBeTruthy();
-    const hold = () => { place(world, enemy, 3.2, door.cy, 0); };
+    const k = puertaConCruce(world, 1.2);
+    const door = world.level.doors[k.id];
+    const hold = () => { place(world, enemy, k.a[0], k.y, 0); };
     hold();
-    place(world, player, 5.6, door.cy, Math.PI);
+    place(world, player, k.b[0], k.y, Math.PI);
     const inp = emptyInput();
     inp.yaw = Math.PI;
     inp.fire = true;                      // ruido contra la puerta
@@ -95,9 +95,10 @@ describe('21.5 · no ven ni disparan a través de paredes', () => {
 
   it('21.5 · control: la misma puerta ABIERTA y los dos enfrentados → el enemigo acaba disparando', () => {
     const { world, enemy, player } = escenario();
-    const door = world.level.doors.find(d => d.vertical && Math.abs(d.cy - 2.18) < 0.1)!;
-    place(world, enemy, 3.2, door.cy, 0);
-    place(world, player, 5.6, door.cy, Math.PI);
+    const k = puertaConCruce(world, 1.2);
+    const door = world.level.doors[k.id];
+    place(world, enemy, k.a[0], k.y, 0);
+    place(world, player, k.b[0], k.y, Math.PI);
     expect(world.canSee(enemy, player)).toBe(false);      // cerrada
     expect(world.toggleDoor(door.id, true, null)).toBe(true);
     expect(world.canSee(enemy, player)).toBe(true);       // abierta: geometría despejada

@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { AMMO_CAP, GRENADE_COUNT } from '../src/sim/data';
 import { emptyInput, type Kind } from '../src/sim/types';
-import { DT, calmar, exec, killAllies, place, quickWorld, run } from './helpers';
+import { DT, calmar, exec, killAllies, muroConCruces, place, puertaConCruce, puntoLibre, quickWorld, run } from './helpers';
 
 const TIPOS: Kind[] = ['captain', 'technic', 'especialist', 'explosives', 'enemy1', 'enemy2', 'enemy3', 'miniboss', 'megaboss'];
 const EQUIPO: Record<Kind, 'ally' | 'enemy'> = {
@@ -29,10 +29,11 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
       calmar(world);
       killAllies(world);
       const p = world.player;
-      place(world, p, 5.6, 2.2, Math.PI);
-      const e = world.spawnUnit('enemy3', 2.8, 2.2, false);
-      place(world, e, 2.8, 2.2, 0);
-      world.toggleDoor(world.level.doors.find(d => d.vertical && Math.abs(d.cy - 2.18) < 0.1)!.id, true, null);
+      const k = puertaConCruce(world, 1.2);               // enemigo al oeste de una puerta y jugador al este, a ~2,4 m + puerta
+      place(world, p, k.b[0], k.y, Math.PI);
+      const e = world.spawnUnit('enemy3', k.a[0], k.y, false);
+      place(world, e, k.a[0], k.y, 0);
+      world.toggleDoor(k.id, true, null);
       if (god) expect(exec(world, 'god').join(' ')).toMatch(/ACTIVADO/);
       expect(world.cheats.god).toBe(god);
       const inp = emptyInput(); inp.yaw = Math.PI;
@@ -53,7 +54,8 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
     const { world } = quickWorld(1, 1);
     calmar(world);
     const p = world.player;
-    place(world, p, 3, 2.2);
+    const [lx, ly] = puntoLibre(world, 3, 0);
+    place(world, p, lx, ly);
     exec(world, 'god');
     world.explode(p.x + 0.3, p.y, 1.0, 2, 60, null, null);
     expect(p.hp).toBe(p.maxHp);
@@ -77,14 +79,17 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
       calmar(world);
       killAllies(world);
       const p = world.player;
-      place(world, p, 3.0, 3.4, 0);               // el tabique x∈[4.24,4.57] queda justo delante
+      const k = muroConCruces(world, 1, 1.2)[0];   // un muro vertical cualquiera: el jugador a 1,2 m de su cara oeste mirando a él
+      place(world, p, k.a[0], k.y, 0);
       if (noclip) expect(exec(world, 'noclip').join(' ')).toMatch(/ACTIVADO/);
       const inp = emptyInput(); inp.yaw = 0; inp.moveF = 1;
       run(world, 1.6, inp);
-      return p.x;
+      return { x: p.x, k };
     };
-    expect(intentar(false), 'sin noclip: el muro frena').toBeLessThan(4.24);
-    expect(intentar(true), 'con noclip: lo atraviesa').toBeGreaterThan(4.9);
+    const sin = intentar(false);
+    expect(sin.x, 'sin noclip: el muro frena').toBeLessThan(sin.k.rect.x0);
+    const con = intentar(true);
+    expect(con.x, 'con noclip: lo atraviesa').toBeGreaterThan(con.k.rect.x1 + 0.5);
   });
 
   it('21.15 · ammo: deja el cargador lleno, la reserva al tope (999 en total) y las granadas', () => {
@@ -150,10 +155,12 @@ describe('21.15 · consola: cada truco hace lo que dice', () => {
 
   it('21.15 · tp x y: el jugador aparece en ese punto (o el suelo libre más cercano)', () => {
     const { world } = quickWorld(1, 1);
-    exec(world, 'tp 12 2');
-    expect(Math.hypot(world.player.x - 12, world.player.y - 2)).toBeLessThan(0.6);
+    const [lx, ly] = puntoLibre(world, 2, 4);
+    exec(world, `tp ${lx} ${ly}`);
+    expect(Math.hypot(world.player.x - lx, world.player.y - ly)).toBeLessThan(0.6);
     // un punto dentro de un muro: se recoloca en suelo libre, no queda dentro
-    exec(world, 'tp 4.4 3.6');
+    const w = muroConCruces(world, 1)[0].rect;
+    exec(world, `tp ${(w.x0 + w.x1) / 2} ${(w.y0 + w.y1) / 2}`);
     expect(world.level.walkableAt(world.player.x, world.player.y, true)).toBe(true);
     // argumentos basura: no se mueve y contesta
     const x0 = world.player.x;

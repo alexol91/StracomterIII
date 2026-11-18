@@ -76,17 +76,22 @@ for (const k of Object.keys(muestras)) {
   entradas.push({ fichero, titulo: `Muestra ${k}` });
 }
 
-const filas: string[] = ['planta | tamaño | m2 | muros | puertas | vanos | muebles | objetos'];
+const filas: string[] = ['planta | tamaño | m2 | muros | puertas | vanos | muebles | objetos | tiempo'];
 const casos: [number, 'pequeno' | 'mediano' | 'grande'][] = [];
 for (let f = 2; f <= 8; f++) for (const s of ['pequeno', 'mediano', 'grande'] as const) casos.push([f, s]);
 casos.push([9, 'grande']);
+const filtro = process.argv[2]; // p. ej. «2/pequeno» para generar solo ese
+const t0 = Date.now();
 for (const [f, s] of casos) {
+  if (filtro && !(f + '/' + s).startsWith(filtro)) continue;
+  const tIni = Date.now();
   const info = generateMapInfo(f, s);
+  const ms = Date.now() - tIni;
   const m = info.map;
   const fichero = `P${f}-${s}.svg`;
   writeFileSync(join(OUT, fichero), svgDe(m, info.vanos, m.nombre));
   entradas.push({ fichero, titulo: m.nombre + (info.avisos.length ? ' (AVISOS: ' + info.avisos.join('; ') + ')' : '') });
-  filas.push(`${f} | ${s} | ${area(m.perimetro).toFixed(0)} | ${m.muros.length} | ${m.puertas.length} | ${info.vanos.length} | ${m.mobiliario.length} | ${m.objetos.length}`);
+  filas.push(`${f} | ${s} | ${area(m.perimetro).toFixed(0)} | ${m.muros.length} | ${m.puertas.length} | ${info.vanos.length} | ${m.mobiliario.length} | ${m.objetos.length} | ${ms} ms`);
 }
 const html = `<!doctype html><meta charset="utf-8"><title>Mapas generados</title>
 <style>body{font-family:sans-serif;background:#ddd;margin:16px}figure{margin:0 0 24px;background:#fff;padding:8px;display:inline-block}figcaption{font:12px monospace}</style>
@@ -96,4 +101,5 @@ ${entradas.map((e) => `<figure><figcaption>${e.titulo}</figcaption><img src="${e
 <pre>${filas.join('\n')}</pre>`;
 writeFileSync(join(OUT, 'index.html'), html);
 console.log(filas.join('\n'));
+void t0;
 console.log(`Escritos ${entradas.length} SVG en ${OUT}`);

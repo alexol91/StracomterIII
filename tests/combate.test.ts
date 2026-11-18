@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { AMMO_CAP, CLASS_STATS, GRENADE_COUNT } from '../src/sim/data';
 import { CLASS_IDS, emptyInput, type ClassId } from '../src/sim/types';
-import { DT, calmar, killAllies, place, pointAtDistance, quickWorld, run, step } from './helpers';
+import { DT, calmar, killAllies, muroConCruces, place, pointAtDistance, puertaConCruce, puntoLibre, quickWorld, run, step } from './helpers';
 
 /** Mundo de planta 1 zona 1 ya limpio (director parado) y sin compañeros: sólo el jugador y lo que se añada. */
 function limpio(cls: ClassId = 'captain', conAliados = false) {
@@ -35,11 +35,12 @@ describe('13 · explosiones', () => {
       void i; return d;
     });
     const out: number[] = [];
+    const [ox, oy] = puntoLibre(world, 3.5, 3);               // sitio despejado: la explosión no puede topar con muros
     for (const d of victims) {
-      const e = world.spawnUnit('miniboss', 8, 2, false);       // 200 de vida: sobrevive a todo
-      place(world, e, 8, 2);
+      const e = world.spawnUnit('miniboss', ox, oy, false);       // 200 de vida: sobrevive a todo
+      place(world, e, ox, oy);
       const hp0 = e.hp;
-      world.explode(8 - d, 2, 1.0, 2, 40, null, null);
+      world.explode(ox - d, oy, 1.0, 2, 40, null, null);
       out.push(hp0 - e.hp);
       e.alive = false;                                        // se retira para no estorbar a la siguiente medida
     }
@@ -58,12 +59,13 @@ describe('13 · explosiones', () => {
 
   it('13 · a 2 m o más de la superficie del cuerpo no hace daño (y a 2,2 m del centro, nada)', () => {
     const { world } = limpio();
-    const a = world.spawnUnit('enemy3', 8, 2, false); place(world, a, 8, 2);
-    world.explode(8 - 2.2, 2, 1.0, 2, 60, null, null);
-    expect(a.hp).toBe(a.maxHp);
+    const [ox, oy] = puntoLibre(world, 3.5, 3);
+    const a = world.spawnUnit('enemy3', ox, oy, false); place(world, a, ox, oy);
+    world.explode(ox - 2.2, oy, 1.0, 2, 60, null, null);
+    expect(a.hp).toBeCloseTo(a.maxHp, 6);
     // en el borde: a 2,0 m del centro el cuerpo (radio 0,4) aún roza el radio: el daño es residual (< 10 % del máximo)
-    const b = world.spawnUnit('enemy3', 8, 2, false); place(world, b, 8, 2);
-    world.explode(8 - 2.0, 2, 1.0, 2, 60, null, null);
+    const b = world.spawnUnit('enemy3', ox, oy, false); place(world, b, ox, oy);
+    world.explode(ox - 2.0, oy, 1.0, 2, 60, null, null);
     expect(b.maxHp - b.hp).toBeLessThan(6.01);
   });
 
@@ -71,11 +73,12 @@ describe('13 · explosiones', () => {
     const { world } = limpio('explosives', true);
     const p = world.player;
     const amigo = world.entities.find(e => e.team === 'ally' && !e.isPlayer && e.alive)!;
-    const enemigo = world.spawnUnit('enemy3', 3, 2, false);
-    place(world, p, 3.0, 3.1); place(world, amigo, 3.9, 3.1); place(world, enemigo, 3.0, 2.2);
+    const [ox, oy] = puntoLibre(world, 3.5, 3);
+    const enemigo = world.spawnUnit('enemy3', ox, oy, false);
+    place(world, p, ox + 0.5, oy); place(world, amigo, ox - 0.5, oy); place(world, enemigo, ox, oy + 0.5);
     for (const e of [p, amigo, enemigo]) e.hp = e.maxHp;
     // el jugador (Explosivo) es el dueño de la explosión, a 0,5 m de cada uno
-    world.explode(3.45, 2.65, 1.0, 2, 60, p, null);
+    world.explode(ox, oy, 1.0, 2, 60, p, null);
     expect(p.hp, 'el propio lanzador sale herido').toBeLessThan(p.maxHp);
     expect(amigo.hp, 'el compañero sale herido (fuego amigo de explosión)').toBeLessThan(amigo.maxHp);
     expect(enemigo.hp, 'el enemigo también').toBeLessThan(enemigo.maxHp);
@@ -85,42 +88,55 @@ describe('13 · explosiones', () => {
     const { world } = limpio('captain', true);
     const p = world.player;
     const amigo = world.entities.find(e => e.team === 'ally' && !e.isPlayer && e.alive)!;
-    place(world, p, 2.8, 3.1, 0); place(world, amigo, 3.5, 3.1);
+    const [ox, oy] = puntoLibre(world, 3.5, 3);
+    place(world, p, ox, oy, 0); place(world, amigo, ox + 1.0, oy);
     amigo.hp = amigo.maxHp;
-    world.fire(p, 3.5, 3.1, 1.0, 0.0);
+    world.fire(p, ox + 1.0, oy, 1.0, 0.0);
     expect(amigo.hp).toBe(amigo.maxHp);
   });
 
   it('13 · el disparo del Explosivo estalla contra un muro cercano y le hiere a él mismo', () => {
     const { world } = limpio('explosives');
     const p = world.player;
-    // muro vertical del mapa pequeño en x∈[4.24,4.57]; el jugador a 1,2 m de él mirando hacia allí
-    place(world, p, 3.0, 3.6, 0);
+    // un muro vertical cualquiera del nivel; el jugador a 1,2 m de su cara oeste, apuntando a ella
+    const k = muroConCruces(world, 1, 1.2)[0];
+    place(world, p, k.a[0], k.y, 0);
     p.hp = p.maxHp;
-    world.fire(p, 4.3, 3.6, 1.2, 0);
+    world.fire(p, k.rect.x0, k.y, 1.2, 0);
     expect(world.events.some(ev => ev.type === 'explosion')).toBe(true);
     expect(p.hp).toBeLessThan(p.maxHp);
   });
 
-  it('13 · NO atraviesa paredes: una unidad al otro lado de un tabique, a 1 m, no recibe daño', () => {
+  it('13 · NO atraviesa paredes: una unidad al otro lado de un tabique, a ~1 m del estallido, no recibe daño', () => {
     const { world } = limpio();
-    // tabique x∈[4.24,4.57]. Explosión en x=3,95; víctima en x=5,1 (a 1,15 m del centro, al otro lado) y control a 1,15 m al oeste
-    const lejos = world.spawnUnit('enemy3', 5.1, 3.2, false); place(world, lejos, 5.1, 3.2);
-    // control: misma distancia SIN pared de por medio (hacia el oeste), hay hueco libre
-    const cerca = world.spawnUnit('enemy3', 2.8, 3.2, false); place(world, cerca, 2.8, 3.2);
-    world.explode(3.95, 3.2, 1.0, 2, 60, null, null);
-    expect(cerca.hp, 'control: sin pared sí hay daño').toBeLessThan(cerca.maxHp);
-    expect(lejos.hp, 'con el tabique en medio no debe haber daño').toBe(lejos.maxHp);
+    // Todo derivado del nivel: un muro vertical con puntos transitables a ambos lados. Explosión a 0,3 m de la cara oeste;
+    // víctima a 0,55 m de la cara este (≈1,15 m del centro) y control a 1,15 m al oeste del centro, sin pared.
+    let hecho = false;
+    for (const k of muroConCruces(world, 1, 0.55)) {
+      const ex = k.rect.x0 - 0.3, y = k.y;
+      const cx = ex - 1.15;
+      if (!world.level.walkableAt(cx, y, true)) continue;
+      if (!world.level.walkableAt(k.rect.x1 + 0.55, y, true)) continue;
+      const lejos = world.spawnUnit('enemy3', k.rect.x1 + 0.55, y, false); place(world, lejos, k.rect.x1 + 0.55, y);
+      const cerca = world.spawnUnit('enemy3', cx, y, false); place(world, cerca, cx, y);
+      world.explode(ex, y, 1.0, 2, 60, null, null);
+      expect(cerca.hp, 'control: sin pared sí hay daño').toBeLessThan(cerca.maxHp);
+      expect(lejos.hp, 'con el tabique en medio no debe haber daño').toBe(lejos.maxHp);
+      hecho = true;
+      break;
+    }
+    expect(hecho, 'se encontró un muro con sitio a ambos lados').toBe(true);
   });
 
   it('13 · la puerta cerrada también frena la explosión; abierta, no', () => {
     const { world } = limpio();
-    const door = world.level.doors.find(d => d.vertical && Math.abs(d.cy - 2.18) < 0.1)!;
-    const v = world.spawnUnit('enemy3', 5.1, door.cy, false); place(world, v, 5.1, door.cy);
-    world.explode(3.95, door.cy, 1.0, 2, 60, null, null);
+    const k = puertaConCruce(world, 0.55);
+    const v = world.spawnUnit('enemy3', k.b[0], k.y, false); place(world, v, k.b[0], k.y);
+    const ex = k.rect.x0 - 0.3;
+    world.explode(ex, k.y, 1.0, 2, 60, null, null);
     expect(v.hp).toBe(v.maxHp);
-    world.toggleDoor(door.id, true, null);
-    world.explode(3.95, door.cy, 1.0, 2, 60, null, null);
+    world.toggleDoor(k.id, true, null);
+    world.explode(ex, k.y, 1.0, 2, 60, null, null);
     expect(v.hp).toBeLessThan(v.maxHp);
   });
 });
@@ -254,7 +270,7 @@ describe('13 · recarga y cargador', () => {
   it('13 · fallar cuesta: disparar al muro gasta bala igual (y no hay impactos)', () => {
     const { world } = limpio();
     const p = world.player;
-    place(world, p, 3.0, 3.6, 0);
+    { const [lx, ly] = puntoLibre(world, 3, 0); place(world, p, lx, ly, 0); }
     const inp = emptyInput(); inp.yaw = 0; inp.fire = true;
     const mag0 = p.mag;
     const fired0 = world.stats.shotsFired;
@@ -268,7 +284,7 @@ describe('13 · recarga y cargador', () => {
   it('13 · con el cargador vacío y reserva, recarga sola y vuelve a disparar; sin reserva, «dryfire»', () => {
     const { world } = limpio();
     const p = world.player;
-    place(world, p, 3.0, 3.6, 0);
+    { const [lx, ly] = puntoLibre(world, 3, 0); place(world, p, lx, ly, 0); }
     p.mag = 0; p.ammo = 30;
     const inp = emptyInput(); inp.yaw = 0; inp.fire = true;
     let shots = 0, reloads = 0;

@@ -121,3 +121,68 @@ export function calmar(world: World, maxSeconds = 300): void {
   world.status = 'playing';
   world.director.update = () => { /* congelado */ };
 }
+
+// ───────────── geometría derivada del propio nivel (nada de coordenadas a mano) ─────────────
+
+export interface Rect { x0: number; y0: number; x1: number; y1: number }
+export interface Cruce { rect: Rect; a: [number, number]; b: [number, number]; y: number }
+
+/**
+ * Parejas de puntos transitables a ambos lados de un rectángulo vertical (muro o puerta), a `near` m de sus caras y a la
+ * misma y. Con la puerta cerrada no hay visión entre a y b. Todo sale de level.walls / level.doors, así que sobrevive a
+ * un cambio de escala de los mapas. Sólo rectángulos verticales (más altos que anchos).
+ */
+export function crucesVerticales(world: World, rect: Rect, near = 1.2): Cruce[] {
+  const L = world.level, out: Cruce[] = [];
+  const mid = (rect.y0 + rect.y1) / 2;
+  const ys: number[] = [mid];
+  for (let d = 0.4; mid - d > rect.y0 + 0.3 || mid + d < rect.y1 - 0.3; d += 0.4) { if (mid + d < rect.y1 - 0.3) ys.push(mid + d); if (mid - d > rect.y0 + 0.3) ys.push(mid - d); }
+  for (const y of ys) {
+    const a: [number, number] = [rect.x0 - near, y], b: [number, number] = [rect.x1 + near, y];
+    if (!L.walkableAt(a[0], a[1], true) || !L.walkableAt(b[0], b[1], true)) continue;
+    out.push({ rect, a, b, y });
+  }
+  return out;
+}
+
+/** Muros interiores verticales, los más largos primero. */
+export function murosVerticales(world: World): Rect[] {
+  return world.level.walls.filter(w => !w.perimeter && w.x1 - w.x0 < w.y1 - w.y0).sort((p, q) => (q.y1 - q.y0) - (p.y1 - p.y0));
+}
+
+/** Primer muro vertical con al menos `n` cruces válidos y sin visión (a→b). */
+export function muroConCruces(world: World, n = 1, near = 1.2): Cruce[] {
+  for (const w of murosVerticales(world)) {
+    const c = crucesVerticales(world, w, near).filter(k => !world.level.clear(k.a[0], k.a[1], 1.5, k.b[0], k.b[1], 1.5, 'sight'));
+    if (c.length >= n) return c;
+  }
+  throw new Error('ningún muro vertical con cruces transitables en este mapa');
+}
+
+/** Primera puerta vertical con cruce válido; con la puerta cerrada no hay visión y abierta sí. */
+export function puertaConCruce(world: World, near = 1.2): Cruce & { id: number } {
+  for (const d of world.level.doors) {
+    if (d.open || d.x1 - d.x0 >= d.y1 - d.y0) continue;
+    for (const k of crucesVerticales(world, d, near)) {
+      if (world.level.clear(k.a[0], k.a[1], 1.5, k.b[0], k.b[1], 1.5, 'sight')) continue;
+      d.open = true;
+      const abierta = world.level.clear(k.a[0], k.a[1], 1.5, k.b[0], k.b[1], 1.5, 'sight');
+      d.open = false;
+      if (abierta) return { ...k, id: d.id };
+    }
+  }
+  throw new Error('ninguna puerta vertical con cruce válido en este mapa');
+}
+
+/** Punto despejado (a `r` m a la redonda no hay muro ni mueble que pare balas, en 8 direcciones) y a ≥ `minDist` del jugador. */
+export function puntoLibre(world: World, r = 3, minDist = 0): [number, number] {
+  const L = world.level, p = world.player;
+  for (let y = L.oy + 1; y < L.oy + L.gh * 0.25 - 1; y += 0.5) for (let x = L.ox + 1; x < L.ox + L.gw * 0.25 - 1; x += 0.5) {
+    if (!L.inside(x, y) || !L.walkableAt(x, y, true)) continue;
+    if (Math.hypot(x - p.x, y - p.y) < minDist) continue;
+    let ok = true;
+    for (let k = 0; k < 8 && ok; k++) { const a = k * Math.PI / 4; if (!L.clear(x, y, 1.0, x + Math.cos(a) * r, y + Math.sin(a) * r, 1.0, 'bullet')) ok = false; }
+    if (ok) return [x, y];
+  }
+  throw new Error('sin punto libre');
+}
