@@ -14,7 +14,7 @@ import { Fx } from './fx';
 import { FurnitureLayer, PickupLayer } from './furniture';
 import { disposeRamp, Owned } from './geo';
 import { getAssets, loadAssets, type Assets } from './assets';
-import { RbLibrary } from './rbchars';
+import { sharedRbLibrary } from './rbchars';
 import { FOG, LevelLayer, makeStars, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
@@ -108,7 +108,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   let composer: EffectComposer | null = null;
 
   const chars = new CharManager();
-  const rb = new RbLibrary();
+  const rb = sharedRbLibrary;
   let rbStarted = false;
   const fx = new Fx();
   const pickups = new PickupLayer();
@@ -382,7 +382,6 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     clearWorld();
     world = null;
     composer?.dispose(); composer = null;
-    rb.dispose();
     chars.dispose(); fx.dispose(); pickups.dispose();
     disposeRamp();
     renderer.dispose();

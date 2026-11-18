@@ -100,7 +100,7 @@ function bandStyle(cfg: Cfg, cb: boolean): BandStyle {
 const LEG_BONES = new Set(['Bip01', 'Bip01_Pelvis', 'Bip01_Spine', 'Bip01_L_Thigh', 'Bip01_R_Thigh', 'Bip01_L_Calf', 'Bip01_R_Calf', 'Bip01_L_Foot', 'Bip01_R_Foot', 'Bip01_L_Toe0', 'Bip01_R_Toe0']);
 const TORSO_BONES = new Set(['Bip01_Spine1', 'Bip01_Spine2', 'Bip01_Neck', 'Bip01_Head', 'Bip01_L_Clavicle', 'Bip01_R_Clavicle', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm',
   'Bip01_L_Forearm', 'Bip01_R_Forearm', 'Bip01_L_Hand', 'Bip01_R_Hand']);
-const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop']);
+const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Idle_Loop', 'Roll']);
 export const RB_CLIPS = ['Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Death01'];
 
@@ -169,6 +169,15 @@ export class RbTemplate {
   }
 }
 
+/** Registra el arma de un clon (hueso Bip01_R_Hand, malla «arma») para el ajuste en vivo ?armas=1. Devuelve el desregistro. */
+export function trackGun(root: THREE.Object3D, weapon: string): () => void {
+  const o = root.getObjectByName('arma');
+  if (!o) return () => { /* sin arma */ };
+  const e: GunEntry = { mesh: o, weapon, k: o.userData.k, maxDim: o.userData.maxDim };
+  gunRegistry.add(e);
+  return () => { gunRegistry.delete(e); };
+}
+
 export class RbLibrary {
   templates = new Map<Kind, RbTemplate>();
   ual: { animations: THREE.AnimationClip[] } | null = null;
@@ -179,9 +188,12 @@ export class RbLibrary {
   private manifest: Record<string, Record<string, { color?: string; normal?: string }>> = {};
   private ghost: THREE.Material | null = null;
   loaded = false;
+  private loading: Promise<boolean> | null = null;
 
-  /** Carga avatares, maniquí UAL y armas. Nunca rechaza: si falla algo, `loaded` queda en false. */
-  async load(): Promise<boolean> {
+  /** Carga avatares, maniquí UAL y armas (una sola vez). Nunca rechaza: si falla algo, `loaded` queda en false. */
+  load(): Promise<boolean> { return (this.loading ??= this.doLoad()); }
+
+  private async doLoad(): Promise<boolean> {
     try {
       const gl = new GLTFLoader();
       const [man, ual] = await Promise.all([
@@ -576,3 +588,6 @@ export class RbView {
     for (const m of this.meshes) (m as THREE.SkinnedMesh).skeleton?.dispose();
   }
 }
+
+/** Biblioteca compartida por el juego y la vista previa del escuadrón (misma caché de modelos y clips). */
+export const sharedRbLibrary = new RbLibrary();

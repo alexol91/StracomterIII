@@ -117,12 +117,13 @@ let audioUnlocked = false;
 let lastPauseToggle = -1e9;
 let lastConsoleToggle = -1e9;
 
-// Pantalla de carga de zona: se quita al primer frame dibujado (mínimo 0,4 s para que no parpadee) o a los 1,5 s
+// Pantalla de carga de zona: se quita al primer frame dibujado, respetando un mínimo y un máximo (ver frame())
 const loadingText = h('div', { class: 'ld-t' });
 const loadingEl = h('div', { id: 'loading', class: 'out' }, loadingText, h('div', { class: 'ld-bar' }));
 let loadingActive = false;
 let loadingSince = 0;
 let loadingFrames = 0;
+let loadedOnce = false; // los modelos pesan: la primera zona de la sesión espera más que las siguientes
 
 function showLoading(floor: number, zone: number): void {
   loadingText.textContent = t('load.deploying', { floor: pad2(floor), zone: pad2(zone) });
@@ -434,7 +435,9 @@ function frame(nowMs: number): void {
         if (loadingActive) {
           loadingFrames++;
           const el = performance.now() - loadingSince;
-          if ((loadingFrames >= 1 && el >= 400) || el >= 1500) hideLoading();
+          // Sin señal del renderer: 1ª vez mínimo 1,2 s y máximo 4 s; después 0,4 s y 1,5 s
+          const minMs = loadedOnce ? 400 : 1200, maxMs = loadedOnce ? 1500 : 4000;
+          if ((loadingFrames >= 1 && el >= minMs) || el >= maxMs) { hideLoading(); loadedOnce = true; }
         }
       }
     }

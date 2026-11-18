@@ -10,12 +10,14 @@ import { asset, button, fmtTime, flags, h, icon, itemIcon, pad2, uiSound } from 
 import { t, getLang } from './i18n';
 import { drawMiniMap } from './minimap';
 import { ACTIONS, defaultBindings, keyLabel } from './settings';
+import { createSquadPreview, type SquadPreview } from '../render/preview';
 
 /** Contenedor de pantallas: solo hay una visible a la vez. Se puede redibujar (cambio de idioma). */
 export class Screens {
   private cleanups: (() => void)[] = [];
   private build: ((s: Screens) => HTMLElement) | null = null;
   private backFn: (() => void) | null = null;
+  private shown: (() => void)[] = [];
 
   constructor(private layer: HTMLElement) {}
 
@@ -27,7 +29,13 @@ export class Screens {
     // Foco inicial: la primera opción marcada, para poder navegar con teclado desde el primer momento
     const af = el.querySelector<HTMLElement>('[data-autofocus]');
     if (af) af.focus({ preventScroll: true });
+    const sh = this.shown;
+    this.shown = [];
+    for (const f of sh) { try { f(); } catch (e) { console.error(e); } }
   }
+
+  /** Código que necesita la pantalla YA en el DOM (medidas, lienzos 3D). */
+  onShown(fn: () => void): void { this.shown.push(fn); }
 
   /** Registra algo que limpiar cuando la pantalla se cierre o se redibuje. */
   onClear(fn: () => void): void { this.cleanups.push(fn); }
@@ -44,6 +52,7 @@ export class Screens {
   clear(): void {
     const c = this.cleanups;
     this.cleanups = [];
+    this.shown = [];
     for (const f of c) { try { f(); } catch { /* ignorar */ } }
     this.layer.textContent = '';
     this.build = null;
@@ -77,9 +86,14 @@ interface MenuItemOpts { danger?: boolean; disabled?: boolean; autofocus?: boole
 /** Opción de menú: texto condensado, barra en paralelogramo y cuña ámbar al estar activa (foco/ratón). */
 function menuItem(label: string, onClick: () => void, i: number, o: MenuItemOpts = {}): HTMLButtonElement {
   const b = h<HTMLButtonElement>('button', {
-    class: 'mi on-focus' + (o.danger ? ' danger' : ''), type: 'button', 'data-nav': true,
+    class: 'mi on-focus' + (o.danger ? ' danger' : '') + (o.autofocus ? ' active' : ''), type: 'button', 'data-nav': true,
     'data-autofocus': o.autofocus ? true : null, disabled: o.disabled,
     style: `--i:${i}`,
+    onfocus: (e: Event) => {
+      // Solo una opción «activa» a la vez: la marca inicial se quita en cuanto el foco pasa a otra
+      const cur = e.currentTarget as HTMLElement;
+      cur.parentElement?.querySelectorAll('.mi.active').forEach((x) => { if (x !== cur) x.classList.remove('active'); });
+    },
     onmouseenter: (e: Event) => { if (!(e.currentTarget as HTMLButtonElement).disabled) (e.currentTarget as HTMLElement).focus({ preventScroll: true }); },
     onclick: (e: Event) => { e.stopPropagation(); uiSound(o.sound ?? 'click'); onClick(); },
   }, h('span', { class: 'wedge' }), h('span', { class: 'pbar' }), h('span', { class: 'txt' }, label));
@@ -169,6 +183,9 @@ function statLine(label: string, frac: number, value: string): HTMLElement {
 
 export function classScreen(s: Screens, p: ClassParams): HTMLElement {
   s.setBack(p.onBack);
+  const slots: Partial<Record<ClassId, HTMLElement>> = {};
+  const imgs: Partial<Record<ClassId, HTMLElement>> = {};
+  let preview: SquadPreview | null = null;
   const cards = CLASS_IDS.map((c, i) => {
     const st = CLASS_STATS[c];
     const dmg = st.explosive ? t('stat.damageBlast', { n: st.damage }) : String(st.damage);
@@ -178,13 +195,15 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
       style: `--i:${i}`,
       onclick: pick,
       onmouseenter: (e: Event) => (e.currentTarget as HTMLElement).focus({ preventScroll: true }),
+      onfocus: () => preview?.setActive(c),
+      onblur: () => preview?.setActive(null),
       onkeydown: (e: KeyboardEvent) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(); } },
     },
-      h('div', { class: 'ph' },
-        h('img', { src: asset(PORTRAIT[c]), alt: '', draggable: 'false', loading: 'eager' }),
+      (slots[c] = h('div', { class: 'ph' },
+        (imgs[c] = h('img', { src: asset(PORTRAIT[c]), alt: '', draggable: 'false', loading: 'eager' })),
         h('span', { class: 'tag idx' }, `// ${pad2(i + 1)}`),
         h('h3', { class: 'h-title nm' }, t('kind.' + c)),
-      ),
+      )),
       h('div', { class: 'info' },
         h('div', { class: 'role' }, t('role.' + c)),
         statLine(t('stat.hp'), st.hp / STAT_MAX.hp, String(st.hp)),
@@ -195,7 +214,7 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
         h('div', { class: 'txtb' }, h('b', null, t('stat.trait')), t('trait.' + c)),
         h('div', { class: 'txtb' }, h('b', null, `${t('stat.ability')} · ${t('ability.' + c)}`), t('abilityDesc.' + c)),
       ),
-      h('div', { style: 'margin-top:auto' }, h('div', { class: 'dots', style: 'margin:0 0.7rem' }), deployLabel(p.quickFloor === null ? t('class.deploy') : t('class.pick'))),
+      h('div', { class: 'foot' }, h('div', { class: 'dots', style: 'margin:0 0.7rem' }), deployLabel(p.quickFloor === null ? t('class.deploy') : t('class.pick'))),
     );
   });
 
@@ -222,7 +241,40 @@ export function classScreen(s: Screens, p: ClassParams): HTMLElement {
     kids.push(h('p', { class: 'hint', style: 'margin-bottom:0.6rem' }, t('class.hint')));
   }
   kids.push(h('div', { class: 'ops' }, ...cards));
-  return scr('bg-blur', ...kids);
+  const screen = scr('bg-blur', ...kids);
+
+  // Operadores en 3D: solo en escritorio y sin «reducir movimiento»; si no, quedan los retratos fijos
+  const mq = (q: string): boolean => typeof matchMedia === 'function' && matchMedia(q).matches;
+  if (!mq('(pointer: coarse)') && !mq('(prefers-reduced-motion: reduce)')) {
+    s.onShown(() => {
+      const scroll = screen.querySelector<HTMLElement>('.scroll');
+      if (!scroll) return;
+      const canvas = h<HTMLCanvasElement>('canvas', { class: 'squad-canvas' });
+      scroll.appendChild(canvas);
+      try {
+        preview = createSquadPreview(canvas, slots as Record<ClassId, HTMLElement>, {
+          onReady: (c: ClassId) => imgs[c]?.classList.add('gone'),
+        });
+      } catch (err) {
+        console.error(err);
+        canvas.remove();
+        return;
+      }
+      const onResize = (): void => preview?.resize();
+      window.addEventListener('resize', onResize);
+      requestAnimationFrame(onResize); // la maquetación definitiva llega un frame después
+      const act = document.activeElement as HTMLElement | null;
+      const idx = act ? cards.indexOf(act) : -1;
+      if (idx >= 0) preview.setActive(CLASS_IDS[idx]);
+      s.onClear(() => {
+        window.removeEventListener('resize', onResize);
+        preview?.dispose();
+        preview = null;
+        canvas.remove();
+      });
+    });
+  }
+  return screen;
 }
 
 // ───────────────────────────── Estrategia ─────────────────────────────
@@ -436,7 +488,7 @@ export function victoryScreen(p: { score: number; onContinue(): void }): HTMLEle
 export function creditsScreen(s: Screens, p: { onBack(): void }): HTMLElement {
   s.setBack(p.onBack);
   return scr('bg-tower',
-    h('div', { class: 'credits' },
+    h('div', { class: 'credits stack' },
       h('span', { class: 'tag' }, '// 05'),
       h('h1', { class: 'h-title' }, t('cred.title')),
       h('div', { class: 'rule' }),
@@ -683,11 +735,13 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
   open(optTab);
 
   return scr('bg-tower',
-    h('div', { class: 'screen-head' },
-      h('div', null, h('span', { class: 'tag' }, '// 04'), h('h2', { class: 'h-title' }, t('opt.title'))),
-      (() => { const b = button(t('opt.back'), () => { stopListening(); p.onBack(); }, 'primary', 'back'); b.setAttribute('data-nav', ''); return b; })(),
+    h('div', { class: 'stack', style: 'max-width:46rem' },
+      h('div', { class: 'screen-head' },
+        h('div', null, h('span', { class: 'tag' }, '// 04'), h('h2', { class: 'h-title' }, t('opt.title'))),
+        (() => { const b = button(t('opt.back'), () => { stopListening(); p.onBack(); }, 'primary', 'back'); b.setAttribute('data-nav', ''); return b; })(),
+      ),
+      tabs,
+      body,
     ),
-    tabs,
-    body,
   );
 }
