@@ -14,11 +14,11 @@ import { computeHullDir } from './stylized';
 
 export interface PlacedModel { geo: THREE.BufferGeometry; led: THREE.BufferGeometry | null }
 
-interface Box { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }
+export interface Box { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }
 type Dir = 'xm' | 'xp' | 'zm' | 'zp';
 const DIRS: Record<Dir, [number, number]> = { xm: [-1, 0], xp: [1, 0], zm: [0, -1], zp: [0, 1] };
 
-interface PlaceOpts {
+export interface PlaceOpts {
   /** hacia dónde debe quedar el respaldo (lado donde la pieza es más alta) */
   back?: Dir;
   /** gira 90° si la proporción de la pieza no encaja con la de la caja */
@@ -29,7 +29,7 @@ interface PlaceOpts {
   tint?: (r: number, g: number, b: number) => [number, number, number];
 }
 
-function place(src: THREE.BufferGeometry, box: Box, o: PlaceOpts = {}): THREE.BufferGeometry {
+export function place(src: THREE.BufferGeometry, box: Box, o: PlaceOpts = {}): THREE.BufferGeometry {
   const g = src.clone();
   g.computeBoundingBox();
   let bb = g.boundingBox!;
@@ -78,7 +78,7 @@ function place(src: THREE.BufferGeometry, box: Box, o: PlaceOpts = {}): THREE.Bu
   return g;
 }
 
-const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): Box => ({ x0, x1, y0, y1, z0, z1 });
+export const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): Box => ({ x0, x1, y0, y1, z0, z1 });
 
 /** Devuelve el modelo del mueble o null si falta alguna pieza (entonces se usa el de primitivas). */
 export function buildFurnitureFromAssets(type: FurnitureType, theme: Theme, a: Assets): PlacedModel | null {

@@ -9,12 +9,27 @@ import type { Door, Theme } from '../sim/types';
 import { DOOR_HEIGHT, WALL_HEIGHT } from '../sim/data';
 import { GeoBuilder, Owned, makeOutlineMat, makeStylized, makeToonVC } from './geo';
 import { THEMES, type ThemeDef } from './palette';
+import { getStyleMode, outlinesOn } from './style';
+import { loadPBR } from './pbr';
 
 /** Colores del cielo [cenit, horizonte] por tema; el horizonte es también el color de la niebla. */
 export const SKY: Record<Theme, [number, number]> = {
   recepcion: [0x5d93d6, 0xcfe3f5], soporte: [0x5d93d6, 0xcfe3f5], desarrollo: [0x5a8ad0, 0xc6dcf2],
   calidad: [0x5d93d6, 0xcfe3f5], comercial: [0x6a9ede, 0xdcebf8], direccion: [0x6a8fc8, 0xf0dcc0],
   juntas: [0x5d86c8, 0xc9dcf0], datos: [0x040610, 0x0c1630], azotea: [0x01030a, 0x16264a],
+};
+/** Color de acento (franja de pared) por planta en el estilo realista. */
+const ACCENT: Record<Theme, number> = {
+  recepcion: 0x2f66b3, soporte: 0x2e9aa8, desarrollo: 0x3aa66b, calidad: 0xd4a32b, datos: 0x35d0ff,
+  comercial: 0xd0693a, direccion: 0x7b2d3a, juntas: 0x4a4fa8, azotea: 0x35d0ff,
+};
+/** Suelo PBR por tema (estilo realista): conjunto de texturas y tinte. */
+const FLOOR_PBR: Record<Theme, { set: string; tint: number }> = {
+  recepcion: { set: 'marble_tiles', tint: 0xffffff }, soporte: { set: 'dirty_carpet', tint: 0xb8c4d8 },
+  desarrollo: { set: 'Carpet012', tint: 0x9aa8c0 }, calidad: { set: 'large_grey_tiles', tint: 0xffffff },
+  datos: { set: 'concrete_floor_painted', tint: 0x6a7894 }, comercial: { set: 'laminate_floor_02', tint: 0xffffff },
+  direccion: { set: 'laminate_floor_02', tint: 0x8a6a50 }, juntas: { set: 'terrazzo_tiles', tint: 0x9aa0b4 },
+  azotea: { set: 'rough_concrete', tint: 0x8a8e96 },
 };
 export const FOG: Record<Theme, [number, number]> = {
   recepcion: [50, 150], soporte: [50, 150], desarrollo: [50, 150], calidad: [50, 150], comercial: [50, 150],
@@ -197,9 +212,18 @@ function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y
   g.translate(cx, (y0 + y1) / 2, cz);
   const n = g.toNonIndexed();
   g.dispose();
-  n.deleteAttribute('uv');
   const count = n.getAttribute('position').count;
   const pos = n.getAttribute('position');
+  // UV en metros según la cara dominante (para las texturas PBR del estilo realista)
+  const nor = n.getAttribute('normal');
+  const uv = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) {
+    const ax = Math.abs(nor.getX(i)), ay = Math.abs(nor.getY(i)), az = Math.abs(nor.getZ(i));
+    if (ay > 0.5) { uv[i * 2] = pos.getX(i); uv[i * 2 + 1] = pos.getZ(i); }
+    else if (ax >= az) { uv[i * 2] = pos.getZ(i); uv[i * 2 + 1] = pos.getY(i); }
+    else { uv[i * 2] = pos.getX(i); uv[i * 2 + 1] = pos.getY(i); }
+  }
+  n.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   const cm = new THREE.Color(main), cc = new THREE.Color(cap);
   const arr = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
@@ -230,7 +254,7 @@ function buildWallGeometry(level: ILevel, th: ThemeDef, theme: Theme): WallGeos 
   const ao: number[] = [];
   const H = WALL_HEIGHT;
   const hasSegs = level.perimeterSegs.length > 0;
-  const band = theme === 'datos' || theme === 'azotea' ? th.accent : 0x2f66b3;
+  const band = getStyleMode() === 'realista' ? (ACCENT[theme] ?? 0x2f66b3) : theme === 'datos' || theme === 'azotea' ? th.accent : 0x2f66b3;
   const showBand = theme !== 'azotea';
   const base = shade(th.cap, 1.5);
 
@@ -317,6 +341,9 @@ export class LevelLayer {
   private version: number;
   private th: ThemeDef;
   private shadowsOn = false;
+  private disposed = false;
+  /** luces puntuales del estilo realista (azotea) */
+  lights: THREE.PointLight[] = [];
 
   constructor(private level: ILevel, shadows: boolean) {
     this.th = THEMES[level.theme] ?? THEMES.recepcion;
@@ -338,6 +365,7 @@ export class LevelLayer {
     this.floorMesh.receiveShadow = on;
     this.wallGroup.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.userData.solid) { m.castShadow = on; m.receiveShadow = on; } });
     for (const m of this.doorMeshes) m.castShadow = on;
+    for (const l of this.lights) l.visible = on;   // luces puntuales solo con calidad alta
   }
 
   private buildFloor(): void {
@@ -346,9 +374,24 @@ export class LevelLayer {
     per.forEach(([x, y], i) => (i === 0 ? shape.moveTo(x, -y) : shape.lineTo(x, -y)));
     const geo = new THREE.ShapeGeometry(shape);
     geo.rotateX(-Math.PI / 2);       // (x, -y, 0) -> (x, 0, y), normal hacia arriba
-    const tex = floorTexture(this.th);
-    const mat = makeStylized({ map: tex, color: 0xb4b4b4 }, { rim: 0, spec: 0.15 });   // albedo rebajado: el suelo claro no debe quemarse
-    this.owned.add(geo); this.owned.add(tex); this.owned.add(mat);
+    this.owned.add(geo);
+    let mat: THREE.Material;
+    if (getStyleMode() === 'realista') {
+      const cfg = FLOOR_PBR[this.level.theme] ?? FLOOR_PBR.recepcion;
+      const sm = new THREE.MeshStandardMaterial({ color: this.th.floorA, roughness: 1, metalness: 0 });
+      this.owned.add(sm);
+      void loadPBR(cfg.set).then((set) => {
+        if (!set || this.disposed) return;
+        sm.map = set.map; sm.normalMap = set.normalMap; sm.roughnessMap = set.roughnessMap;
+        sm.color.setHex(cfg.tint);
+        sm.needsUpdate = true;
+      });
+      mat = sm;
+    } else {
+      const tex = floorTexture(this.th);
+      mat = makeStylized({ map: tex, color: 0xb4b4b4 }, { rim: 0, spec: 0.15 });   // albedo rebajado: el suelo claro no debe quemarse
+      this.owned.add(tex); this.owned.add(mat);
+    }
     this.floorMesh = new THREE.Mesh(geo, mat);
     this.floorMesh.position.y = -0.01;
     this.floorMesh.frustumCulled = false;
@@ -361,6 +404,14 @@ export class LevelLayer {
     const g = buildWallGeometry(this.level, this.th, this.level.theme);
     if (g.all) {
       const mat = this.wallOwned.add(makeToonVC());
+      if (getStyleMode() === 'realista') {
+        const sm = mat as THREE.MeshStandardMaterial;
+        sm.roughness = 0.92;
+        void loadPBR('white_plaster_02').then((set) => {
+          if (!set || this.disposed) return;
+          sm.map = set.map; sm.normalMap = set.normalMap; sm.roughnessMap = set.roughnessMap; sm.needsUpdate = true;
+        });
+      }
       this.wallOwned.add(g.all);
       const mesh = new THREE.Mesh(g.all, mat);
       mesh.frustumCulled = false;
@@ -377,7 +428,9 @@ export class LevelLayer {
       this.wallGroup.add(lines);
     }
     if (g.glass) {
-      const gm = this.wallOwned.add(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false }));
+      const gm = this.wallOwned.add(getStyleMode() === 'realista'
+        ? new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.38, depthWrite: false, roughness: 0.05, metalness: 0.4 })
+        : new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false }));
       this.wallOwned.add(g.glass);
       const mesh = new THREE.Mesh(g.glass, gm);
       mesh.frustumCulled = false; mesh.renderOrder = 1;
@@ -402,15 +455,17 @@ export class LevelLayer {
       const b = new GeoBuilder(0.016);
       b.box(L / 2, hgt / 2, 0, L - 0.02, hgt, th, this.th.door);
       b.box(L / 2, hgt * 0.58, 0, (L - 0.02) * 0.72, hgt * 0.7, th + 0.02, shade(this.th.door, 1.35), { outline: false });
-      b.sph(L * 0.86, 1.0, th / 2 + 0.05, 0.04, 0xd9b84a, { outline: false });
-      b.sph(L * 0.86, 1.0, -th / 2 - 0.05, 0.04, 0xd9b84a, { outline: false });
+      // pomo de tamaño fijo (no escala con el ancho de la hoja), cerca del extremo libre
+      const kx = Math.max(0.2, L - 0.18);
+      b.sph(kx, 1.0, th / 2 + 0.04, 0.035, 0xd9b84a, { outline: false });
+      b.sph(kx, 1.0, -th / 2 - 0.04, 0.035, 0xd9b84a, { outline: false });
       const { geo, hull } = b.build();
       this.owned.add(geo);
       const pivot = new THREE.Group();
       const m = new THREE.Mesh(geo, mat);
       this.doorMeshes.push(m);
       pivot.add(m);
-      if (hull) { this.owned.add(hull); pivot.add(new THREE.Mesh(hull, hullMat)); }
+      if (hull && outlinesOn()) { this.owned.add(hull); pivot.add(new THREE.Mesh(hull, hullMat)); }
       if (d.vertical) pivot.position.set(d.cx, 0, d.y0);
       else pivot.position.set(d.x0, 0, d.cy);
       this.group.add(pivot);
@@ -434,13 +489,14 @@ export class LevelLayer {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const [x, y] of per) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
     const spots: [number, number][] = [];
-    const STEP = 5;
+    const real = getStyleMode() === 'realista';
+    const STEP = real ? 4 : 5;
     for (let x = minX + STEP / 2; x < maxX; x += STEP) for (let y = minY + STEP / 2; y < maxY; y += STEP) {
       if (this.level.inside(x, y)) spots.push([x, y]);
     }
     if (!spots.length) return;
     const datos = theme === 'datos';
-    const geo = this.owned.add(datos ? new THREE.BoxGeometry(3.2, 0.05, 0.12) : new THREE.BoxGeometry(1.5, 0.05, 0.5));
+    const geo = this.owned.add(datos ? new THREE.BoxGeometry(3.2, 0.05, 0.12) : real ? new THREE.BoxGeometry(1.2, 0.04, 0.6) : new THREE.BoxGeometry(1.5, 0.05, 0.5));
     const mat = this.owned.add(new THREE.MeshBasicMaterial({ color: datos ? 0x35d0ff : 0xfff4dc, fog: false }));
     const im = new THREE.InstancedMesh(geo, mat, spots.length);
     const m = new THREE.Matrix4();
@@ -480,6 +536,15 @@ export class LevelLayer {
 
   private buildRoofExtras(): void {
     const [bx, by] = this.level.map.punto_jefe;
+    if (getStyleMode() === 'realista') {
+      // luces cálidas sobre los casetones: junto a la salida del jugador, el helipuerto y el centro
+      const [sx, sy] = this.level.map.inicio_jugador;
+      for (const [x, y] of [[sx, sy], [bx, by], [this.level.map.ancho_m / 2, this.level.map.alto_m / 2]]) {
+        const l = new THREE.PointLight(0xffc27a, 40, 22, 2);
+        l.position.set(x, 3.2, y);
+        this.lights.push(l); this.group.add(l);
+      }
+    }
     const tex = helipadTexture();
     const R = 6.5;
     const geo = new THREE.PlaneGeometry(R * 2, R * 2).rotateX(-Math.PI / 2);
@@ -505,6 +570,7 @@ export class LevelLayer {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.wallOwned.disposeAll();
     this.owned.disposeAll();
   }

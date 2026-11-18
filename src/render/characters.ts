@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import type { Entity, Kind } from '../sim/types';
 import type { IWorld } from '../contracts';
 import { statsOf } from '../sim/data';
-import { GeoBuilder, Owned, makeOutlineMat, makeToonVC } from './geo';
+import { GeoBuilder, Owned, makeOutlineMat, makeToonVC, type SurfaceMat } from './geo';
+import { outlinesOn } from './style';
 import { unitPalette, type UnitPalette } from './palette';
 import type { Assets } from './assets';
 import { buildTemplate, CROUCH_VISUAL_HEIGHT, OUTLINE_THICK, SkinView, type CharHost, type SkinTemplate } from './skinchars';
@@ -310,11 +311,11 @@ const _sph = new THREE.Sphere();
 
 export class CharManager implements CharHost {
   group = new THREE.Group();
-  matChar: THREE.MeshToonMaterial;
-  matDead: THREE.MeshToonMaterial;
+  matChar: SurfaceMat;
+  matDead: SurfaceMat;
   matFlash = new THREE.MeshBasicMaterial({ color: 0xffffff });
   matHull: THREE.MeshBasicMaterial;
-  matGhost: THREE.MeshToonMaterial;
+  matGhost: SurfaceMat;
   knifeGeo: THREE.BufferGeometry;
   knifeMat = new THREE.MeshBasicMaterial({ color: 0xe6edf5 });
   markGeo = new THREE.OctahedronGeometry(0.2, 0);
@@ -369,6 +370,16 @@ export class CharManager implements CharHost {
   setShadows(on: boolean): void {
     this.shadowsOn = on;
     this.shadows.visible = !on;
+  }
+
+  /** Cambio de estilo en caliente: recrea los materiales con color por vértice y las vistas. */
+  restyle(): void {
+    this.matChar.dispose(); this.matDead.dispose(); this.matGhost.dispose();
+    this.matChar = makeToonVC();
+    this.matDead = makeToonVC(); this.matDead.color.setHex(0x4a4a50);
+    this.matGhost = makeToonVC();
+    this.matGhost.transparent = true; this.matGhost.opacity = 0.22; this.matGhost.depthWrite = false;
+    this.clear();
   }
 
   /** Activa los modelos con esqueleto (cuando termina la carga) y reconstruye las vistas. */
@@ -551,7 +562,7 @@ export class CharManager implements CharHost {
     const mat = dead ? this.matDead : v.ghost ? this.matGhost : this.matChar;
     const hurt = alive && !v.ghost && time - e.lastHurtAt < 0.12 && time >= e.lastHurtAt;
     const bodyMat = hurt ? this.matFlash : mat;
-    if (v.hull) v.hull.visible = !v.ghost;
+    if (v.hull) v.hull.visible = !v.ghost && outlinesOn();
     v.body.material = bodyMat; v.arms.material = bodyMat;
     v.legL.material = mat; v.legR.material = mat;
 

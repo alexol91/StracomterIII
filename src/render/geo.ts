@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeStylized, toonRamp, disposeRamp } from './stylized';
+import { getStyleMode } from './style';
 
 export { makeStylized, toonRamp, disposeRamp };
 
@@ -132,8 +133,10 @@ export function makeOutlineMat(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ color: 0x1a1426, side: THREE.BackSide });
 }
 
-/** Material estilizado con color por vértice. */
-export function makeToonVC(): THREE.MeshToonMaterial {
+/** Material con color por vértice: estilizado (cómic) o PBR (realista). */
+export type SurfaceMat = THREE.MeshToonMaterial | THREE.MeshStandardMaterial;
+export function makeToonVC(): SurfaceMat {
+  if (getStyleMode() === 'realista') return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
   return makeStylized({ vertexColors: true });
 }
 

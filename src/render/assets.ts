@@ -24,6 +24,9 @@ export interface Assets {
   grenade: THREE.BufferGeometry | null;
 }
 
+/** URL de un fichero dentro de public/models/. */
+export function modelsUrl(path: string): string { return baseUrl() + 'models/' + path; }
+
 function baseUrl(): string {
   const b = (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL;
   return b ?? './';

@@ -10,3 +10,28 @@ chars/, guns/, env/
 furniture/
   «Furniture Pack 1.0», de Kenney (www.kenney.nl). Licencia en LICENSE-Kenney.txt (CC0).
   Descargado de la subida del propio Kenney en https://opengameart.org/content/furniture-kit
+
+
+=== Estilo realista (v2) ===
+
+office/  (3DAssets.dev)
+  Packs «Downtown Office Interiors» y «Office Lobby and Building Facilities», más «rooftop-ac-unit».
+  Licencia CC0 según https://3dassets.dev/license. Los modelos están generados por IA y el sitio no
+  garantiza su originalidad. Ficheros usados (los prefijados con L- son del pack de vestíbulo):
+  desk-executive, desk-1600-panel-end, desk-1800-a-frame, executive-chair, task-chair-mesh,
+  task-chair-upholstered, monitor-24-inch, monitor-34-curved, keyboard-full-size,
+  meeting-table-round-4, meeting-chair-castors, boardroom-table-8, bookcase-open, locker-bank-6,
+  tambour-cupboard, sofa-two-seat, lounge-armchair, guest-chair-four-leg, stacking-chair,
+  flip-top-table, floor-planter-large, wall-clock, waste-bin, wall-art-panel, rooftop-ac-unit,
+  L-server-rack-42u-doors, L-lobby-armchair, L-visitor-sofa-two-seat, L-fire-extinguisher-point,
+  L-wall-wayfinding-panel.
+
+hdri/, tex/, props/  (Poly Haven, CC0, https://polyhaven.com/license)
+  HDRI: unfinished_office_1k, newman_lobby_1k.
+  Texturas (color, normal GL y rugosidad, reducidas con sips): marble_tiles, dirty_carpet,
+  large_grey_tiles, concrete_floor_painted, laminate_floor_02, terrazzo_tiles, rough_concrete,
+  white_plaster_02.
+  Modelos con textura (reducidas a 512): medical_box, ammo_box.
+
+tex/Carpet012/  (ambientCG, CC0, https://docs.ambientcg.com/license/)
+  Carpet012 (color, normal GL y rugosidad, reducidas con sips).

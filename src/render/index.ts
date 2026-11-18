@@ -16,6 +16,13 @@ import { disposeRamp, Owned } from './geo';
 import { getAssets, loadAssets, type Assets } from './assets';
 import { FOG, LevelLayer, makeStars, SKY } from './levelMesh';
 import { THEMES } from './palette';
+import { getStyleMode, setStyleMode, type Style } from './style';
+import { loadEnvironment } from './pbr';
+import { getOffice, loadOffice, type OfficeAssets } from './officeassets';
+import { RealFurnitureLayer } from './officefurn';
+import type { Theme } from '../sim/types';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
@@ -23,7 +30,28 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 /** Calidad de dibujo: 'high' = sombras reales + posprocesado; 'low' = sombras blob, sin posprocesado. */
 export type RenderQuality = 'low' | 'high';
-export type RendererWithQuality = IRenderer & { setQuality(q: RenderQuality): void; getQuality(): RenderQuality };
+export type RendererWithQuality = IRenderer & {
+  setQuality(q: RenderQuality): void; getQuality(): RenderQuality;
+  /** 'realista' (PBR, HDRI) o 'comic' (el de antes). También se fuerza con ?estilo= en la URL. */
+  setStyle(s: Style): void; getStyle(): Style;
+};
+
+/** Posprocesado opcional (solo calidad alta): se activa con ?ao=1 / ?bloom=1 o cambiando estas constantes. */
+const AO_DEFAULT = false;
+const BLOOM_DEFAULT = false;
+
+/** Luz del estilo realista por tema: exposición, intensidad del entorno HDRI, hemisférica, direccional y HDRI. */
+export const REAL_LIGHT: Record<Theme, { exposure: number; env: number; hemi: number; dir: number; hdri: string }> = {
+  recepcion: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'newman_lobby_1k' },
+  soporte: { exposure: 0.95, env: 0.9, hemi: 0.35, dir: 2.4, hdri: 'unfinished_office_1k' },
+  desarrollo: { exposure: 0.95, env: 0.9, hemi: 0.35, dir: 2.4, hdri: 'unfinished_office_1k' },
+  calidad: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'unfinished_office_1k' },
+  datos: { exposure: 0.9, env: 0.35, hemi: 0.2, dir: 1.2, hdri: 'unfinished_office_1k' },
+  comercial: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'newman_lobby_1k' },
+  direccion: { exposure: 0.95, env: 0.85, hemi: 0.3, dir: 2.2, hdri: 'newman_lobby_1k' },
+  juntas: { exposure: 0.95, env: 0.85, hemi: 0.3, dir: 2.2, hdri: 'unfinished_office_1k' },
+  azotea: { exposure: 0.9, env: 0.06, hemi: 0.12, dir: 1.4, hdri: 'unfinished_office_1k' },
+};
 
 /** Pase final propio: saturación, curva de contraste y viñeta suave. */
 const GradeShader = {
@@ -86,7 +114,11 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   let disposed = false;
   let world: IWorld | null = null;
   let levelLayer: LevelLayer | null = null;
-  let furnLayer: FurnitureLayer | null = null;
+  let furnLayer: FurnitureLayer | RealFurnitureLayer | null = null;
+  let currentTheme: Theme | null = null;
+  const q0 = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(); } })();
+  const useAO = q0.get('ao') ? q0.get('ao') === '1' : AO_DEFAULT;
+  const useBloom = q0.get('bloom') ? q0.get('bloom') === '1' : BLOOM_DEFAULT;
   let debugLayer: AiDebugLayer | null = null;
   let stars: THREE.Points | null = null;
   const worldOwned = new Owned();
@@ -122,27 +154,52 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     camInit = false;
   }
 
+  /** Luz y tono según estilo, tema y calidad. */
+  function applyLighting(theme: Theme, th = THEMES[theme] ?? THEMES.recepcion): void {
+    if (getStyleMode() === 'realista') {
+      const L = REAL_LIGHT[theme];
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = L.exposure;
+      hemi.color.setHex(th.hemiSky); hemi.groundColor.setHex(th.hemiGround);
+      dir.color.setHex(th.dirColor); dir.intensity = L.dir;
+      fill.color.setHex(th.dirColor); fill.intensity = L.dir * 0.12;
+      if (quality === 'high') {
+        hemi.intensity = L.hemi;
+        void loadEnvironment(renderer, L.hdri).then((env) => {
+          if (disposed || currentTheme !== theme || quality !== 'high' || getStyleMode() !== 'realista') return;
+          scene.environment = env; scene.environmentIntensity = L.env;
+        });
+      } else { scene.environment = null; hemi.intensity = theme === 'azotea' ? 0.5 : 1.5; }   // sin HDRI en calidad baja
+    } else {
+      renderer.toneMapping = THREE.NeutralToneMapping;
+      renderer.toneMappingExposure = 0.9;
+      scene.environment = null;
+      hemi.color.setHex(th.hemiSky); hemi.groundColor.setHex(th.hemiGround); hemi.intensity = th.hemiI;
+      dir.color.setHex(th.dirColor); dir.intensity = th.dirI * 0.9;
+      fill.color.setHex(th.dirColor); fill.intensity = th.dirI * 0.3;
+    }
+  }
+
   function setWorld(w: IWorld | null): void {
     clearWorld();
     world = w;
     if (!w) {
       scene.background = new THREE.Color(0x0b0d12);
+      scene.environment = null;
+      currentTheme = null;
       return;
     }
     const lv = w.level;
     const th = THEMES[lv.theme] ?? THEMES.recepcion;
     scene.background = new THREE.Color(th.bg);
-    hemi.color.setHex(th.hemiSky); hemi.groundColor.setHex(th.hemiGround); hemi.intensity = th.hemiI;
-    dir.color.setHex(th.dirColor); dir.intensity = th.dirI * 0.9;
-    fill.color.setHex(th.dirColor); fill.intensity = th.dirI * 0.3;
+    currentTheme = lv.theme;
+    applyLighting(lv.theme, th);
     const [fogNear, fogFar] = FOG[lv.theme];
     scene.fog = new THREE.Fog(SKY[lv.theme][1], fogNear, fogFar);
     scene.background = new THREE.Color(SKY[lv.theme][1]);
     levelLayer = new LevelLayer(lv, quality === 'high');
     scene.add(levelLayer.group, levelLayer.sky);
-    furnLayer = new FurnitureLayer(lv.furniture, lv.theme, getAssets());
-    furnLayer.setShadows(quality === 'high');
-    scene.add(furnLayer.group);
+    buildFurniture();
     if (lv.theme === 'azotea') { stars = makeStars(worldOwned); scene.add(stars); }
   }
 
@@ -150,13 +207,22 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   function useAssets(a: Assets): void {
     if (disposed) return;
     chars.setAssets(a); pickups.setAssets(a); fx.setAssets(a);
-    if (world && levelLayer) {
-      if (furnLayer) { scene.remove(furnLayer.group); furnLayer.dispose(); }
-      furnLayer = new FurnitureLayer(world.level.furniture, world.level.theme, a);
-      furnLayer.setShadows(quality === 'high');
-      scene.add(furnLayer.group);
-    }
+    buildFurniture();
   }
+
+  /** Mobiliario del estilo actual: PBR de oficina si ya cargó; si no, el de reserva (Kenney / cajas). */
+  function buildFurniture(): void {
+    if (!world || !levelLayer) return;
+    if (furnLayer) { scene.remove(furnLayer.group); furnLayer.dispose(); furnLayer = null; }
+    const off = getOffice();
+    if (getStyleMode() === 'realista' && off && off.parts.size > 0) {
+      try { furnLayer = new RealFurnitureLayer(world.level, off); } catch { furnLayer = null; }
+    }
+    if (!furnLayer) furnLayer = new FurnitureLayer(world.level.furniture, world.level.theme, getAssets());
+    furnLayer.setShadows(quality === 'high');
+    scene.add(furnLayer.group);
+  }
+  void loadOffice().then((o: OfficeAssets | null) => { if (o && !disposed) { pickups.setOffice(o); buildFurniture(); } }).catch(() => { /* reserva */ });
   void loadAssets().then((a) => { if (a) useAssets(a); }).catch(() => { /* se quedan los modelos de cajas */ });
 
   function onEvents(events: GameEvent[]): void {
@@ -192,6 +258,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     levelLayer?.setShadows(high);
     furnLayer?.setShadows(high);
     if (!high && composer) { composer.dispose(); composer = null; }
+    if (currentTheme) applyLighting(currentTheme);
   }
   function ensureComposer(): EffectComposer {
     if (composer) return composer;
@@ -201,6 +268,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     composer.setPixelRatio(pr);
     composer.setSize(cssW, cssH);
     composer.addPass(new RenderPass(scene, camera));
+    if (useAO && getStyleMode() === 'realista') composer.addPass(new GTAOPass(scene, camera, cssW, cssH));
+    if (useBloom && getStyleMode() === 'realista') composer.addPass(new UnrealBloomPass(new THREE.Vector2(cssW, cssH), 0.22, 0.5, 0.92));
     composer.addPass(new ShaderPass(GradeShader));
     composer.addPass(new OutputPass());
     return composer;
@@ -305,5 +374,14 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     applyQuality();
   }
 
-  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality };
+  function setStyle(st: Style): void {
+    if (st === getStyleMode()) return;
+    setStyleMode(st);
+    composer?.dispose(); composer = null;      // se recrea con los pases del estilo
+    chars.restyle(); pickups.restyle();
+    const w = world;
+    if (w) setWorld(w);                        // reconstruye escenario, mobiliario y luz con el estilo nuevo
+  }
+
+  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality, setStyle, getStyle: () => getStyleMode() };
 }

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Galería de modelos 3D</title>
+  <style>
+    :root { --bg: #0e1116; --panel: #171c25; --borde: #2a3140; --texto: #d8dde6; --suave: #8b94a5; --acento: #5aa2ff; }
+    html { background: var(--bg); }
+    body { margin: 0; background: transparent; color: var(--texto); font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    /* El lienzo único va DETRÁS del contenido (z-index negativo, sobre el fondo del html);
+       las zonas «.vista» de las tarjetas son transparentes y dejan ver el render. */
+    #lienzo { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+    header { position: sticky; top: 0; z-index: 10; background: rgba(14, 17, 22, .96); border-bottom: 1px solid var(--borde); padding: 10px 20px 0; }
+    h1 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+    h1 small { color: var(--suave); font-weight: 400; font-size: 13px; margin-left: 10px; }
+    nav { display: flex; gap: 4px; flex-wrap: wrap; align-items: flex-end; }
+    nav button.pestana { background: transparent; color: var(--suave); border: 1px solid transparent; border-bottom: none; padding: 8px 14px; font: inherit; cursor: pointer; border-radius: 6px 6px 0 0; }
+    nav button.pestana:hover { color: var(--texto); }
+    nav button.pestana.activa { background: var(--bg); color: var(--texto); border-color: var(--borde); position: relative; top: 1px; }
+    nav .foto { margin-left: auto; margin-bottom: 6px; background: var(--panel); color: var(--texto); border: 1px solid var(--borde); border-radius: 6px; padding: 5px 12px; font: inherit; cursor: pointer; }
+    nav .foto.activa { border-color: var(--acento); color: var(--acento); }
+    main { max-width: 1500px; margin: 0 auto; padding: 8px 20px 60px; }
+    section.pestana-contenido { display: none; }
+    section.pestana-contenido.activa { display: block; }
+    h2 { font-size: 16px; margin: 26px 0 4px; font-weight: 600; }
+    p.nota { margin: 0 0 12px; color: var(--suave); max-width: 900px; }
+    .rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+    /* la tarjeta NO lleva fondo: taparía el lienzo, que va detrás. El fondo va solo en el pie de texto. */
+    .tarjeta { background: transparent; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .tarjeta > :not(.vista) { background: var(--panel); }
+    .vista { position: relative; aspect-ratio: 4 / 3; cursor: grab; touch-action: pan-y; }
+    .vista:active { cursor: grabbing; }
+    .vista .estado { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--suave); pointer-events: none; text-align: center; padding: 10px; }
+    .info { padding: 8px 12px 10px; background: var(--panel); }
+    .info h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .info .fuente { color: var(--suave); font-size: 12px; margin: 2px 0 4px; }
+    .info .datos { font-size: 12px; color: var(--texto); font-variant-numeric: tabular-nums; }
+    .info .detalle { font-size: 12px; color: var(--suave); margin-top: 3px; }
+    .anims { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; max-height: 76px; overflow-y: auto; }
+    .anims button { background: #232a37; color: var(--texto); border: 1px solid var(--borde); border-radius: 4px; padding: 2px 8px; font: 12px system-ui; cursor: pointer; }
+    .anims button:hover { border-color: var(--acento); }
+    .anims button.activa { background: var(--acento); color: #06101f; border-color: var(--acento); }
+    /* pestaña de retargeteo */
+    .barra-rt { position: sticky; top: var(--alto-cabecera, 90px); z-index: 5; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: rgba(14, 17, 22, .96); border: 1px solid var(--borde); border-radius: 8px; padding: 8px 12px; margin: 10px 0 0; }
+    .barra-rt label { display: flex; gap: 8px; align-items: center; color: var(--suave); }
+    .barra-rt input[type=range] { width: 340px; }
+    .barra-rt output { color: var(--texto); min-width: 44px; font-variant-numeric: tabular-nums; }
+    .barra-rt button, .barra-rt select { background: #232a37; color: var(--texto); border: 1px solid var(--borde); border-radius: 4px; padding: 4px 12px; font: inherit; cursor: pointer; }
+    .error { color: #ff6b6b; font-size: 12px; margin-top: 4px; }
+    .error:empty { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="lienzo"></canvas>
+  <header>
+    <h1>Galería de modelos 3D <small>candidatos para Stracomter — solo de prueba</small></h1>
+    <nav id="pestanas"></nav>
+  </header>
+  <main id="contenido"></main>
+  <script type="module" src="/src/galeria/main.ts"></script>
+</body>
+</html>

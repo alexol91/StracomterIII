@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import type { GameEvent, OrderKind, Projectile } from '../sim/types';
 import type { IWorld } from '../contracts';
-import { GeoBuilder, Owned, makeOutlineMat, makeToonVC } from './geo';
+import { GeoBuilder, Owned, makeOutlineMat, makeToonVC, type SurfaceMat } from './geo';
 import type { Assets } from './assets';
 
 const MAX_PART = 900;
@@ -128,7 +128,7 @@ export class Fx {
   private projViews = new Map<number, THREE.Group>();
   private grenadeGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
   private rocketGeo!: { geo: THREE.BufferGeometry; hull: THREE.BufferGeometry | null };
-  private projMat: THREE.MeshToonMaterial;
+  private projMat: SurfaceMat;
   private projHullMat: THREE.MeshBasicMaterial;
   private trailAcc = 0;
 

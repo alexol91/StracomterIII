@@ -10,7 +10,9 @@ import type { IWorld } from '../contracts';
 import { FURNITURE } from '../sim/data';
 import { GeoBuilder, Owned, makeOutlineMat, makeToonVC } from './geo';
 import { THEMES, type ThemeDef } from './palette';
+import { outlinesOn } from './style';
 import type { Assets } from './assets';
+import type { OfficeAssets } from './officeassets';
 import { buildFurnitureFromAssets } from './furnmodels';
 import { computeHullDir, makeHullMaterial } from './stylized';
 
@@ -150,6 +152,31 @@ function buildFurniture(type: FurnitureType, th: ThemeDef, theme: Theme): FurnMo
   return { geo, hull, led };
 }
 
+/** Oclusión falsa: mancha suave y oscura bajo cada mueble (un solo InstancedMesh). */
+export function makeContactShadows(furniture: FurnitureInst[], owned: Owned): THREE.InstancedMesh | null {
+  if (!furniture.length) return null;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const rg = g.createRadialGradient(32, 32, 4, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(0.6, 'rgba(0,0,0,0.3)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  const tex = owned.add(new THREE.CanvasTexture(c));
+  const geo = owned.add(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+  const mat = owned.add(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+  const im = new THREE.InstancedMesh(geo, mat, furniture.length);
+  const q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), m = new THREE.Matrix4();
+  const up = new THREE.Vector3(0, 1, 0);
+  furniture.forEach((f, i) => {
+    q.setFromAxisAngle(up, -f.angle);
+    p.set(f.x, 0.014, f.y);
+    s.set(f.hw * 2 + 0.7, 1, f.hd * 2 + 0.7);
+    im.setMatrixAt(i, m.compose(p, q, s));
+  });
+  im.instanceMatrix.needsUpdate = true;
+  im.frustumCulled = false;
+  return im;
+}
+
 /** Muebles estáticos de un nivel. Un InstancedMesh por tipo + otro de contorno. */
 export class FurnitureLayer {
   group = new THREE.Group();
@@ -190,7 +217,7 @@ export class FurnitureLayer {
       };
       const body = mk(model.geo, mat);
       this.casters.push(body);
-      const hull = model.hull ? mk(model.hull, model.fancy ? fancyHull : hullMat) : null;
+      const hull = model.hull && outlinesOn() ? mk(model.hull, model.fancy ? fancyHull : hullMat) : null;
       const led = model.led ? mk(model.led, ledMat) : null;
       list.forEach((f, i) => {
         q.setFromAxisAngle(up, -f.angle);
@@ -204,29 +231,9 @@ export class FurnitureLayer {
     this.buildContactShadows(furniture);
   }
 
-  /** Oclusión falsa: mancha suave y oscura bajo cada mueble (un solo InstancedMesh). */
   private buildContactShadows(furniture: FurnitureInst[]): void {
-    if (!furniture.length) return;
-    const c = document.createElement('canvas'); c.width = c.height = 64;
-    const g = c.getContext('2d')!;
-    const rg = g.createRadialGradient(32, 32, 4, 32, 32, 32);
-    rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(0.6, 'rgba(0,0,0,0.3)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
-    const tex = this.owned.add(new THREE.CanvasTexture(c));
-    const geo = this.owned.add(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
-    const mat = this.owned.add(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
-    const im = new THREE.InstancedMesh(geo, mat, furniture.length);
-    const q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), m = new THREE.Matrix4();
-    const up = new THREE.Vector3(0, 1, 0);
-    furniture.forEach((f, i) => {
-      q.setFromAxisAngle(up, -f.angle);
-      p.set(f.x, 0.014, f.y);
-      s.set(f.hw * 2 + 0.7, 1, f.hd * 2 + 0.7);
-      im.setMatrixAt(i, m.compose(p, q, s));
-    });
-    im.instanceMatrix.needsUpdate = true;
-    im.frustumCulled = false;
-    this.group.add(im);
+    const im = makeContactShadows(furniture, this.owned);
+    if (im) this.group.add(im);
   }
 
   /** Activa/desactiva proyectar y recibir sombras reales. */
@@ -279,6 +286,17 @@ export class PickupLayer {
   private views = new Map<number, PickupView>();
   private mat = makeToonVC();
   private hullMat = makeOutlineMat();
+  private office: OfficeAssets | null = null;
+
+  /** Cambio de estilo en caliente: nuevo material con color por vértice y vistas nuevas. */
+  restyle(): void {
+    this.mat.dispose(); this.mat = makeToonVC();
+    this.clear();
+    this.models.clear();
+  }
+
+  /** Botiquín y caja de munición de Poly Haven (estilo realista). */
+  setOffice(a: OfficeAssets | null): void { this.office = a; this.clear(); }
 
   /** Botiquín del modelo Quaternius (CC0), cuando termina la carga. */
   setAssets(a: Assets | null): void {
@@ -296,22 +314,33 @@ export class PickupLayer {
       seen.add(pk.id);
       let v = this.views.get(pk.id);
       if (!v) {
-        const useHealth = pk.type.startsWith('vida') && this.assets?.health;
+        const prop = !outlinesOn() && this.office ? (pk.type.startsWith('vida') ? this.office.medical : this.office.ammo) : null;
+        const useHealth = !prop && pk.type.startsWith('vida') && this.assets?.health;
         let md = this.models.get(pk.type);
         if (!md) {
           md = useHealth ? { geo: this.assets!.health!, hull: null, size: ITEM_SIZE[pk.type.split('_')[1]] ?? 0.4 } : buildItem(pk.type);
           this.models.set(pk.type, md);
         }
         const root = new THREE.Group();
-        if (useHealth) {
+        if (prop) {
+          // modelo con textura (Poly Haven): se centra y se escala al tamaño del objeto (20/50/100)
+          const inner = prop.clone(true);
+          const bb = new THREE.Box3().setFromObject(inner);
+          const c = bb.getCenter(new THREE.Vector3()), dim = Math.max(...bb.getSize(new THREE.Vector3()).toArray()) || 1;
+          inner.position.sub(c);
+          const wrap = new THREE.Group();
+          wrap.add(inner);
+          wrap.scale.setScalar((ITEM_SIZE[pk.type.split('_')[1]] ?? 0.4) * 1.5 / dim);
+          root.add(wrap);
+        } else if (useHealth) {
           // modelo normalizado a 1 m: se escala al tamaño del botiquín (20/50/100)
           const m1 = new THREE.Mesh(md.geo, this.mat), m2 = new THREE.Mesh(md.geo, this.healthHull);
           const sc = md.size * 1.5;
           m1.scale.setScalar(sc); m2.scale.setScalar(sc);
-          root.add(m1, m2);
+          root.add(m1); if (outlinesOn()) root.add(m2);
         } else {
           root.add(new THREE.Mesh(md.geo, this.mat));
-          if (md.hull) root.add(new THREE.Mesh(md.hull, this.hullMat));
+          if (md.hull && outlinesOn()) root.add(new THREE.Mesh(md.hull, this.hullMat));
         }
         this.group.add(root);
         v = { root, size: md.size };

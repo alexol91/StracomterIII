@@ -12,6 +12,7 @@ import type { Assets, CharSourceId } from './assets';
 import { GeoBuilder } from './geo';
 import { unitPalette, type UnitPalette } from './palette';
 import { computeHullDir } from './stylized';
+import { outlinesOn } from './style';
 
 // ───────────────────────── Constantes de ajuste ─────────────────────────
 
@@ -390,7 +391,7 @@ export class SkinView {
     const hurt = alive && !this.ghost && time - e.lastHurtAt < 0.12 && time >= e.lastHurtAt;
     this.body.material = !alive ? host.matDead : this.ghost ? host.matGhost : hurt ? host.matFlash : host.matChar;
     this.body.castShadow = host.shadowsOn && !this.ghost;
-    this.hull.visible = host.shadowsOn && !this.ghost;
+    this.hull.visible = host.shadowsOn && !this.ghost && outlinesOn();
     this.hull.material = host.matHullSkin;
 
     // — animación
