@@ -261,6 +261,8 @@ export class Director {
     if (w.status !== 'playing') return;
     const alive = w.enemiesAlive();
 
+    // Si el MegaBoss ha muerto, los refuerzos de las fases que no llegó a pedir ya no vienen.
+    if (this.boss && this.boss.kind === 'megaboss' && !this.boss.alive) this.bossReserve = 0;
     // MegaBoss: el escudo cae cuando la oleada de refuerzos está casi liquidada (o a los 45 s)
     if (this.boss && this.boss.kind === 'megaboss' && this.boss.alive && this.boss.shielded) {
       const others = alive - 1;

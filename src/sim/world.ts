@@ -398,6 +398,9 @@ export class World implements IWorld {
         cx = px + (cx - px) * k; cyy = py + (cyy - py) * k; cz = pz + (cz - pz) * k;
       }
     }
+    // Arrinconada contra una pared: en vez de meterse en la nuca del personaje, sube y mira por encima.
+    const da = Math.hypot(cx - px, cyy - py, cz - pz);
+    if (da < 2.2) cz += (2.2 - da) * 0.55;
     this.cam.x = cx; this.cam.y = cyy; this.cam.z = cz; this.cam.yaw = yaw; this.cam.pitch = pitch;
   }
 
