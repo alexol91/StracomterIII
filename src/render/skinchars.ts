@@ -308,6 +308,7 @@ function lerpAngle(a: number, b: number, t: number): number {
 }
 
 export class SkinView {
+  readonly skinned = true;
   root = new THREE.Group();
   inner: THREE.Object3D;
   body: THREE.SkinnedMesh;

@@ -14,6 +14,7 @@ import { unitPalette, type UnitPalette } from './palette';
 import type { Assets } from './assets';
 import { buildTemplate, CROUCH_VISUAL_HEIGHT, OUTLINE_THICK, SkinView, type CharHost, type SkinTemplate } from './skinchars';
 import { makeHullMaterial } from './stylized';
+import { RbLibrary, RbView, RB_CROUCH_HEIGHT } from './rbchars';
 
 interface Model {
   body: THREE.BufferGeometry;
@@ -304,7 +305,8 @@ class CharView {
   }
 }
 
-type View = CharView | SkinView;
+type View = CharView | SkinView | RbView;
+function isSkinned(v: View): v is SkinView | RbView { return (v as { skinned?: boolean }).skinned === true; }
 const _frustum = new THREE.Frustum();
 const _pm = new THREE.Matrix4();
 const _sph = new THREE.Sphere();
@@ -329,6 +331,8 @@ export class CharManager implements CharHost {
   private assets: Assets | null = null;
   private templates = new Map<Kind, SkinTemplate>();
   private frame = 0;
+  private rb: RbLibrary | null = null;
+  private useRb = false;
   private models = new Map<string, Model>();
   private shadows: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;
@@ -400,7 +404,15 @@ export class CharManager implements CharHost {
     }
   }
 
-  private makeView(kind: Kind): View {
+  /** Biblioteca de personajes realistas (Rocketbox); se usa cuando `setUseRb(true)`. */
+  setRb(lib: RbLibrary | null): void { this.rb = lib; this.clear(); }
+  setUseRb(on: boolean): void { if (on !== this.useRb) { this.useRb = on; this.clear(); } }
+
+  private makeView(kind: Kind, id: number): View {
+    if (this.useRb && this.rb) {
+      const rt = this.rb.templates.get(kind);
+      if (rt) { try { return new RbView(rt, id, this.rb); } catch { /* cae a Quaternius */ } }
+    }
     const t = this.templates.get(kind);
     if (t) {
       try { return new SkinView(t); } catch { /* cae al modelo de cajas */ }
@@ -411,6 +423,7 @@ export class CharManager implements CharHost {
   setColorblind(cb: boolean): void {
     if (cb === this.cb) return;
     this.cb = cb;
+    if (this.rb?.loaded) { this.rb.build(cb); void this.rb.prewarm(); }   // brazaletes con otro color
     this.rebuildTemplates();
     this.clear();
     for (const m of this.models.values()) { m.body.dispose(); m.hull?.dispose(); m.arms.dispose(); m.legs.dispose(); }
@@ -424,7 +437,7 @@ export class CharManager implements CharHost {
   }
 
   clear(): void {
-    for (const v of this.views.values()) { this.group.remove(v.root); if (v instanceof SkinView) v.dispose(); }
+    for (const v of this.views.values()) { this.group.remove(v.root); if (isSkinned(v)) v.dispose(); }
     this.views.clear();
     this.shadows.count = 0; this.barBg.count = 0; this.barFg.count = 0;
   }
@@ -452,12 +465,12 @@ export class CharManager implements CharHost {
       seen.add(e.id);
       let v = this.views.get(e.id);
       if (!v) {
-        v = this.makeView(e.kind);
+        v = this.makeView(e.kind, e.id);
         this.group.add(v.root);
         this.views.set(e.id, v);
       }
       this.updateGhost(v, e, world, camera);
-      if (v instanceof SkinView) {
+      if (isSkinned(v)) {
         // descarte: fuera de cámara (y lejos) no se dibuja; los lejanos animan 1 de cada 3 frames
         _sph.center.set(v.x, 1, v.y); _sph.radius = 2.4 * Math.max(1, v.height / 1.8);
         const inF = _frustum.intersectsSphere(_sph);
@@ -484,7 +497,7 @@ export class CharManager implements CharHost {
         const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
         const bw = v.barW;
         const bh = 0.08;
-        const crouchH = THREE.MathUtils.lerp(v.height, v instanceof SkinView ? CROUCH_VISUAL_HEIGHT : 1.0, v.crouchK);
+        const crouchH = THREE.MathUtils.lerp(v.height, v instanceof RbView ? RB_CROUCH_HEIGHT : v instanceof SkinView ? CROUCH_VISUAL_HEIGHT : 1.0, v.crouchK);
         _v.set(v.x, crouchH + 0.25, v.y);
         // fondo oscuro
         _scl.set(bw + 0.04, bh + 0.04, 1);
@@ -506,7 +519,7 @@ export class CharManager implements CharHost {
     // entidades que ya no existen
     if (this.views.size !== seen.size) {
       for (const [id, v] of this.views) {
-        if (!seen.has(id)) { this.group.remove(v.root); if (v instanceof SkinView) v.dispose(); this.views.delete(id); }
+        if (!seen.has(id)) { this.group.remove(v.root); if (isSkinned(v)) v.dispose(); this.views.delete(id); }
       }
     }
 

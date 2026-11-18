@@ -14,6 +14,7 @@ import { Fx } from './fx';
 import { FurnitureLayer, PickupLayer } from './furniture';
 import { disposeRamp, Owned } from './geo';
 import { getAssets, loadAssets, type Assets } from './assets';
+import { RbLibrary } from './rbchars';
 import { FOG, LevelLayer, makeStars, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
@@ -42,15 +43,15 @@ const BLOOM_DEFAULT = false;
 
 /** Luz del estilo realista por tema: exposición, intensidad del entorno HDRI, hemisférica, direccional y HDRI. */
 export const REAL_LIGHT: Record<Theme, { exposure: number; env: number; hemi: number; dir: number; hdri: string }> = {
-  recepcion: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'newman_lobby_1k' },
-  soporte: { exposure: 0.95, env: 0.9, hemi: 0.35, dir: 2.4, hdri: 'unfinished_office_1k' },
-  desarrollo: { exposure: 0.95, env: 0.9, hemi: 0.35, dir: 2.4, hdri: 'unfinished_office_1k' },
-  calidad: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'unfinished_office_1k' },
-  datos: { exposure: 0.9, env: 0.35, hemi: 0.2, dir: 1.2, hdri: 'unfinished_office_1k' },
-  comercial: { exposure: 1.0, env: 1.0, hemi: 0.35, dir: 2.6, hdri: 'newman_lobby_1k' },
-  direccion: { exposure: 0.95, env: 0.85, hemi: 0.3, dir: 2.2, hdri: 'newman_lobby_1k' },
-  juntas: { exposure: 0.95, env: 0.85, hemi: 0.3, dir: 2.2, hdri: 'unfinished_office_1k' },
-  azotea: { exposure: 0.9, env: 0.06, hemi: 0.12, dir: 1.4, hdri: 'unfinished_office_1k' },
+  recepcion: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'newman_lobby_1k' },
+  soporte: { exposure: 0.9, env: 0.8, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
+  desarrollo: { exposure: 0.9, env: 0.8, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
+  calidad: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'unfinished_office_1k' },
+  datos: { exposure: 1.0, env: 0.5, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
+  comercial: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'newman_lobby_1k' },
+  direccion: { exposure: 0.88, env: 0.8, hemi: 0.28, dir: 1.5, hdri: 'newman_lobby_1k' },
+  juntas: { exposure: 0.88, env: 0.8, hemi: 0.28, dir: 1.5, hdri: 'unfinished_office_1k' },
+  azotea: { exposure: 1.0, env: 0.1, hemi: 0.18, dir: 1.6, hdri: 'unfinished_office_1k' },
 };
 
 /** Pase final propio: saturación, curva de contraste y viñeta suave. */
@@ -107,6 +108,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   let composer: EffectComposer | null = null;
 
   const chars = new CharManager();
+  const rb = new RbLibrary();
+  let rbStarted = false;
   const fx = new Fx();
   const pickups = new PickupLayer();
   scene.add(chars.group, fx.group, pickups.group);
@@ -169,7 +172,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
           if (disposed || currentTheme !== theme || quality !== 'high' || getStyleMode() !== 'realista') return;
           scene.environment = env; scene.environmentIntensity = L.env;
         });
-      } else { scene.environment = null; hemi.intensity = theme === 'azotea' ? 0.5 : 1.5; }   // sin HDRI en calidad baja
+      } else { scene.environment = null; hemi.intensity = theme === 'azotea' ? 0.7 : 2.4; }   // sin HDRI en calidad baja
     } else {
       renderer.toneMapping = THREE.NeutralToneMapping;
       renderer.toneMappingExposure = 0.9;
@@ -247,6 +250,22 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     dir.target.updateMatrixWorld();
   }
 
+  /** Rocketbox solo en estilo realista y calidad alta (en 'low' el skinning de ~10k triángulos × 49 sale caro: Quaternius). */
+  function rbWanted(): boolean { return getStyleMode() === 'realista' && quality === 'high'; }
+  function updateUseRb(): void { chars.setUseRb(rbWanted() && rb.loaded && rb.templates.size > 0); }
+  function ensureRb(): void {
+    if (!rbWanted() || rbStarted || disposed) return;
+    rbStarted = true;
+    void rb.load().then(async (ok) => {
+      if (!ok || disposed) return;
+      rb.build(colorblind);
+      await rb.prewarm();                  // retargeteo repartido en tareas pequeñas; mientras, se ven los Quaternius
+      if (disposed) return;
+      chars.setRb(rb);
+      updateUseRb();
+    });
+  }
+
   function applyQuality(): void {
     const high = quality === 'high';
     renderer.shadowMap.enabled = high;
@@ -259,6 +278,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     furnLayer?.setShadows(high);
     if (!high && composer) { composer.dispose(); composer = null; }
     if (currentTheme) applyLighting(currentTheme);
+    ensureRb(); updateUseRb();
   }
   function ensureComposer(): EffectComposer {
     if (composer) return composer;
@@ -362,6 +382,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     clearWorld();
     world = null;
     composer?.dispose(); composer = null;
+    rb.dispose();
     chars.dispose(); fx.dispose(); pickups.dispose();
     disposeRamp();
     renderer.dispose();
@@ -379,6 +400,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     setStyleMode(st);
     composer?.dispose(); composer = null;      // se recrea con los pases del estilo
     chars.restyle(); pickups.restyle();
+    ensureRb(); updateUseRb();
     const w = world;
     if (w) setWorld(w);                        // reconstruye escenario, mobiliario y luz con el estilo nuevo
   }

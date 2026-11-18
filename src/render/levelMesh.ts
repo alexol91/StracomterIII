@@ -23,13 +23,28 @@ const ACCENT: Record<Theme, number> = {
   recepcion: 0x2f66b3, soporte: 0x2e9aa8, desarrollo: 0x3aa66b, calidad: 0xd4a32b, datos: 0x35d0ff,
   comercial: 0xd0693a, direccion: 0x7b2d3a, juntas: 0x4a4fa8, azotea: 0x35d0ff,
 };
-/** Suelo PBR por tema (estilo realista): conjunto de texturas y tinte. */
-const FLOOR_PBR: Record<Theme, { set: string; tint: number }> = {
-  recepcion: { set: 'marble_tiles', tint: 0xffffff }, soporte: { set: 'dirty_carpet', tint: 0xb8c4d8 },
-  desarrollo: { set: 'Carpet012', tint: 0x9aa8c0 }, calidad: { set: 'large_grey_tiles', tint: 0xffffff },
-  datos: { set: 'concrete_floor_painted', tint: 0x6a7894 }, comercial: { set: 'laminate_floor_02', tint: 0xffffff },
-  direccion: { set: 'laminate_floor_02', tint: 0x8a6a50 }, juntas: { set: 'terrazzo_tiles', tint: 0x9aa0b4 },
-  azotea: { set: 'rough_concrete', tint: 0x8a8e96 },
+/**
+ * Suelo PBR por tema (estilo realista): conjunto de texturas y multiplicador LINEAL de color [r, g, b].
+ * Las texturas de moqueta son muy oscuras (luminosidad ~50/255), así que se multiplican por más de 1.
+ */
+const FLOOR_PBR: Record<Theme, { set: string; mul: [number, number, number] }> = {
+  recepcion: { set: 'marble_tiles', mul: [1.25, 1.35, 1.45] },
+  soporte: { set: 'dirty_carpet', mul: [2.3, 3.0, 4.6] },          // moqueta gris azulada
+  desarrollo: { set: 'Carpet012', mul: [2.1, 2.15, 2.1] },         // moqueta gris medio
+  calidad: { set: 'large_grey_tiles', mul: [1.2, 1.2, 1.25] },
+  datos: { set: 'concrete_floor_painted', mul: [1.0, 1.2, 1.7] },
+  comercial: { set: 'laminate_floor_02', mul: [1.05, 1.12, 1.3] },
+  direccion: { set: 'laminate_floor_02', mul: [0.95, 0.78, 0.62] },
+  juntas: { set: 'terrazzo_tiles', mul: [1.0, 1.25, 1.6] },
+  azotea: { set: 'rough_concrete', mul: [0.5, 0.55, 0.65] },
+};
+/** Color de pared (yeso pintado, blanco roto) y de fachada en el estilo realista. */
+const WALL_REAL: Record<Theme, { wall: number; facade: number }> = {
+  recepcion: { wall: 0xd9d7d1, facade: 0xe4e9ef }, soporte: { wall: 0xd7d7d3, facade: 0xe2e8ee },
+  desarrollo: { wall: 0xd8d8d4, facade: 0xe2e8ee }, calidad: { wall: 0xd6d8d3, facade: 0xe2e8ee },
+  datos: { wall: 0x77839a, facade: 0x5c6880 }, comercial: { wall: 0xdbd6cd, facade: 0xe8e6e0 },
+  direccion: { wall: 0xd3c9b8, facade: 0xdcd2c0 }, juntas: { wall: 0xd6d6d4, facade: 0xe0e4ea },
+  azotea: { wall: 0x8e949f, facade: 0x7c828d },
 };
 export const FOG: Record<Theme, [number, number]> = {
   recepcion: [50, 150], soporte: [50, 150], desarrollo: [50, 150], calidad: [50, 150], comercial: [50, 150],
@@ -206,7 +221,7 @@ function skylineTexture(night: boolean, theme: Theme): THREE.CanvasTexture {
 // ───────────────────────── Muros ─────────────────────────
 
 /** Caja de muro con color por vértice: tapa distinta y degradado vertical (más oscuro abajo). */
-function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y0: number, y1: number, main: number, cap: number, grad = true): THREE.BufferGeometry {
+function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y0: number, y1: number, main: number, cap: number, grad = true, soft = false): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(sx, y1 - y0, sz);
   g.rotateY(rotY);
   g.translate(cx, (y0 + y1) / 2, cz);
@@ -230,7 +245,7 @@ function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y
     const face = Math.floor(i / 6);          // 0 +x, 1 -x, 2 +y (tapa), 3 -y, 4 +z, 5 -z
     const col = face === 2 ? cc : cm;
     let k = 1;
-    if (grad && face !== 2) k = 0.7 + 0.3 * Math.min(1, Math.max(0, (pos.getY(i) - y0) / Math.max(0.01, y1 - y0)));
+    if (grad && face !== 2) k = (soft ? 0.9 : 0.7) + (soft ? 0.1 : 0.3) * Math.min(1, Math.max(0, (pos.getY(i) - y0) / Math.max(0.01, y1 - y0)));
     arr[i * 3] = col.r * k; arr[i * 3 + 1] = col.g * k; arr[i * 3 + 2] = col.b * k;
   }
   n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
@@ -256,6 +271,10 @@ function buildWallGeometry(level: ILevel, th: ThemeDef, theme: Theme): WallGeos 
   const hasSegs = level.perimeterSegs.length > 0;
   const band = getStyleMode() === 'realista' ? (ACCENT[theme] ?? 0x2f66b3) : theme === 'datos' || theme === 'azotea' ? th.accent : 0x2f66b3;
   const showBand = theme !== 'azotea';
+  const real = getStyleMode() === 'realista';
+  const WR = WALL_REAL[theme];
+  const wallCol = real ? WR.wall : th.wall;
+  const facCol = real ? WR.facade : th.facade;
   const base = shade(th.cap, 1.5);
 
   for (const w of level.walls) {
@@ -263,7 +282,7 @@ function buildWallGeometry(level: ILevel, th: ThemeDef, theme: Theme): WallGeos 
     const sx = w.x1 - w.x0, sz = w.y1 - w.y0;
     if (sx <= 0 || sz <= 0) continue;
     const cx = (w.x0 + w.x1) / 2, cz = (w.y0 + w.y1) / 2;
-    main.push(wallBox(cx, cz, sx, sz, 0, 0, H, w.perimeter ? th.facade : th.wall, th.cap));
+    main.push(wallBox(cx, cz, sx, sz, 0, 0, H, w.perimeter ? facCol : wallCol, th.cap, true, real));
     trim.push(wallBox(cx, cz, sx + 0.05, sz + 0.05, 0, 0, 0.17, base, base, false));            // zócalo
     if (showBand) trim.push(wallBox(cx, cz, sx + 0.03, sz + 0.03, 0, 1.4, 1.52, band, band, false)); // cenefa
     trim.push(wallBox(cx, cz, sx + 0.07, sz + 0.07, 0, H - 0.1, H + 0.02, th.cap, th.cap, false));   // remate
@@ -284,15 +303,15 @@ function buildWallGeometry(level: ILevel, th: ThemeDef, theme: Theme): WallGeos 
       list.push(wallBox(mx + ux * u, mz + uz * u, l, t, -a, ya, yb, col, cap, grad));
     };
     if (theme === 'azotea') {
-      along(main, 0, len + 0.2, 0.3, 0, 1.1, th.facade, th.cap);         // peto bajo
+      along(main, 0, len + 0.2, 0.3, 0, 1.1, facCol, th.cap);         // peto bajo
       along(trim, 0, len + 0.24, 0.36, 1.08, 1.18, th.cap, th.cap, false);
     } else {
       const n = Math.max(1, Math.round(len / 2.8)), pitch = len / n;
-      along(main, 0, len + 0.2, 0.22, 0, 0.9, th.facade, th.cap);          // antepecho
-      along(main, 0, len + 0.2, 0.22, 2.7, H, th.facade, th.cap);          // dintel corrido
+      along(main, 0, len + 0.2, 0.22, 0, 0.9, facCol, th.cap);          // antepecho
+      along(main, 0, len + 0.2, 0.22, 2.7, H, facCol, th.cap);          // dintel corrido
       along(trim, 0, len + 0.24, 0.26, 0, 0.17, base, base, false);
       along(trim, 0, len + 0.24, 0.26, 0.9, 0.98, th.cap, th.cap, false);  // alféizar
-      for (let i = 0; i <= n; i++) along(main, -len / 2 + i * pitch, 0.34, 0.3, 0.9, 2.7, shade(th.facade, 0.8), th.cap);  // pilares
+      for (let i = 0; i <= n; i++) along(main, -len / 2 + i * pitch, 0.34, 0.3, 0.9, 2.7, shade(facCol, 0.85), th.cap);  // pilares
       for (let i = 0; i < n; i++) along(glass, -len / 2 + (i + 0.5) * pitch, pitch - 0.34, 0.05, 0.98, 2.7, 0x7cc4f4, 0xcfeaff);
     }
     // oclusión a ambos lados del tramo
@@ -302,7 +321,7 @@ function buildWallGeometry(level: ILevel, th: ThemeDef, theme: Theme): WallGeos 
 
   for (const d of level.doors) {
     // dintel sobre el hueco de la puerta
-    main.push(wallBox(d.cx, d.cy, d.x1 - d.x0, d.y1 - d.y0, 0, DOOR_HEIGHT, H, th.wall, th.cap));
+    main.push(wallBox(d.cx, d.cy, d.x1 - d.x0, d.y1 - d.y0, 0, DOOR_HEIGHT, H, wallCol, th.cap, true, real));
   }
 
   const mainGeo = main.length ? mergeGeometries(main, false) : null;
@@ -378,12 +397,12 @@ export class LevelLayer {
     let mat: THREE.Material;
     if (getStyleMode() === 'realista') {
       const cfg = FLOOR_PBR[this.level.theme] ?? FLOOR_PBR.recepcion;
-      const sm = new THREE.MeshStandardMaterial({ color: this.th.floorA, roughness: 1, metalness: 0 });
+      const sm = new THREE.MeshStandardMaterial({ color: new THREE.Color(...cfg.mul).multiplyScalar(0.35), roughness: 1, metalness: 0 });
       this.owned.add(sm);
       void loadPBR(cfg.set).then((set) => {
         if (!set || this.disposed) return;
         sm.map = set.map; sm.normalMap = set.normalMap; sm.roughnessMap = set.roughnessMap;
-        sm.color.setHex(cfg.tint);
+        sm.color.setRGB(cfg.mul[0], cfg.mul[1], cfg.mul[2], THREE.LinearSRGBColorSpace);
         sm.needsUpdate = true;
       });
       mat = sm;
@@ -409,7 +428,7 @@ export class LevelLayer {
         sm.roughness = 0.92;
         void loadPBR('white_plaster_02').then((set) => {
           if (!set || this.disposed) return;
-          sm.map = set.map; sm.normalMap = set.normalMap; sm.roughnessMap = set.roughnessMap; sm.needsUpdate = true;
+          sm.normalMap = set.normalMap; sm.normalScale.set(0.25, 0.25); sm.roughnessMap = set.roughnessMap; sm.needsUpdate = true;   // sin mapa de color: blanco limpio
         });
       }
       this.wallOwned.add(g.all);
@@ -509,14 +528,25 @@ export class LevelLayer {
   private buildSky(): void {
     const theme = this.level.theme;
     const [top, bot] = SKY[theme];
-    // cúpula con degradado vertical
+    // cúpula con degradado vertical. Estilo realista y planta de oficina: cielo solo junto al horizonte
+    // (lo que se ve por los ventanales) y por encima, un techo gris muy oscuro y neutro, de modo que los
+    // paneles LED parezcan luminarias de un techo en penumbra.
     const dome = new THREE.SphereGeometry(180, 24, 14);
     const pos = dome.getAttribute('position');
     const cols = new Float32Array(pos.count * 3);
-    const ct = new THREE.Color(top), cb = new THREE.Color(bot), c = new THREE.Color();
+    const ct = new THREE.Color(top), cb = new THREE.Color(bot), cc = new THREE.Color(0x1d1e22), c = new THREE.Color();
+    const officeCeiling = getStyleMode() === 'realista' && theme !== 'azotea' && theme !== 'datos';
     for (let i = 0; i < pos.count; i++) {
-      const t = Math.min(1, Math.max(0, (pos.getY(i) / 180 + 0.05) / 0.65));
-      c.copy(cb).lerp(ct, Math.pow(t, 0.8));
+      const e = pos.getY(i) / 180;                       // seno de la elevación
+      if (officeCeiling) {
+        if (e <= 0.03) c.copy(cb);
+        else if (e < 0.12) c.copy(cb).lerp(ct, (e - 0.03) / 0.09);
+        else if (e < 0.26) c.copy(ct).lerp(cc, (e - 0.12) / 0.14);
+        else c.copy(cc);
+      } else {
+        const t = Math.min(1, Math.max(0, (e + 0.05) / 0.65));
+        c.copy(cb).lerp(ct, Math.pow(t, 0.8));
+      }
       cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
     }
     dome.setAttribute('color', new THREE.BufferAttribute(cols, 3));
@@ -526,10 +556,11 @@ export class LevelLayer {
     // skyline lejano
     const tex = skylineTexture(theme === 'datos' || theme === 'azotea', theme);
     tex.repeat.set(3, 1);
-    const cyl = new THREE.CylinderGeometry(150, 150, 90, 48, 1, true);
+    const low = getStyleMode() === 'realista' && theme !== 'azotea' && theme !== 'datos';   // skyline bajo: no asoma sobre los muros
+    const cyl = new THREE.CylinderGeometry(150, 150, low ? 36 : 90, 48, 1, true);
     const cm = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false });
     const cmesh = new THREE.Mesh(cyl, cm);
-    cmesh.position.y = -28; cmesh.renderOrder = -19; cmesh.frustumCulled = false;
+    cmesh.position.y = low ? -4 : -28; cmesh.renderOrder = -19; cmesh.frustumCulled = false;
     this.sky.add(dmesh, cmesh);
     for (const o of [dome, dm, tex, cyl, cm]) this.owned.add(o);
   }
