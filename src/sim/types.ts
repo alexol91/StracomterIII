@@ -84,6 +84,10 @@ export interface Projectile {
   dead: boolean;
 }
 
+/** v1.2 — ranuras de arma al estilo Counter-Strike: 1 principal, 2 pistola, 3 cuchillo, 4 granada. */
+export type WeaponSlot = 'primary' | 'secondary' | 'knife' | 'grenade';
+export const WEAPON_SLOTS: WeaponSlot[] = ['primary', 'secondary', 'knife', 'grenade'];
+
 export type OrderKind = 'follow' | 'goto' | 'focus' | 'hold';
 
 export interface Entity {
@@ -139,6 +143,14 @@ export interface Entity {
   spread: number;
   /** world.time hasta el que está aturdido por un impacto fuerte (no dispara, va lento); 0 si no */
   staggerUntil: number;
+  /** arma en la mano (los que no son el jugador llevan siempre 'primary') y la anterior (para Q) */
+  weapon: WeaponSlot;
+  lastWeapon: WeaponSlot;
+  /** world.time hasta el que está sacando el arma tras cambiar (no puede disparar); 0 si no */
+  drawUntil: number;
+  /** pistola: balas en el cargador y tamaño; su reserva es infinita */
+  mag2: number;
+  magSize2: number;
 }
 
 /** Entrada del jugador para un paso de simulación. La genera la capa de controles. */
@@ -166,6 +178,10 @@ export interface PlayerInput {
   useItem: boolean;
   cycleItem: boolean;
   order: OrderKind | null;
+  /** v1.2 — pulsaciones (flanco): elegir ranura, volver a la anterior (Q), rueda (+1 siguiente, -1 anterior) */
+  weaponSlot: WeaponSlot | null;
+  weaponLast: boolean;
+  weaponCycle: number;
   /** móvil: las balas se corrigen hacia el enemigo visible más cercano a la mira */
   aimAssist: boolean;
 }
@@ -176,6 +192,7 @@ export function emptyInput(): PlayerInput {
     fire: false, sprint: false, aim: false, knife: false, crouch: false,
     reload: false, grenade: false, ability: false, interact: false,
     useItem: false, cycleItem: false, order: null, aimAssist: false,
+    weaponSlot: null, weaponLast: false, weaponCycle: 0,
   };
 }
 
@@ -185,7 +202,10 @@ export type HitZone = 'head' | 'torso' | 'limb';
 export type GameEvent =
   | { type: 'shot'; id: number; kind: Kind; team: Team; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; hit: 'none' | 'wall' | 'entity';
       /** v1.2 — qué ha tocado la bala (para marcas y polvo); normal aproximada en el plano (nx, ny) */
-      surface?: 'wall' | 'door' | 'furniture' | 'floor' | 'body' | 'none'; nx?: number; ny?: number }
+      surface?: 'wall' | 'door' | 'furniture' | 'floor' | 'body' | 'none'; nx?: number; ny?: number;
+      /** v1.2 — con qué ranura se disparó (ausente = principal) */
+      weapon?: WeaponSlot }
+  | { type: 'weaponSwitch'; id: number; weapon: WeaponSlot }
   | { type: 'dryfire'; id: number }
   | { type: 'explosion'; x: number; y: number; z: number; radius: number }
   | { type: 'hurt'; id: number; amount: number; zone: HitZone | 'blast' | 'knife'; fromX: number; fromY: number; attackerId: number }

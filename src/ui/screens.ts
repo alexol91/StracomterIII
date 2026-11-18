@@ -787,6 +787,15 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
     ];
   };
 
+  // Con Ctrl como agacharse, Ctrl+W cierra la pestaña; en pantalla completa el navegador no lo intercepta
+  const fullscreenTip = (): HTMLElement[] => {
+    const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+    if (typeof el.requestFullscreen !== 'function') return [];
+    return [h('div', { class: 'btn-row', style: 'margin:0.2rem 0 0.4rem' },
+      h('span', { class: 'hint' }, t('opt.fsTip')),
+      button(t('opt.fullscreen'), () => { try { void el.requestFullscreen?.()?.catch(() => {}); } catch { /* sin pantalla completa */ } }, 'small'))];
+  };
+
   const panes: Record<OptTab, () => HTMLElement[]> = {
     audio: () => [
       slider(t('opt.music'), 0, 1, 0.05, () => st.musicVol, (v) => { st.musicVol = v; }, pct),
@@ -799,6 +808,8 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
       ], () => st.difficulty, (v) => { st.difficulty = v; }),
       h('h3', { class: 'h-title opt-sec' }, '// ' + t('opt.controls')),
       h('p', { class: 'hint' }, t('opt.remapHint')),
+      h('p', { class: 'hint', style: 'color:var(--acc)' }, t('opt.controlsNote')),
+      ...fullscreenTip(),
       msg,
       bindGrid,
       h('div', { class: 'btn-row', style: 'margin-top:0.5rem' },

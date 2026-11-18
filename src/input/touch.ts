@@ -54,6 +54,7 @@ const ICONS: Record<string, string> = {
   cycle: '<path d="M4 8h14l-3.2-3.2M20 16H6l3.2 3.2"/>',
   aim: '<circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
   sprint: '<circle cx="14" cy="4.5" r="2.2"/><path d="M13 8l-3 5 4 3-1 5M10 13l-5 1M13 8l5 3"/>',
+  weapon: '<path d="M3 10h13l2 3h3v3h-8l-1 3H8l1-3H3z"/>',
   crouch: '<circle cx="9" cy="5" r="2.3"/><path d="M9 8v6l6 1.5M9 14l-3.5 6M15 15.5l1 4.5"/>',
   orders: '<path d="M6 21V3.5M6 4.5h12l-3.2 4.2 3.2 4.3H6"/>',
   interact: '<path d="M6 21V3h12v18M3 21h18"/><circle cx="14.5" cy="12.5" r="1" fill="#fff"/>',
@@ -74,6 +75,7 @@ const TXT: Record<string, { es: string; en: string }> = {
   interact: { es: 'Puerta', en: 'Door' },
   cycle: { es: 'Cambiar objeto', en: 'Next item' },
   crouch: { es: 'Agacharse', en: 'Crouch' },
+  weapon: { es: 'Arma', en: 'Weapon' },
   aim: { es: 'Apuntar', en: 'Aim' },
   sprint: { es: 'Esprintar', en: 'Sprint' },
   orders: { es: 'Órdenes', en: 'Orders' },
@@ -334,6 +336,17 @@ export function createTouch(root: HTMLElement, canvas: HTMLCanvasElement, core: 
   const setSprintToggle = (v: boolean): void => { sprintOn = v; sprintBtn.classList.toggle('tl-act', v); };
   bindPress(aimBtn, () => { setAim(!aimOn); if (aimOn) setSprintToggle(false); }, () => {});
   bindPress(sprintBtn, () => { setSprintToggle(!sprintOn); if (sprintOn) setAim(false); }, () => {});
+
+  // Arma: toque = última arma (como la Q); mantener 0,4 s = siguiente arma.
+  const weaponBtn = makeBtn('weapon', { r: 316, b: 150, size: 46 }, { caption: false });
+  let weaponTimer: number | null = null;
+  const clearWeaponTimer = (): void => { if (weaponTimer !== null) { clearTimeout(weaponTimer); weaponTimer = null; } };
+  bindPress(weaponBtn, () => {
+    clearWeaponTimer();
+    weaponTimer = window.setTimeout(() => { weaponTimer = null; input.weaponCycle = 1; }, 400);
+  }, () => {
+    if (weaponTimer !== null) { clearWeaponTimer(); input.weaponLast = true; }
+  });
 
   // Interactuar contextual (solo visible con puerta al alcance)
   const interactBtn = makeBtn('interact', { r: 68, b: 158, size: 58 }, { caption: true, cls: 'tl-interact' });

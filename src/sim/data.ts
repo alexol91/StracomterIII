@@ -249,3 +249,12 @@ export function computeMods(ids: readonly string[] | undefined): Mods {
 export function maxHpFor(c: ClassId, upgrades: readonly string[] | undefined): number {
   return CLASS_STATS[c].hp + computeMods(upgrades).hpBonus;
 }
+
+// ───────────────────────── v1.2: ranuras de arma (pistola secundaria) ─────────────────────────
+
+export const PISTOL = { damage: 14, rof: 5, magSize: 12, reloadTime: 1.3 };
+export const PISTOL_FEEL: GunFeel = { baseSpread: 0.007, perShot: 0.006, maxSpread: 0.05, recover: 0.12, moveSpread: 0.008, kickPitch: 0.009, kickYaw: 0.004 };
+/** tiempo de sacar cada arma al cambiar (s) */
+export const DRAW_TIME = { primary: 0.45, secondary: 0.30, knife: 0.25, grenade: 0.30 } as const;
+/** velocidad de movimiento según el arma en la mano (como en CS: con el cuchillo se corre más) */
+export const WEAPON_SPEED = { primary: 1, secondary: 1.05, knife: 1.12, grenade: 1 } as const;

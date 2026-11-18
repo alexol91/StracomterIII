@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prueba de efectos — Stracomter (solo desarrollo)</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #14171c; color: #e8ecf2; font: 14px system-ui, sans-serif; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #barra { position: fixed; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 92vw; align-items: center;
+             background: rgba(20, 24, 30, 0.82); padding: 8px 10px; border-radius: 10px; }
+    button, select { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #3a4452; background: #232a34; color: inherit; cursor: pointer; }
+    button:hover { background: #2e3744; }
+    #nota { position: fixed; bottom: 10px; left: 10px; opacity: .7; font-size: 12px; max-width: 70ch; }
+  </style>
+</head>
+<body>
+  <canvas id="lienzo"></canvas>
+  <div id="barra"></div>
+  <div id="nota">Arrastra para girar la cámara, rueda para acercar. Suelo de hormigón, pared blanca, mueble (caja de madera) y puerta antracita. Estilo y calidad también por URL: <code>?estilo=comic</code>, <code>?quality=medium</code>.</div>
+  <script type="module" src="/src/galeria/efectos.ts"></script>
+</body>
+</html>

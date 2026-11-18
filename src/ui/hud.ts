@@ -59,6 +59,8 @@ export class Hud {
   private streak = 0;
   private streakAt = -99;
   private feed: { el: HTMLElement; until: number }[] = [];
+  private litUntil = -1;          // la lista de armas se ilumina 1,5 s tras cambiar
+  private prevWeapon = '';
 
   constructor(
     parent: HTMLElement,
@@ -82,6 +84,7 @@ export class Hud {
     this.subsKey = '';
     this.hitUntil = this.vigUntil = this.phaseUntil = -1;
     this.lastSubAt.clear();
+    this.litUntil = -1; this.prevWeapon = '';
     this.streak = 0; this.streakAt = -99; this.reloadTotal = 0; this.reloadPrev = 0; this.feed = []; this.lastT = 0;
     this.r = this.build();
   }
@@ -106,7 +109,15 @@ export class Hud {
 
     // Munición, arma, granadas y habilidad (abajo a la derecha; en táctil, arriba bajo los puntos)
     const plAmmo = h('div', { class: 'ammo-big' });
-    const plWeapon = h('div', { class: 'ammo-w' });
+    const plWeapon = h('div', { class: 'wlist' });
+    const wslots = [0, 1, 2, 3].map(() => {
+      const k = h('span', { class: 'wk' });
+      const n = h('span', { class: 'wn' });
+      const x = h('span', { class: 'wx' });
+      const row = h('div', { class: 'wslot' }, k, n, x);
+      plWeapon.appendChild(row);
+      return { row, k, n, x };
+    });
     const plGren = h('span');
     const plWarn = h('div', { class: 'ammo-warn' });
     const abilLbl = h('div');
@@ -164,7 +175,7 @@ export class Hud {
     // Centro: retícula fina, marca de impacto, arcos de daño, viñeta, avisos
     const ring = h('div', { class: 'xh-ring' });
     const streakEl = h('div', { class: 'streak' });
-    const xh = h('div', { class: 'xh' }, ring,
+    const xh = h('div', { class: 'xh' }, ring, h('i', { class: 'ga' }),
       h('i', { class: 't' }), h('i', { class: 'b' }), h('i', { class: 'l' }), h('i', { class: 'r' }), h('i', { class: 'd' }), h('i', { class: 'dia' }));
     const hit = h('div', { class: 'hit' }, h('i', { class: 'hd' }), h('i', { class: 'hr' }));
     const feedBox = h('div', { class: 'killfeed' });
@@ -188,7 +199,7 @@ export class Hud {
     this.el.append(vignette, vit, ammo, squad, tr, feedBox, top, xh, streakEl, hit, hurtLayer, prompt, clearedMsg, bc);
 
     return {
-      plName, plHp, plBar, plAmmo, plWeapon, plGren, plWarn, abilLbl, abilBar, allyRows,
+      plName, plHp, plBar, plAmmo, plWeapon, wslots, plGren, plWarn, abilLbl, abilBar, allyRows,
       vScore, vTime, vEnemies, pauseBtn,
       compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos, cheated,
       plSprint, ring, streakEl, feedBox,
@@ -272,6 +283,9 @@ export class Hud {
           this.onDeath(world, e);
           if (subsOn && e.team === 'ally' && e.id !== p.id && isClass(e.kind)) this.pushSub(t('sub.allyDown', { name: t('kind.' + e.kind) }), now);
           break;
+        case 'weaponSwitch':
+          if (e.id === p.id) this.litUntil = now + 1.5;
+          break;
         case 'phase':
           this.phaseText = t('phase.' + e.phase);
           this.phaseUntil = now + 3;
@@ -328,16 +342,45 @@ export class Hud {
     setCls(r.plBar.el, 'low', hpFrac < 0.3);
 
     // Munición
-    const emptyMag = p.mag <= 0;
-    setText(r.plAmmo, `${p.mag} / ${p.ammo}`);
+    // Armas estilo CS: 1 principal, 2 pistola, 3 cuchillo, 4 granada. La activa resalta; la lista se ilumina 1,5 s al cambiar.
+    const wpn = p.weapon ?? 'primary';
+    if (this.prevWeapon !== '' && this.prevWeapon !== wpn) this.litUntil = Math.max(this.litUntil, now + 1.5);
+    this.prevWeapon = wpn;
+    const order = ['primary', 'secondary', 'knife', 'grenade'] as const;
+    const slotKeys = [s.bindings.slot1, s.bindings.slot2, s.bindings.slot3, s.bindings.slot4];
+    const slotNames = [isClass(p.kind) ? t('weapon.' + p.kind) : t('hud.pistol'), t('hud.pistol'), t('hud.knife'), t('hud.grenade')];
+    for (let i = 0; i < 4; i++) {
+      const ws = r.wslots[i];
+      setText(ws.k, keyLabel(slotKeys[i]));
+      setText(ws.n, slotNames[i]);
+      setText(ws.x, i === 3 ? `×${p.grenades}` : '');
+      setCls(ws.row, 'act', order[i] === wpn);
+      setCls(ws.row, 'off', i === 3 && p.grenades <= 0);
+    }
+    setCls(r.plWeapon, 'lit', now < this.litUntil);
+
+    // Contador grande: munición del arma ACTIVA (principal mag/reserva, pistola mag2/∞, cuchillo y granada sin cargador)
+    let big = '';
+    let emptyMag = false;
+    let reloadable = true;
+    if (wpn === 'secondary') { big = `${p.mag2 ?? 0} / ∞`; emptyMag = (p.mag2 ?? 0) <= 0; }
+    else if (wpn === 'knife') { big = '—'; reloadable = false; }
+    else if (wpn === 'grenade') { big = `×${p.grenades}`; reloadable = false; emptyMag = p.grenades <= 0; }
+    else { big = `${p.mag} / ${p.ammo}`; emptyMag = p.mag <= 0; }
+    setText(r.plAmmo, big);
     setCls(r.plAmmo, 'empty', emptyMag);
     setText(r.plGren, `×${p.grenades}`);
+    const hasReserve = wpn === 'secondary' ? true : p.ammo > 0;
+    const magSz = wpn === 'secondary' ? (p.magSize2 ?? 0) : p.magSize;
+    const magNow = wpn === 'secondary' ? (p.mag2 ?? 0) : p.mag;
     let warn = '', crit = false;
-    if (p.reloading > 0) warn = t('hud.reloading');
-    else if (emptyMag) {
-      warn = p.ammo > 0 ? t('hud.empty', { key: keyLabel(s.bindings.reload) }) : t('hud.noAmmo');
-      crit = true;
-    } else if (p.mag <= Math.max(3, p.magSize * 0.25) && p.ammo > 0) warn = t('hud.reloadHint', { key: keyLabel(s.bindings.reload) });
+    if (reloadable) {
+      if (p.reloading > 0) warn = t('hud.reloading');
+      else if (emptyMag) {
+        warn = hasReserve ? t('hud.empty', { key: keyLabel(s.bindings.reload) }) : t('hud.noAmmo');
+        crit = true;
+      } else if (magNow <= Math.max(3, magSz * 0.25) && hasReserve) warn = t('hud.reloadHint', { key: keyLabel(s.bindings.reload) });
+    }
     setText(r.plWarn, warn);
     setCls(r.plWarn, 'crit', crit);
 
@@ -346,7 +389,6 @@ export class Hud {
       const ready = p.abilityCd <= 0;
       const max = p.abilityCdMax > 0 ? p.abilityCdMax : 1;
       const nm = t('ability.' + p.kind);
-      setText(r.plWeapon, t('weapon.' + p.kind));
       setText(r.abilLbl, ready ? `[${keyLabel(s.bindings.ability)}] ${nm} — ${t('hud.ready')}` : `${nm} — ${Math.ceil(p.abilityCd)} s`);
       setBar(r.abilBar, ready ? 1 : 1 - p.abilityCd / max);
       setCls(r.abilBar.el, 'ready', ready);
@@ -422,6 +464,9 @@ export class Hud {
     setStyle(r.xh, '--gap', (Math.round(this.gapCur * 2) / 2) + 'px');
     setCls(r.xh, 'on-target', world.aim.entityId >= 0);
     setCls(r.xh, 'aim', !!p.aiming);
+    setCls(r.xh, 'knife', wpn === 'knife');
+    setCls(r.xh, 'gren', wpn === 'grenade');
+    setCls(r.xh, 'draw', (p.drawUntil ?? 0) > now);
     setCls(r.xh, 'sprint', !!p.sprinting);
     setCls(r.plSprint, 'on', !!p.sprinting);
 

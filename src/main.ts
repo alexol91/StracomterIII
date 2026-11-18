@@ -17,7 +17,7 @@ import { createControls } from './input';
 import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
 import { onLangChange, setLang, t } from './ui/i18n';
-import { loadSettings, saveSettings } from './ui/settings';
+import { loadSettings, saveSettings, takeBindingsNotice } from './ui/settings';
 import { asset, button, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
@@ -216,7 +216,18 @@ function updateGameMusic(force = false): void {
 
 // ───────────────────────────── Pantallas ─────────────────────────────
 
+/** Con Ctrl como agacharse, Ctrl+W cierra la pestaña: mientras se juega, el navegador pide confirmación. */
+const onBeforeUnload = (e: BeforeUnloadEvent): void => { e.preventDefault(); e.returnValue = ''; };
+let unloadGuard = false;
+function setUnloadGuard(on: boolean): void {
+  if (on === unloadGuard) return;
+  unloadGuard = on;
+  if (on) window.addEventListener('beforeunload', onBeforeUnload);
+  else window.removeEventListener('beforeunload', onBeforeUnload);
+}
+
 function leaveGame(): void {
+  setUnloadGuard(false);
   tutorial.stop(null);
   world = null;
   renderer.setWorld(null);
@@ -231,6 +242,7 @@ function showTitle(): void {
   leaveGame();
   screen = 'title';
   music('menu');
+  if (!autoMode && takeBindingsNotice()) toast(t('title.controlsUpdated'), 9000);
   screens.show(() => titleScreen({
     hasSave: campaign.hasSave(),
     onNew: () => showClassSelect(false),
@@ -493,6 +505,7 @@ function beginWorld(w: IWorld): void {
   hud.reset();
   hud.show(true);
   updateGameMusic(true);
+  if (!testMode && !autoMode) setUnloadGuard(true);
   // Tutorial guiado: primera partida de campaña, planta 1, sin trucos
   tutorial.stop(null);
   if (state && !state.quick && w.floor === 1 && !autoMode && !w.cheated && Tutorial.shouldStart()) tutorial.start(w);

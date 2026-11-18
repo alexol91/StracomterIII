@@ -32,14 +32,19 @@ npm run preview    # sirve dist/ para comprobarlo
 |---|---|
 | W A S D | Mover |
 | Ratón | Apuntar y girar la cámara (clic en el juego para capturar el ratón) |
-| Clic izquierdo / derecho | Disparar / apuntar al hombro |
-| Mayús · X | Esprintar · cuchillo |
-| R · Espacio · F | Recargar · granada · habilidad de clase |
-| E · Q · Tab | Puerta · usar objeto · cambiar de objeto |
-| C | Agacharse |
-| V · 1 · 2 · 3 | Órdenes: a mí · ir ahí · enfocar eso · mantener posición |
-| Rueda · Esc | Zoom · pausa |
+| Clic izquierdo / derecho | Disparar con el arma en mano / apuntar al hombro |
+| 1 · 2 · 3 · 4 | Arma principal · pistola · cuchillo · granada |
+| Q · rueda | Arma anterior · cambiar de arma |
+| Mayús · Ctrl (o C) | Correr · agacharse |
+| R · E · F | Recargar · puerta · habilidad de clase |
+| G · V | Granada rápida · cuchillada rápida |
+| T · Tab | Usar objeto · cambiar de objeto |
+| Z · X · B · N | Órdenes: a mí · ir ahí · enfocar eso · mantener posición |
+| Alt + rueda · Esc | Zoom · pausa |
 | º (la tecla a la izquierda del 1) o F2 | Consola de trucos |
+
+Los controles siguen los de Counter-Strike. Ctrl + W cierra la pestaña del navegador: el juego pide
+confirmación, y en pantalla completa (Opciones → Controles) el navegador no lo intercepta.
 
 En móvil: stick a la izquierda, arrastrar a la derecha para mirar, botón grande de disparo (se puede
 arrastrar sin soltar para apuntar) y apuntado asistido. Todo se puede remapear en Opciones.

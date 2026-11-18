@@ -6,9 +6,10 @@ import { CAM_MAX, CAM_MIN, Core, clamp, isTextTarget } from './shared';
 /** Teclas por defecto, solo hasta que llegue applySettings. */
 export const DEFAULT_BINDINGS: Record<Action, string> = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
-  fire: 'Mouse0', knife: 'KeyX', sprint: 'ShiftLeft', aim: 'Mouse2', reload: 'KeyR', grenade: 'Space', ability: 'KeyF',
-  interact: 'KeyE', useItem: 'KeyQ', cycleItem: 'Tab', crouch: 'ControlLeft',
-  orderFollow: 'KeyV', orderGoto: 'Digit1', orderFocus: 'Digit2', orderHold: 'Digit3',
+  fire: 'Mouse0', knife: 'KeyV', sprint: 'ShiftLeft', aim: 'Mouse2', reload: 'KeyR', grenade: 'KeyG', ability: 'KeyF',
+  interact: 'KeyE', useItem: 'KeyT', cycleItem: 'Tab', crouch: 'ControlLeft',
+  orderFollow: 'KeyZ', orderGoto: 'KeyX', orderFocus: 'KeyB', orderHold: 'KeyN',
+  slot1: 'Digit1', slot2: 'Digit2', slot3: 'Digit3', slot4: 'Digit4', lastWeapon: 'KeyQ',
   pause: 'Escape', console: 'Backquote',
 };
 
@@ -65,6 +66,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   let lastY = 0;
   let haveLast = false;
   let ignorePauseUntil = 0;
+  let lastWheelAt = -1000;
 
   const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false };
 
@@ -116,6 +118,11 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
           case 'interact': input.interact = true; break;
           case 'useItem': input.useItem = true; break;
           case 'cycleItem': input.cycleItem = true; break;
+          case 'slot1': input.weaponSlot = 'primary'; break;
+          case 'slot2': input.weaponSlot = 'secondary'; break;
+          case 'slot3': input.weaponSlot = 'knife'; break;
+          case 'slot4': input.weaponSlot = 'grenade'; break;
+          case 'lastWeapon': input.weaponLast = true; break;
           case 'orderFollow': input.order = 'follow'; break;
           case 'orderGoto': input.order = 'goto'; break;
           case 'orderFocus': input.order = 'focus'; break;
@@ -128,6 +135,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
         }
       }
     }
+    // KeyC agacha como alternativa fija mientras no esté asignada a otra acción.
+    if (!acts && code === 'KeyC') latch.add('crouch');
     // La tecla de consola acepta además IntlBackslash y F2 (teclados sin Backquote).
     if (!repeat && (code === 'IntlBackslash' || code === 'F2') && !(acts && acts.includes('console'))) {
       hooks.onConsole();
@@ -138,6 +147,8 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!active || isTextTarget(e.target)) return;
     if (BLOCKED.has(e.code)) e.preventDefault();
+    // Con el ratón capturado, Ctrl+tecla de juego no debe llegar al navegador (Ctrl+W no es cancelable).
+    if (e.ctrlKey && locked && !e.code.startsWith('Control')) e.preventDefault();
     if (e.code.startsWith('Arrow')) arrows.add(e.code);
     down.add(e.code);
     press(e.code, e.repeat);
@@ -198,8 +209,19 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   const onWheel = (e: WheelEvent): void => {
     if (!active || isTextTarget(e.target)) return;
     e.preventDefault();
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
-    input.camDist = clamp(input.camDist + e.deltaY * unit * 0.003, CAM_MIN, CAM_MAX);
+    const dy = e.deltaY || e.deltaX; // con Alt algunos sistemas mueven el delta al eje X
+    if (e.altKey) {
+      // Alt + rueda: zoom de cámara.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+      input.camDist = clamp(input.camDist + dy * unit * 0.003, CAM_MIN, CAM_MAX);
+      return;
+    }
+    // Rueda: cambiar de arma, un paso por gesto (antirrebote de 120 ms).
+    const now = performance.now();
+    if (dy !== 0 && now - lastWheelAt >= 120) {
+      input.weaponCycle = dy > 0 ? 1 : -1;
+      lastWheelAt = now;
+    }
   };
   const onContext = (e: Event): void => { if (active) e.preventDefault(); };
 
@@ -232,6 +254,13 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       active = a;
       if (a) {
         requestLock();
+        // En pantalla completa, intenta que W/Q/S/D/A/Esc no los coma el navegador.
+        try {
+          const kbd = (navigator as unknown as { keyboard?: { lock?: (k: string[]) => Promise<void> } }).keyboard;
+          if (document.fullscreenElement && kbd && kbd.lock) {
+            kbd.lock(['KeyW', 'KeyQ', 'KeyS', 'KeyD', 'KeyA', 'Escape']).catch(() => {});
+          }
+        } catch { /* sin Keyboard Lock */ }
       } else {
         releaseAll();
         if (document.pointerLockElement === canvas) {
@@ -259,7 +288,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       held.moveR = (isHeld('right') ? 1 : 0) - (isHeld('left') ? 1 : 0);
       held.fire = isHeld('fire') || latch.has('fire');
       held.knife = isHeld('knife') || latch.has('knife');
-      held.crouch = isHeld('crouch') || latch.has('crouch');
+      held.crouch = isHeld('crouch') || latch.has('crouch') || (!byCode.has('KeyC') && down.has('KeyC'));
       held.sprint = isHeld('sprint') || latch.has('sprint');
       held.aim = isHeld('aim') || latch.has('aim');
       latch.clear();

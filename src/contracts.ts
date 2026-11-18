@@ -176,6 +176,8 @@ export interface ConsoleHost {
 
 export type Action =
   | 'sprint' | 'aim'
+  // v1.2 — armas al estilo Counter-Strike: ranuras 1-4, última arma (Q) y rueda
+  | 'slot1' | 'slot2' | 'slot3' | 'slot4' | 'lastWeapon'
   | 'forward' | 'back' | 'left' | 'right' | 'fire' | 'knife' | 'reload' | 'grenade' | 'ability'
   | 'interact' | 'useItem' | 'cycleItem' | 'crouch' | 'orderFollow' | 'orderGoto' | 'orderFocus'
   | 'orderHold' | 'pause' | 'console';

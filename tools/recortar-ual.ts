@@ -12,7 +12,7 @@ import { UAL_TO_ROCKETBOX } from '../src/render/retarget';
 /** Clips que usa el juego (src/render/rbchars.ts y preview.ts). */
 export const KEEP = [
   'Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
-  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01', 'Idle_Loop', 'Roll',
+  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01', 'Idle_Loop', 'Roll', 'Sword_Attack',
 ];
 
 const COMP_SIZE: Record<number, number> = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };

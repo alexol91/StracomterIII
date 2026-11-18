@@ -11,7 +11,7 @@
 
 import type { CampaignState, KVStorage } from '../src/contracts';
 import { createCampaign } from '../src/sim/campaign';
-import { GUN_FEEL } from '../src/sim/data';
+import { GUN_FEEL, PISTOL_FEEL } from '../src/sim/data';
 import { emptyInput, type ClassId } from '../src/sim/types';
 import { angDiff, type Unit, type World } from '../src/sim/world';
 
@@ -52,8 +52,10 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if (d < td && d < 30 && world.shotLine(p, e) >= 0 && world.canSee(p, e)) { td = d; tgt = e; }
     }
     const total = p.mag + p.ammo;
-    // sin balas: una persona no carga a cuchillo contra un jefe, va a por la caja de munición más cercana
-    if (tgt && total === 0 && world.pickups.some(k => !k.taken && k.type.startsWith('municion'))) tgt = null;
+    // v1.2: sin balas del arma principal cambia a la pistola (reserva infinita); al recuperar munición vuelve a la principal
+    const pistola = total === 0;
+    if (pistola && p.weapon !== 'secondary') input.weaponSlot = 'secondary';
+    else if (!pistola && p.weapon === 'secondary') input.weaponSlot = 'primary';
     if (tgt) {
       const wantYaw = Math.atan2(tgt.y - p.y, tgt.x - p.x);
       // v1.2: la mira lleva el retroceso de cámara; el bot lo compensa como lo haría una persona (tirando hacia abajo)
@@ -64,12 +66,12 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       input.pitch += (Math.atan2(dz, dh) - (input.pitch + world.recoil.pitch)) * 0.3;
       if (Math.abs(dy) < 0.06) {
         if (p.cls === 'explosives' && td < 4) input.moveF = -1;
-        else if (total > 0 && !pasivo) input.fire = true;
+        else if ((total > 0 || pistola) && !pasivo) input.fire = true;
       }
       // v1.2: ráfagas. Con el arma «caliente» y el blanco lejos suelta el gatillo hasta que la dispersión baja
-      const base = GUN_FEEL[p.cls ?? 'captain'].baseSpread;
+      const base = (p.weapon === 'secondary' ? PISTOL_FEEL : GUN_FEEL[p.cls ?? 'captain']).baseSpread;
       if (input.fire && p.spread > 2.2 * base && td > 12) input.fire = false;
-      if (td < 1.6 || total === 0) { input.knife = td < 1.7; if (total === 0) input.moveF = 1; }
+      if (td < 1.6) input.knife = true;
       // se mueve de lado para no ser un blanco quieto
       input.moveR = Math.sin(world.time * 1.3) > 0 ? 0.7 : -0.7;
       if (p.cls === 'especialist' && p.abilityCd <= 0) input.ability = true;

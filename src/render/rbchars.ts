@@ -56,9 +56,11 @@ export const GUN_GRIP: Record<string, GunGrip> = {
   RocketLauncher: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
   Pistol: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
   Shotgun: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  Knife_1: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
+  Grenade: { pos: [5, 0, 0], rot: [0, 0, 0], scale: 1 },
 };
 /** Longitud real (m) de cada arma. */
-export const GUN_LEN: Record<string, number> = { AK: 0.85, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 1.1, Pistol: 0.22, Shotgun: 0.95 };
+export const GUN_LEN: Record<string, number> = { AK: 0.85, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 1.1, Pistol: 0.22, Shotgun: 0.95, Knife_1: 0.28, Grenade: 0.1 };
 
 // ───────────────────────── Configuración por tipo ─────────────────────────
 
@@ -104,9 +106,12 @@ function bandStyle(cfg: Cfg, cb: boolean): BandStyle {
 const LEG_BONES = new Set(['Bip01', 'Bip01_Pelvis', 'Bip01_Spine', 'Bip01_L_Thigh', 'Bip01_R_Thigh', 'Bip01_L_Calf', 'Bip01_R_Calf', 'Bip01_L_Foot', 'Bip01_R_Foot', 'Bip01_L_Toe0', 'Bip01_R_Toe0']);
 const TORSO_BONES = new Set(['Bip01_Spine1', 'Bip01_Spine2', 'Bip01_Neck', 'Bip01_Head', 'Bip01_L_Clavicle', 'Bip01_R_Clavicle', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm',
   'Bip01_L_Forearm', 'Bip01_R_Forearm', 'Bip01_L_Hand', 'Bip01_R_Hand']);
+/** armas extra de las ranuras del jugador: pistola, cuchillo, granada */
+const EXTRA_GUNS = ['Pistol', 'Knife_1', 'Grenade'];
+const SLOT_GUN: Record<string, string> = { secondary: 'Pistol', knife: 'Knife_1', grenade: 'Grenade' };
 const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Idle_Loop', 'Roll']);
 export const RB_CLIPS = ['Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
-  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01'];
+  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01', 'Sword_Attack'];
 
 type Layer = 'legs' | 'torso';
 
@@ -175,11 +180,15 @@ export class RbTemplate {
 
 /** Registra el arma de un clon (hueso Bip01_R_Hand, malla «arma») para el ajuste en vivo ?armas=1. Devuelve el desregistro. */
 export function trackGun(root: THREE.Object3D, weapon: string): () => void {
-  const o = root.getObjectByName('arma');
-  if (!o) return () => { /* sin arma */ };
-  const e: GunEntry = { mesh: o, weapon, k: o.userData.k, maxDim: o.userData.maxDim };
-  gunRegistry.add(e);
-  return () => { gunRegistry.delete(e); };
+  void weapon;
+  const added: GunEntry[] = [];
+  for (const name of ['arma', 'arma_secondary', 'arma_knife', 'arma_grenade']) {
+    const o = root.getObjectByName(name);
+    if (!o) continue;
+    const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim };
+    gunRegistry.add(e); added.push(e);
+  }
+  return () => { for (const e of added) gunRegistry.delete(e); };
 }
 
 export class RbLibrary {
@@ -207,6 +216,7 @@ export class RbLibrary {
   private ualReady = false;
   private cbLast = false;
   warmed = new Set<Kind>();
+  private extrasDone = false;
 
   /** Los cuatro operadores de la escuadra (la vista previa y todas las partidas los necesitan). */
   static readonly SQUAD: Kind[] = ['captain', 'technic', 'especialist', 'explosives'];
@@ -240,8 +250,16 @@ export class RbLibrary {
         if (!this.gunPromises.has(cfg.gun)) this.gunPromises.set(cfg.gun, this.loadGun(cfg.gun));
         jobs.push(this.avatarPromises.get(cfg.avatar)!, this.gunPromises.get(cfg.gun)!);
       }
+      // los cuatro operadores llevan también pistola, cuchillo y granada para el cambio de ranura del jugador
+      if (RbLibrary.SQUAD.some((k) => this.wanted.has(k))) {
+        for (const g of EXTRA_GUNS) {
+          if (!this.gunPromises.has(g)) this.gunPromises.set(g, this.loadGun(g));
+          jobs.push(this.gunPromises.get(g)!);
+        }
+      }
       await Promise.all(jobs);
       this.loaded = true;
+      this.extrasDone = true;
     } catch (e) {
       console.warn('Rocketbox: no se pudo cargar', e);
       this.failed = true;
@@ -254,6 +272,7 @@ export class RbLibrary {
   progress(kinds: Kind[]): number {
     if (this.failed) return 1;
     let done = this.ualReady ? 1 : 0, total = 1;
+    total += 1; if (this.extrasDone) done++;          // pistola, cuchillo y granada del jugador
     for (const k of kinds) {
       total += 2;
       if (this.avatars.has(CFG[k].avatar)) done++;
@@ -310,7 +329,8 @@ export class RbLibrary {
       if (!geo) return;
       // acero pavonado y polímero negro: se reasignan los colores por luminosidad
       const c = geo.getAttribute('color');
-      const steel = new THREE.Color(0x30343a), poly = new THREE.Color(0x0e0f12);
+      const olive = name === 'Grenade';
+      const steel = new THREE.Color(olive ? 0x4a5238 : 0x30343a), poly = new THREE.Color(olive ? 0x2c3224 : 0x0e0f12);
       for (let i = 0; i < c.count; i++) {
         const lum = 0.299 * c.getX(i) + 0.587 * c.getY(i) + 0.114 * c.getZ(i);
         const k = lum > 0.12 ? steel : poly;
@@ -404,6 +424,17 @@ export class RbLibrary {
       hand.add(mesh);
       applyGrip({ mesh, weapon: cfg.gun, k: 1 / s, maxDim: gun.maxDim });
     }
+    if (hand && RbLibrary.SQUAD.includes(kind)) {
+      for (const [slot, name] of Object.entries(SLOT_GUN)) {
+        const g = this.guns.get(name);
+        if (!g) continue;
+        const m = new THREE.Mesh(g.geo, this.gunMat);
+        m.name = 'arma_' + slot; m.frustumCulled = false; m.visible = false;
+        m.userData.weapon = name; m.userData.k = 1 / s; m.userData.maxDim = g.maxDim;
+        hand.add(m);
+        applyGrip({ mesh: m, weapon: name, k: 1 / s, maxDim: g.maxDim });
+      }
+    }
     return t;
   }
 
@@ -446,7 +477,7 @@ export class RbLibrary {
 
 // ───────────────────────── Vista de un personaje ─────────────────────────
 
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0);
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _dl = new THREE.Vector3();
 
 function lerpAngle(a: number, b: number, t: number): number {
   let d = (b - a) % (Math.PI * 2);
@@ -475,7 +506,10 @@ export class RbView {
   private deathFrom: { x: number; y: number } | null = null;
   private recoil = 0;
   private tilt: { bone: THREE.Object3D; saved: THREE.Quaternion; k: number; has: boolean }[] = [];
-  private gun: GunEntry | null = null;
+  private slotGuns = new Map<string, GunEntry>();
+  private slot = 'primary';
+  private hand: THREE.Object3D | null = null;
+  private drawDur = 0.35;
   mark: THREE.Mesh | null = null;
   shield: THREE.Mesh | null = null;
   ring: THREE.Mesh | null = null;
@@ -491,10 +525,12 @@ export class RbView {
       else if ((o as THREE.Mesh).isMesh) this.extra.push(o);
     });
     this.variant = tpl.variants.length > 1 ? id % tpl.variants.length : 0;
-    const gunObj = this.inner.getObjectByName('arma');
-    if (gunObj) {
-      const e: GunEntry = { mesh: gunObj, weapon: tpl.gun, k: gunObj.userData.k, maxDim: gunObj.userData.maxDim };
-      this.gun = e; gunRegistry.add(e);
+    this.hand = this.inner.getObjectByName('Bip01_R_Hand') ?? null;
+    for (const [slot, name] of [['primary', 'arma'], ['secondary', 'arma_secondary'], ['knife', 'arma_knife'], ['grenade', 'arma_grenade']] as [string, string][]) {
+      const o = this.inner.getObjectByName(name);
+      if (!o) continue;
+      const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim };
+      this.slotGuns.set(slot, e); gunRegistry.add(e);
     }
     this.mixer = new THREE.AnimationMixer(this.inner);
     for (const [name, k] of [['Bip01_Spine1', 0.45], ['Bip01_Spine2', 0.55]] as [string, number][]) {
@@ -565,6 +601,8 @@ export class RbView {
     else { legName = 'Sprint_Loop'; ref = SPRINT_REF_SPEED; }
     const ts = moving ? Math.min(TIMESCALE_MAX, Math.max(TIMESCALE_MIN, sp / ref)) : 1;
     this.setLayer('legs', legName, false, ts);
+    const slot = e.isPlayer ? (e.weapon ?? 'primary') : 'primary';
+    const armed = slot === 'primary' || slot === 'secondary';
     // torso
     const staggered = (e.staggerUntil ?? 0) > time;
     if (staggered) {
@@ -574,9 +612,12 @@ export class RbView {
       if (e.staggerUntil !== this.lastStagger) { this.lastStagger = e.staggerUntil ?? 0; this.kick = 1; }
     } else if (e.lastKnifeAt !== this.lastKnife && time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       this.lastKnife = e.lastKnifeAt; this.punchAlt = !this.punchAlt;
-      this.setLayer('torso', this.punchAlt ? 'Punch_Jab' : 'Punch_Cross', true, 1.3, 0.08, true);
+      const stab = slot === 'knife' && this.tpl.fullClip('Sword_Attack');
+      this.setLayer('torso', stab ? 'Sword_Attack' : this.punchAlt ? 'Punch_Jab' : 'Punch_Cross', true, stab ? 1.5 : 1.3, 0.08, true);
     } else if (time - e.lastKnifeAt < 0.6 && time >= e.lastKnifeAt) {
       // sigue el golpe
+    } else if (!armed) {
+      this.setLayer('torso', legName, false, ts);              // cuchillo o granada: brazo bajado, sin apuntar
     } else if (e.sprinting && moving) {
       this.setLayer('torso', legName, false, ts);              // esprintando: el torso del propio clip, arma baja
     } else if (e.reloading > 0) {
@@ -618,19 +659,36 @@ export class RbView {
     // pequeño retroceso del cuerpo al ser aturdido
     this.kick *= Math.exp(-dt * 9);
     this.inner.position.z = -this.kick * 0.12;
-    // retroceso del arma (60 ms) tras cada disparo, hacia atrás a lo largo del cañón (+X del hueso de la mano)
-    if (this.gun && alive) {
+    // arma en la mano según la ranura activa (solo el jugador cambia de ranura): el arma sube desde abajo hasta drawUntil
+    const slot = e.isPlayer ? (e.weapon ?? 'primary') : 'primary';
+    if (slot !== this.slot) {
+      this.slot = slot;
+      for (const [k, g] of this.slotGuns) g.mesh.visible = k === slot;
+      this.drawDur = Math.max(0.1, (e.drawUntil ?? 0) - time);
+      this.recoil = -1;                          // fuerza recolocar el arma nueva
+    }
+    const gun = this.slotGuns.get(this.slot) ?? this.slotGuns.get('primary');
+    if (gun && alive) {
+      // retroceso (60 ms) tras cada disparo, hacia atrás a lo largo del cañón (+X del hueso de la mano)
       const ts = time - e.lastShotAt;
       const r = ts >= 0 && ts < GUN_KICK_TIME ? GUN_KICK_CM * (1 - ts / GUN_KICK_TIME) : 0;
-      if (r !== this.recoil) {
+      const drawing = (e.drawUntil ?? 0) > time && e.isPlayer;
+      if (r !== this.recoil || drawing) {
         this.recoil = r;
-        const g = GUN_GRIP[this.gun.weapon];
-        if (g) this.gun.mesh.position.set(g.pos[0] - r, g.pos[1], g.pos[2]);
+        const g = GUN_GRIP[gun.weapon];
+        if (g) {
+          let ox = g.pos[0] - r, oy = g.pos[1], oz = g.pos[2];
+          if (drawing && this.hand) {
+            const p = Math.min(1, Math.max(0, 1 - ((e.drawUntil ?? 0) - time) / this.drawDur));
+            this.hand.getWorldQuaternion(_q).invert();
+            _dl.set(0, -1, 0).applyQuaternion(_q);
+            const cm = (1 - p) * (0.4 / Math.max(1e-3, this.inner.scale.y));     // 40 cm de recorrido, en el espacio del hueso (cm)
+            ox += _dl.x * cm; oy += _dl.y * cm; oz += _dl.z * cm;
+          }
+          gun.mesh.position.set(ox, oy, oz);
+        }
       }
     }
-
-    this.speed += ((alive ? Math.hypot(e.vx, e.vy) : 0) - this.speed) * (1 - Math.exp(-dt * 12));
-    this.crouchK += ((alive && e.crouch ? 1 : 0) - this.crouchK) * (1 - Math.exp(-dt * 14));
 
     // materiales: normal (con tinte), muerto, fantasma o destello (compartidos)
     const hurt = alive && !this.ghost && time - e.lastHurtAt < 0.12 && time >= e.lastHurtAt;
@@ -696,7 +754,7 @@ export class RbView {
   dispose(): void {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.inner);
-    if (this.gun) gunRegistry.delete(this.gun);
+    for (const e of this.slotGuns.values()) gunRegistry.delete(e);
     for (const m of this.meshes) (m as THREE.SkinnedMesh).skeleton?.dispose();
   }
 }

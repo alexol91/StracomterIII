@@ -9,6 +9,8 @@ import type { GameEvent, OrderKind, Projectile } from '../sim/types';
 import type { IWorld } from '../contracts';
 import { GeoBuilder, Owned, makeOutlineMat, makeToonVC, type SurfaceMat } from './geo';
 import type { Assets } from './assets';
+import { RealFx, muzzleSizeFor } from './fxreal';
+import { getStyleMode } from './style';
 
 const MAX_PART = 900;
 const MAX_TRACER = 48;
@@ -19,9 +21,9 @@ const MAX_MARK = 4;
 const FLASH_TIME = 0.032;
 const MAX_CASINGS = 40;
 /** capacidad máxima de marcas de bala por tipo (yeso, madera, cristal/puerta) y el reparto por calidad */
-const DECAL_MAX = { plaster: 120, wood: 50, glass: 50 };
-const DECAL_CAPS = { high: { plaster: 120, wood: 50, glass: 50 }, medium: { plaster: 50, wood: 20, glass: 20 }, low: { plaster: 0, wood: 0, glass: 0 } };
-type DecalKind = 'plaster' | 'wood' | 'glass';
+const DECAL_MAX = { plaster: 120, wood: 50, glass: 50, burn: 12 };
+const DECAL_CAPS = { high: { plaster: 120, wood: 50, glass: 50, burn: 12 }, medium: { plaster: 50, wood: 20, glass: 20, burn: 12 }, low: { plaster: 0, wood: 0, glass: 0, burn: 0 } };
+type DecalKind = 'plaster' | 'wood' | 'glass' | 'burn';
 
 /** Textura de marca de bala generada por canvas. */
 function decalTexture(kind: DecalKind): THREE.CanvasTexture {
@@ -30,7 +32,16 @@ function decalTexture(kind: DecalKind): THREE.CanvasTexture {
   g.translate(S / 2, S / 2);
   let seed = kind === 'plaster' ? 11 : kind === 'wood' ? 23 : 37;
   const r = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-  if (kind === 'glass') {
+  if (kind === 'burn') {
+    // quemado: mancha oscura radial con borde irregular
+    for (let k = 0; k < 7; k++) {
+      const a = r() * 6.28, d = r() * 8, rad = 14 + r() * 12;
+      g.save(); g.translate(Math.cos(a) * d, Math.sin(a) * d);
+      const gr = g.createRadialGradient(0, 0, 0, 0, 0, rad);
+      gr.addColorStop(0, 'rgba(8,7,6,0.8)'); gr.addColorStop(0.6, 'rgba(14,12,10,0.5)'); gr.addColorStop(1, 'rgba(14,12,10,0)');
+      g.fillStyle = gr; g.fillRect(-rad, -rad, rad * 2, rad * 2); g.restore();
+    }
+  } else if (kind === 'glass') {
     // estrella de grietas finas
     g.strokeStyle = 'rgba(235,245,255,0.85)'; g.lineWidth = 1.2;
     for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + r() * 0.3, l = 14 + r() * 16; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * l * 0.5, Math.sin(a) * l * 0.5); g.lineTo(Math.cos(a + 0.15) * l, Math.sin(a + 0.15) * l); g.stroke(); }
@@ -169,6 +180,9 @@ export class Fx {
   private trailAcc = 0;
 
   // casquillos
+  private real: RealFx;
+  private explDur = 0.5;
+  private explPeak = 160;
   private casingMesh: THREE.InstancedMesh;
   private cpos = new Float32Array(MAX_CASINGS * 3);
   private cvel = new Float32Array(MAX_CASINGS * 3);
@@ -236,6 +250,8 @@ export class Fx {
     this.coneGeo = o.add(new THREE.ConeGeometry(0.2, 0.42, 10).rotateX(Math.PI)); // punta hacia abajo
     for (let i = 0; i < MAX_MARK; i++) { const mk = this.makeMarker(); this.markers.push(mk); }
     this.persistent = this.makeMarker();
+    this.real = new RealFx();
+    this.group.add(this.real.group);
     // — casquillos (cilindro de latón, hasta 40 vivos)
     const cg = o.add(new THREE.CylinderGeometry(0.007, 0.007, 0.034, 6));
     const cm = o.add(new THREE.MeshBasicMaterial({ color: 0xd2a043 }));
@@ -245,7 +261,7 @@ export class Fx {
     this.group.add(this.casingMesh);
     // — marcas de bala: un InstancedMesh por tipo, sin escribir profundidad
     const dq = o.add(new THREE.PlaneGeometry(1, 1));
-    for (const k of ['plaster', 'wood', 'glass'] as DecalKind[]) {
+    for (const k of ['plaster', 'wood', 'glass', 'burn'] as DecalKind[]) {
       const tex = o.add(decalTexture(k));
       const mat = o.add(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
       const im = new THREE.InstancedMesh(dq, mat, DECAL_MAX[k]);
@@ -288,6 +304,7 @@ export class Fx {
 
   /** Calidad de las marcas de bala: 220 en alta, 90 en media, ninguna en baja. */
   setDecalQuality(q: 'low' | 'medium' | 'high'): void {
+    this.real.setQuality(q);
     if (q === this.decalQuality) return;
     this.decalQuality = q;
     this.clearDecals();
@@ -377,6 +394,7 @@ export class Fx {
     this.projViews.clear();
     this.shake = 0;
     this.clearDecals();
+    this.real.clear();
     this.clife.fill(0);
     for (let i = 0; i < MAX_CASINGS; i++) this.casingMesh.setMatrixAt(i, ZERO_M);
     this.casingMesh.instanceMatrix.needsUpdate = true;
@@ -386,6 +404,7 @@ export class Fx {
   // ───────────────────────── Partículas ─────────────────────────
 
   private part(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, color: number, grav = 9, drag = 0.5): void {
+    if (getStyleMode() === 'realista') { this.real.legacy(x, y, z, vx, vy, vz, life, size, color, grav, drag); return; }
     const i = this.pnext;
     this.pnext = (this.pnext + 1) % MAX_PART;
     this.ppos[i * 3] = x; this.ppos[i * 3 + 1] = y; this.ppos[i * 3 + 2] = z;
@@ -409,7 +428,7 @@ export class Fx {
   handle(events: GameEvent[], world: IWorld): void {
     for (const ev of events) {
       switch (ev.type) {
-        case 'shot': this.onShot(ev); break;
+        case 'shot': this.onShot(ev, world); break;
         case 'explosion': this.onExplosion(ev, world); break;
         case 'hurt': {
           const e = world.entityById(ev.id);
@@ -439,27 +458,32 @@ export class Fx {
     }
   }
 
-  private onShot(ev: Extract<GameEvent, { type: 'shot' }>): void {
+  private onShot(ev: Extract<GameEvent, { type: 'shot' }>, world: IWorld): void {
+    const realMode = getStyleMode() === 'realista';
     _a.set(ev.fx, ev.fz, ev.fy);
     _b.set(ev.tx, ev.tz, ev.ty);
     _d.subVectors(_b, _a);
     const len = _d.length();
     if (len < 1e-3) return;
     _d.divideScalar(len);
-    // trazadora (se anima en update: la cabeza viaja del origen al destino)
-    const t = this.tracers.find((x) => x.t <= 0);
-    if (t) {
-      t.t = t.life = 0.09;
-      t.mesh.material = ev.team === 'ally' ? this.tracerMatAlly : this.tracerMatEnemy;
-      t.a.copy(_a); t.d.copy(_d); t.len = len;
-      t.mesh.visible = true;
-    }
-    // fogonazo en estrella en el origen + luz breve
-    const f = this.flashes.find((x) => x.t <= 0);
-    if (f) {
-      f.t = FLASH_TIME; f.base = rr(0.7, 1.1); f.rot = Math.random() * 6.28;
-      f.mesh.position.copy(_a).addScaledVector(_d, 0.25);
-      f.mesh.visible = true;
+    if (realMode) {
+      this.real.muzzle(_a.x, _a.y, _a.z, _d.x, _d.y, _d.z, len, muzzleSizeFor(ev.kind, ev.weapon), ev.id === world.player.id, ev.kind === 'enemy1' || ev.weapon === 'secondary', ev.id);
+    } else {
+      // trazadora (se anima en update: la cabeza viaja del origen al destino)
+      const t = this.tracers.find((x) => x.t <= 0);
+      if (t) {
+        t.t = t.life = 0.09;
+        t.mesh.material = ev.team === 'ally' ? this.tracerMatAlly : this.tracerMatEnemy;
+        t.a.copy(_a); t.d.copy(_d); t.len = len;
+        t.mesh.visible = true;
+      }
+      // fogonazo en estrella en el origen + luz breve
+      const f = this.flashes.find((x) => x.t <= 0);
+      if (f) {
+        f.t = FLASH_TIME; f.base = rr(0.7, 1.1); f.rot = Math.random() * 6.28;
+        f.mesh.position.copy(_a).addScaledVector(_d, 0.25);
+        f.mesh.visible = true;
+      }
     }
     this.muzzleLight.position.copy(_a).addScaledVector(_d, 0.5);
     this.muzzleT = FLASH_TIME;
@@ -475,6 +499,11 @@ export class Fx {
       const sx = ev.nx ?? -_d.x, sz = ev.ny ?? -_d.z;
       const l = Math.hypot(sx, sz);
       if (l > 0.01) { nx = sx / l; ny = 0; nz = sz / l; }
+    }
+    if (realMode) {
+      this.real.impact(surface, ev.tx, ev.tz, ev.ty, surface === 'body' ? -_d.x : nx, surface === 'body' ? 0.1 : ny, surface === 'body' ? -_d.z : nz);
+      if (surface !== 'body') this.addDecal(surface === 'furniture' ? 'wood' : surface === 'door' ? 'glass' : 'plaster', ev.tx, ev.tz, ev.ty, nx, ny, nz, rr(0.05, 0.09));
+      return;
     }
     if (surface === 'body') {
       this.burst(ev.tx, ev.tz, ev.ty, 5, 2.4, 0.3, 0.045, ev.team === 'ally' ? 0x7a1512 : 0x1c3a66, 8, 0.2, -_d.x, -_d.y + 0.3, -_d.z);
@@ -497,6 +526,18 @@ export class Fx {
   }
 
   private onExplosion(ev: Extract<GameEvent, { type: 'explosion' }>, world: IWorld): void {
+    if (getStyleMode() === 'realista') {
+      const R = this.real.explosion(ev.x, Math.max(0.4, ev.z), ev.y, ev.radius);
+      this.explDur = 0.15; this.explPeak = 120 + R * 90; this.explT = this.explDur;
+      this.explLight.color.setHex(0xffb060); this.explLight.position.set(ev.x, Math.max(1, ev.z), ev.y);
+      this.addDecal('burn', ev.x, 0.004, ev.y, 0, 1, 0, Math.max(0.9, R * 1.05));      // marca de quemado en el suelo
+      const cam0 = world.cam;
+      const d0 = Math.hypot(ev.x - cam0.x, ev.y - cam0.y, ev.z - cam0.z);
+      const amp0 = Math.max(0, 1 - d0 / (10 + R * 3)) * Math.min(0.5, 0.25 + R * 0.06);   // proporcional a la cercanía y al radio
+      if (amp0 > this.shake) this.shake = amp0;
+      return;
+    }
+    this.explDur = 0.5; this.explPeak = 160;
     const e = this.expls.find((x) => x.t <= 0) ?? this.expls[0];
     e.t = e.life = 0.7; e.r = Math.max(0.5, ev.radius);
     e.spin.set(rr(-2, 2), rr(-2, 2), rr(-2, 2));
@@ -530,6 +571,7 @@ export class Fx {
 
   update(dt: number, world: IWorld | null, time: number, camera: THREE.Camera): void {
     camera.getWorldQuaternion(this.flashQuat);
+    this.real.update(dt, camera);
     // trazadoras: quad en el plano que contiene la línea y mira a la cámara
     for (const t of this.tracers) {
       if (t.t <= 0) continue;
@@ -560,7 +602,7 @@ export class Fx {
     }
     // luces puntuales
     if (this.muzzleT > 0) { this.muzzleT -= dt; this.muzzleLight.intensity = Math.max(0, this.muzzleT / FLASH_TIME) * 22; } else this.muzzleLight.intensity = 0;
-    if (this.explT > 0) { this.explT -= dt; this.explLight.intensity = Math.max(0, this.explT / 0.5) * 160; } else this.explLight.intensity = 0;
+    if (this.explT > 0) { this.explT -= dt; this.explLight.intensity = Math.max(0, this.explT / this.explDur) * this.explPeak; } else this.explLight.intensity = 0;
 
     // partículas
     for (let i = 0; i < MAX_PART; i++) {
@@ -680,7 +722,8 @@ export class Fx {
       if (p.kind === 'rocket') {
         _d.set(p.vx, p.vz, p.vy);
         if (_d.lengthSq() > 1e-6) g.quaternion.setFromUnitVectors(X_AXIS, _d.normalize());
-        if (doTrail) {
+        if (doTrail && getStyleMode() === 'realista') this.real.rocketTrail(p.x - _d.x * 0.35, p.z - _d.y * 0.35, p.y - _d.z * 0.35);
+        else if (doTrail) {
           const bx = p.x - _d.x * 0.35, by = p.z - _d.y * 0.35, bz = p.y - _d.z * 0.35;
           this.part(bx, by, bz, rr(-0.3, 0.3), rr(-0.2, 0.4), rr(-0.3, 0.3), 0.7, 0.2, 0x8f949c, -0.3, 1);
           this.part(bx, by, bz, rr(-0.2, 0.2), rr(-0.2, 0.2), rr(-0.2, 0.2), 0.16, 0.14, 0xffa030, 0, 2);
@@ -704,6 +747,7 @@ export class Fx {
 
   dispose(): void {
     this.clear();
+    this.real.dispose();
     this.pm.dispose();
     this.owned.disposeAll();
   }

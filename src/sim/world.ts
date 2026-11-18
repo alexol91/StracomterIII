@@ -7,7 +7,7 @@ import {
   ENEMY_STATS, GRENADE_COOLDOWN, GRENADE_COUNT, GRENADE_DAMAGE, HEAD_MULT, INVENTORY_SLOTS, ITEM_EFFECT,
   KNIFE_DAMAGE, KNIFE_PERIOD, KNIFE_RANGE, LIMB_MULT, STAND_HEIGHT, UnitStats, VISION, WEAPON_RANGE, isClass, statsOf,
   AIM_SPEED_MULT, CAM_DIST_AIM, FOV_AIM, FOV_NORMAL, GUN_FEEL, RECOIL_MAX_PITCH, RECOIL_MAX_YAW, RECOIL_RECOVER, SHOULDER_AIM,
-  SHOULDER_NORMAL, SPRINT_MULT, SPRINT_RAISE, STAGGER_COOLDOWN, STAGGER_TIME, computeMods, type Mods,
+  SHOULDER_NORMAL, SPRINT_MULT, DRAW_TIME, PISTOL, PISTOL_FEEL, WEAPON_SPEED, SPRINT_RAISE, STAGGER_COOLDOWN, STAGGER_TIME, computeMods, type Mods,
 } from './data';
 import { allyThink } from './ai_ally';
 import { EnemyAI } from './ai_enemy';
@@ -16,8 +16,9 @@ import { Level, NAV_RADIUS } from './level';
 import { Nav } from './nav';
 import type {
   AiDebugInfo, ClassId, EnemyKind, Entity, GameEvent, HitZone, ItemType, Kind, MapDef, OrderKind, Pickup,
-  PlayerInput, Projectile, Team, Vec2, WorldStatus, ZoneStats,
+  PlayerInput, Projectile, Team, Vec2, WeaponSlot, WorldStatus, ZoneStats,
 } from './types';
+import { WEAPON_SLOTS } from './types';
 
 export interface Unit extends Entity {
   stats: UnitStats;
@@ -141,6 +142,7 @@ export class World implements IWorld {
   /** diagnóstico (pruebas): se llama cuando hay que sacar a alguien de un atasco */
   onUnstuck: ((u: Unit) => void) | null = null;
   private dryAt = -1;
+  private prevFire = false;
 
   constructor(cfg: WorldConfig) {
     this.mods = computeMods(cfg.upgrades);
@@ -215,6 +217,7 @@ export class World implements IWorld {
       inventory: [null, null, null, null, null], invSel: 0,
       lastShotAt: -9, lastKnifeAt: -9, lastHurtAt: -9, aiState: '', bossPhase: kind === 'megaboss' ? 1 : 0,
       shielded: false, marked: false, sprinting: false, aiming: false, spread: 0, staggerUntil: 0, staggerAt: -99,
+      weapon: 'primary', lastWeapon: 'secondary', drawUntil: 0, magSize2: cls ? Math.max(1, Math.round(PISTOL.magSize * this.mods.magMult)) : 0, mag2: cls ? Math.max(1, Math.round(PISTOL.magSize * this.mods.magMult)) : 0,
       stats, cls, ekind: cls ? null : (kind as EnemyKind),
       wishX: 0, wishY: 0, fireCd: 0, knifeCd: 0, grenadeCd: 0, stepAcc: 0,
       path: null, pathI: 0, goalX: x, goalY: y, repathAt: 0, navVer: -1, doorWait: 0,
@@ -276,7 +279,7 @@ export class World implements IWorld {
     this.smoothCamera(dt, input);
     // consumir flancos
     input.reload = input.grenade = input.ability = input.interact = input.useItem = input.cycleItem = false;
-    input.order = null;
+    input.order = null; input.weaponSlot = null; input.weaponLast = false; input.weaponCycle = 0;
 
     for (const u of this.entities) {
       if (!u.alive) continue;
@@ -312,13 +315,20 @@ export class World implements IWorld {
       u.reloading -= dt;
       if (u.reloading <= 0) {
         u.reloading = 0;
-        const n = Math.min(u.magSize - u.mag, u.ammo);
-        u.mag += n; u.ammo -= n;
+        if (u.weapon === 'secondary') u.mag2 = u.magSize2;
+        else { const n = Math.min(u.magSize - u.mag, u.ammo); u.mag += n; u.ammo -= n; }
       }
     }
   }
 
   startReload(u: Unit): boolean {
+    if (u.weapon === 'knife' || u.weapon === 'grenade') return false;
+    if (u.weapon === 'secondary') {
+      if (u.reloading > 0 || u.mag2 >= u.magSize2) return false;   // reserva infinita
+      u.reloading = PISTOL.reloadTime * this.mods.reloadMult;
+      this.events.push({ type: 'reload', id: u.id });
+      return true;
+    }
     if (u.reloading > 0 || u.mag >= u.magSize || u.ammo <= 0) return false;
     u.reloading = u.stats.reloadTime; // las mejoras ya vienen aplicadas en stats (copia de los aliados)
     this.events.push({ type: 'reload', id: u.id });
@@ -340,7 +350,7 @@ export class World implements IWorld {
   /** Dispersión efectiva del jugador ahora mismo (sigma, rad). Es la que lee la retícula (p.spread). */
   private playerSpread(): number {
     const p = this.player;
-    const g = GUN_FEEL[p.cls ?? 'captain'];
+    const g = p.weapon === 'secondary' ? PISTOL_FEEL : GUN_FEEL[p.cls ?? 'captain'];
     const vmax = Math.max(0.1, p.stats.speed);
     const mv = Math.min(1, Math.hypot(p.vx, p.vy) / vmax);
     let sp = g.baseSpread + this.bloom + g.moveSpread * mv;
@@ -350,17 +360,50 @@ export class World implements IWorld {
     return sp;
   }
 
+  /** Cambia el arma en la mano del jugador (v1.2). Devuelve false si no hace nada. */
+  switchWeapon(u: Unit, slot: WeaponSlot): boolean {
+    if (slot === u.weapon) return false;
+    if (slot === 'grenade' && u.grenades <= 0) return false;
+    u.lastWeapon = u.weapon;
+    u.weapon = slot;
+    u.drawUntil = this.time + DRAW_TIME[slot];
+    u.reloading = 0;            // la recarga en curso se cancela; la munición no se pierde (se reparte al terminar)
+    this.bloom = 0;
+    this.events.push({ type: 'weaponSwitch', id: u.id, weapon: slot });
+    return true;
+  }
+
+  /** Rueda: recorre primary → secondary → knife → grenade en círculo, saltando granada si no quedan. */
+  cycleWeapon(u: Unit, dir: 1 | -1): boolean {
+    const n = WEAPON_SLOTS.length;
+    let i = WEAPON_SLOTS.indexOf(u.weapon);
+    for (let k = 0; k < n; k++) {
+      i = (i + dir + n) % n;
+      const s = WEAPON_SLOTS[i];
+      if (s === 'grenade' && u.grenades <= 0) continue;
+      return this.switchWeapon(u, s);
+    }
+    return false;
+  }
+
   private updatePlayer(dt: number, input: PlayerInput): void {
     const p = this.player;
-    const g = GUN_FEEL[p.cls ?? 'captain'];
     p.yaw = input.yaw; p.pitch = input.pitch;
+    // cambio de arma (flancos): antes de leer fire, para que el saque cuente en este mismo paso
+    if (input.weaponSlot) this.switchWeapon(p, input.weaponSlot);
+    if (input.weaponLast) this.switchWeapon(p, p.lastWeapon);
+    if (input.weaponCycle) this.cycleWeapon(p, input.weaponCycle > 0 ? 1 : -1);
+    const g = p.weapon === 'secondary' ? PISTOL_FEEL : GUN_FEEL[p.cls ?? 'captain'];
+    const firePressed = input.fire && !this.prevFire;
+    this.prevFire = input.fire;
+    const slotAim = p.weapon === 'primary' || p.weapon === 'secondary';
     let f = input.moveF, r = input.moveR;
     const m = Math.hypot(f, r);
     if (m > 1) { f /= m; r /= m; }
 
     // esprint (v1.2): hacia delante, sin apuntar; cancela agacharse y no deja disparar
     const wasSprinting = p.sprinting;
-    const wantAim = input.aim && p.reloading <= 0;
+    const wantAim = input.aim && p.reloading <= 0 && slotAim;
     let sprint = input.sprint && f > 0.5 && !wantAim;
     if (sprint && input.fire) sprint = false;      // pulsar fuego saca del esprint
     p.crouch = input.crouch && !(input.sprint && f > 0.5);
@@ -369,7 +412,7 @@ export class World implements IWorld {
     p.aiming = wantAim && !sprint;
     if (wasSprinting && !sprint) this.raiseUntil = this.time + SPRINT_RAISE;
 
-    const sp = p.stats.speed * (p.crouch ? 0.5 : 1) * (sprint ? SPRINT_MULT : 1) * (p.aiming ? AIM_SPEED_MULT : 1);
+    const sp = p.stats.speed * WEAPON_SPEED[p.weapon] * (p.crouch ? 0.5 : 1) * (sprint ? SPRINT_MULT : 1) * (p.aiming ? AIM_SPEED_MULT : 1);
     const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
     p.wishX = (cy * f - sy * r) * sp;
     p.wishY = (sy * f + cy * r) * sp;
@@ -382,43 +425,60 @@ export class World implements IWorld {
     this.computeCam(input.yaw, input.pitch, this.camDistEff);
     this.computeAim(input);
 
-    // habilidad Supresión: fuego sostenido automático
+    // habilidad Supresión: fuego sostenido automático (con el arma principal)
     const suppressing = p.cls === 'especialist' && p.abilityActive > 0;
+    const supFire = suppressing && p.weapon === 'primary';
     p.spread = this.playerSpread();
-    if ((input.fire || suppressing) && p.reloading <= 0 && !p.sprinting && this.time >= this.raiseUntil) {
-      if (p.mag > 0 || suppressing) {
-        if (p.fireCd <= 0 && p.stats.explosive && Math.hypot(this.aim.x - p.x, this.aim.y - p.y) < 2.6) {
-          // Seguro del lanzador: no dispara contra algo que tiene a menos de 2,6 m (estallaría en la cara).
-          if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
-        } else if (p.fireCd <= 0) {
-          let tx = this.aim.x, ty = this.aim.y, tz = this.aim.z;
-          if (input.aimAssist && this.assistId >= 0) {
-            const t = this.entityById(this.assistId);
-            if (t && t.alive) { tx = t.x; ty = t.y; tz = this.height(t) * 0.62; }
-          }
-          // dispersión de ESTA bala (la de la mejora «primera bala» es nula si llevaba > 1 s sin disparar)
-          let sd = p.spread;
-          if (this.mods.firstBullet && this.time - p.lastShotAt > 1) sd = 0;
-          if (input.aimAssist) sd = Math.max(sd * 0.8, 0.010);
-          this.fire(p, tx, ty, tz, sd, suppressing);
-          p.fireCd = 1 / (p.stats.rof * (suppressing ? 2 : 1));
-          // calor y retroceso de la bala
-          const rm = this.mods.recoilMult;
-          this.bloom = Math.min(Math.max(0, g.maxSpread - g.baseSpread), this.bloom + g.perShot * rm);
-          const km = rm * (p.aiming ? 0.7 : 1) * (p.crouch ? 0.85 : 1);
-          this.recoil.pitch = Math.min(RECOIL_MAX_PITCH, this.recoil.pitch + g.kickPitch * km);
-          this.recoil.yaw = Math.max(-RECOIL_MAX_YAW, Math.min(RECOIL_MAX_YAW, this.recoil.yaw + (this.rng() < 0.5 ? -1 : 1) * g.kickYaw * km * (0.5 + this.rng())));
-          p.spread = this.playerSpread();
-        }
-      } else if (p.ammo > 0) this.startReload(p);
-      else if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
+    const listo = !p.sprinting && this.time >= this.raiseUntil && this.time >= p.drawUntil;
+    const disparaBala = (suppress: boolean) => {
+      let tx = this.aim.x, ty = this.aim.y, tz = this.aim.z;
+      if (input.aimAssist && this.assistId >= 0) {
+        const t = this.entityById(this.assistId);
+        if (t && t.alive) { tx = t.x; ty = t.y; tz = this.height(t) * 0.62; }
+      }
+      // dispersión de ESTA bala (la de la mejora «primera bala» es nula si llevaba > 1 s sin disparar)
+      let sd = p.spread;
+      if (this.mods.firstBullet && this.time - p.lastShotAt > 1) sd = 0;
+      if (input.aimAssist) sd = Math.max(sd * 0.8, 0.010);
+      this.fire(p, tx, ty, tz, sd, suppress, p.weapon);
+      p.fireCd = 1 / ((p.weapon === 'secondary' ? PISTOL.rof : p.stats.rof) * (suppress ? 2 : 1));
+      // calor y retroceso de la bala
+      const rm = this.mods.recoilMult;
+      this.bloom = Math.min(Math.max(0, g.maxSpread - g.baseSpread), this.bloom + g.perShot * rm);
+      const km = rm * (p.aiming ? 0.7 : 1) * (p.crouch ? 0.85 : 1);
+      this.recoil.pitch = Math.min(RECOIL_MAX_PITCH, this.recoil.pitch + g.kickPitch * km);
+      this.recoil.yaw = Math.max(-RECOIL_MAX_YAW, Math.min(RECOIL_MAX_YAW, this.recoil.yaw + (this.rng() < 0.5 ? -1 : 1) * g.kickYaw * km * (0.5 + this.rng())));
+      p.spread = this.playerSpread();
+    };
+    if (p.weapon === 'primary') {
+      if ((input.fire || supFire) && p.reloading <= 0 && listo) {
+        if (p.mag > 0 || supFire) {
+          if (p.fireCd <= 0 && p.stats.explosive && Math.hypot(this.aim.x - p.x, this.aim.y - p.y) < 2.6) {
+            // Seguro del lanzador: no dispara contra algo que tiene a menos de 2,6 m (estallaría en la cara).
+            if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
+          } else if (p.fireCd <= 0) disparaBala(supFire);
+        } else if (p.ammo > 0) this.startReload(p);
+        else if (this.time - this.dryAt > 0.4) { this.dryAt = this.time; this.events.push({ type: 'dryfire', id: p.id }); }
+      }
+    } else if (p.weapon === 'secondary') {
+      // pistola: reserva infinita; recarga sola al vaciar el cargador
+      if (input.fire && p.reloading <= 0 && listo) {
+        if (p.mag2 > 0) { if (p.fireCd <= 0) disparaBala(false); }
+        else this.startReload(p);
+      }
+    } else if (p.weapon === 'knife') {
+      if (input.fire && listo && p.knifeCd <= 0) this.knife(p);
+    } else if (p.weapon === 'grenade') {
+      if (firePressed && listo) this.throwGrenade(p, this.aim.x, this.aim.y);
     }
     if (suppressing) this.applySuppression(p);
     if (input.reload) this.startReload(p);
     if (!p.sprinting) {
-      if (input.knife && p.knifeCd <= 0) this.knife(p);
+      if (input.knife && p.knifeCd <= 0 && this.time >= p.drawUntil) this.knife(p);
       if (input.grenade) this.throwGrenade(p, this.aim.x, this.aim.y);
     }
+    // sin granadas en la mano de granada: vuelve sola a la anterior
+    if (p.weapon === 'grenade' && p.grenades <= 0) this.switchWeapon(p, p.lastWeapon === 'grenade' ? 'primary' : p.lastWeapon);
     if (input.ability) this.useAbility(p);
     if (input.interact && this.interactDoor >= 0) this.toggleDoor(this.interactDoor, !this.level.doors[this.interactDoor].open, p);
     if (input.cycleItem) {
@@ -575,8 +635,9 @@ export class World implements IWorld {
    * Dispara desde `u` hacia el punto (tx,ty,tz) con dispersión angular `spread` (rad, sigma).
    * Las balas normales no hieren a los del propio equipo; las explosiones sí.
    */
-  fire(u: Unit, tx: number, ty: number, tz: number, spread: number, free = false): void {
-    if (!free) u.mag--;
+  fire(u: Unit, tx: number, ty: number, tz: number, spread: number, free = false, weapon: WeaponSlot = 'primary'): void {
+    const pistol = weapon === 'secondary';
+    if (!free) { if (pistol) u.mag2--; else u.mag--; }
     u.lastShotAt = this.time;
     if (u.isPlayer) this.stats.shotsFired++;
     const oz = this.muzzleZ(u);
@@ -597,9 +658,9 @@ export class World implements IWorld {
     let nx = ri.nx, ny = ri.ny;
     if (hit) { t = hit.t; kind = 'entity'; surface = 'body'; const hl = Math.hypot(dx, dy) || 1; nx = -dx / hl; ny = -dy / hl; }
     const ix = u.x + (ex - u.x) * t, iy = u.y + (ey - u.y) * t, iz = Math.max(0, oz + (ez - oz) * t);
-    this.events.push({ type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + dx * 0.5, fy: u.y + dy * 0.5, fz: oz, tx: ix, ty: iy, tz: iz, hit: kind, surface, nx, ny });
+    this.events.push({ type: 'shot', id: u.id, kind: u.kind, team: u.team, fx: u.x + dx * 0.5, fy: u.y + dy * 0.5, fz: oz, tx: ix, ty: iy, tz: iz, hit: kind, surface, nx, ny, weapon });
     if (this.time - u.noiseAt > 0.35) { u.noiseAt = this.time; this.noises.push({ x: u.x, y: u.y, loud: 30, team: u.team, id: u.id, kind: 'shot' }); }
-    if (u.stats.explosive) {
+    if (u.stats.explosive && !pistol) {
       // retrocede un poco del muro para que la explosión no nazca dentro
       const bk = Math.min(0.2, t * R);
       this.explode(ix - dx * bk, iy - dy * bk, Math.max(0.2, iz - dz * bk), BLAST_RADIUS + (u.isPlayer ? this.mods.blastBonus : 0), u.stats.damage, u, hit ? hit.u : null);
@@ -612,14 +673,14 @@ export class World implements IWorld {
       const headMult = HEAD_MULT + (u.team === 'ally' ? this.mods.headBonus : 0);
       const mult = u.team === 'enemy' ? 1 : hit.zone === 'head' ? headMult : hit.zone === 'limb' ? LIMB_MULT : 1;
       if (u.isPlayer) { this.stats.shotsHit++; if (hit.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1; }
-      this.damage(hit.u, u.stats.damage * mult, u, hit.zone, u.x, u.y);
+      this.damage(hit.u, (pistol ? PISTOL.damage : u.stats.damage) * mult, u, hit.zone, u.x, u.y);
       // munición perforante: la bala del jugador atraviesa a un enemigo y sigue hasta el siguiente cuerpo (si no hay muro antes)
       if (u.isPlayer && this.mods.pierce) {
         const h2 = this.rayUnits(u.x, u.y, oz, ex, ey, ez, other, tWall, hit.t, hit.u);
         if (h2 && h2.u !== hit.u) {
           this.stats.shotsHit++;
           if (h2.zone === 'head') this.stats.headshots = (this.stats.headshots ?? 0) + 1;
-          this.damage(h2.u, u.stats.damage * (h2.zone === 'head' ? headMult : h2.zone === 'limb' ? LIMB_MULT : 1), u, h2.zone, u.x, u.y);
+          this.damage(h2.u, (pistol ? PISTOL.damage : u.stats.damage) * (h2.zone === 'head' ? headMult : h2.zone === 'limb' ? LIMB_MULT : 1), u, h2.zone, u.x, u.y);
         }
       }
     }
