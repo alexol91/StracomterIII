@@ -82,6 +82,8 @@ export interface CampaignState {
   /** Escalón de ajuste dinámico: -3..+3 (cada escalón, 10 % de enemigos). */
   adapt: number;
   quick?: boolean; // partida rápida: no se guarda
+  /** intentos fallidos seguidos en la planta actual (cada reintento sale distinto) */
+  retries?: number;
 }
 
 export interface ZoneInfo {

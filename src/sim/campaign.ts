@@ -33,12 +33,18 @@ export function enemyTotal(floor: number, size: 'pequeno' | 'mediano' | 'grande'
 
 export function directorConfig(state: CampaignState, floor: number, size: 'pequeno' | 'mediano' | 'grande'): DirectorConfig {
   const diff = DIFFICULTY_MULT[state.difficulty] / DIFFICULTY_MULT.normal;
+  // Compensación por compañeros caídos (son permanentes): un 12 % menos de enemigos por cada uno.
+  // Sin esto, perder a la escuadra a mitad de campaña la convierte en imposible.
+  const dead = CLASS_IDS.filter(c => state.members[c].hp <= 0).length;
+  // Piedad: tras tres derrotas seguidas en la misma planta, cada intento más quita otro 15 % (hasta la mitad).
+  const mercy = Math.max(0.5, 1 - 0.15 * Math.max(0, (state.retries ?? 0) - 2));
+  const solo = (1 - 0.12 * dead) * mercy;
   return {
-    total: enemyTotal(floor, size, state.difficulty, state.adapt),
+    total: Math.max(3, Math.round(enemyTotal(floor, size, state.difficulty, state.adapt) * solo)),
     mix: ENEMY_MIX[floor],
     miniboss: floor >= 2 && floor <= 8,
     megaboss: floor === 9,
-    reinforcements: Math.round(12 * diff * (1 + 0.1 * state.adapt)),
+    reinforcements: Math.max(4, Math.round(12 * diff * (1 + 0.1 * state.adapt) * solo)),
     tactics: floor >= 2 ? 1 : 0,
   };
 }
@@ -90,11 +96,17 @@ export function createCampaign(storage: KVStorage): ICampaign {
       // no se puede controlar a un muerto: pasa al primer superviviente
       let controlled = state.controlled;
       if (state.members[controlled].hp <= 0) controlled = CLASS_IDS.find(c => state.members[c].hp > 0) ?? controlled;
+      // Piedad (misma regla): a partir de la tercera derrota seguida se entra con la vida llena y al menos 120 balas.
+      let members = state.members;
+      if ((state.retries ?? 0) >= 3) {
+        members = JSON.parse(JSON.stringify(state.members)) as typeof state.members;
+        for (const c of CLASS_IDS) if (members[c].hp > 0) { members[c].hp = CLASS_STATS[c].hp; members[c].ammo = Math.max(members[c].ammo, 120); }
+      }
       return new World({
         map: zi.map, floor: state.floor, zone: zi.zone, controlled,
-        members: state.members, director: directorConfig(state, state.floor, zi.size),
+        members, director: directorConfig(state, state.floor, zi.size),
         baseScore: state.score,
-        seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131,
+        seed: state.floor * 1000 + zi.zone * 37 + (state.score % 97) + (state.adapt + 3) * 131 + (state.retries ?? 0) * 17,
       });
     },
     completeZone(state, world) {
@@ -127,6 +139,7 @@ export function createCampaign(storage: KVStorage): ICampaign {
       }
       state.score += world.stats.scoreGained;
       state.adapt = Math.max(-3, Math.min(3, state.adapt + adaptStep(world, enemyTotal(world.floor, zi.size, state.difficulty, state.adapt))));
+      state.retries = 0;
       const campaignWon = world.floor >= 9;
       state.floor = world.floor + 1;
       if (!state.quick) { if (campaignWon) self.clearSave(); else self.save(state); }
@@ -135,6 +148,7 @@ export function createCampaign(storage: KVStorage): ICampaign {
     failZone(state) {
       // «si va ahogado, baja»: morir es la señal más clara. Un escalón por intento.
       state.adapt = Math.max(-3, state.adapt - 1);
+      state.retries = (state.retries ?? 0) + 1;
       if (!state.quick) self.save(state);
     },
     save(state) {

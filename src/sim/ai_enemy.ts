@@ -648,7 +648,10 @@ export class EnemyAI {
     if (w.time > b.burstUntil) {
       // El MegaBoss dispara en ráfagas largas con pausas claras: la pausa es la ventana para asomarse.
       const mega = u.kind === 'megaboss';
-      if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + (mega ? 2.6 + w.rng() * 1.2 : 0.35 + w.rng() * 0.6); b.burstUntil = 0; return false; }
+      // contra una escuadra mermada el jefe da más aire entre ráfagas (1,2 s más por cada compañero que falte)
+      let megaExtra = 0;
+      if (mega) { let al = 0; for (const o of w.entities) if (o.alive && o.team === 'ally') al++; megaExtra = Math.max(0, 4 - al) * 1.2; }
+      if (b.burstUntil > 0) { b.restUntil = w.time + (mega ? 2.6 + w.rng() * 1.2 + megaExtra : 0.35 + w.rng() * 0.6); b.burstUntil = 0; return false; }
       // Turnos de fuego: contra un mismo blanco solo dispara a la vez un número limitado de enemigos
       // (más cuanto más alta la planta). El resto espera su turno cubierto o maniobrando. Sin esto, 40
       // enemigos en una planta diáfana son un pelotón de fusilamiento y no hay táctica que valga.

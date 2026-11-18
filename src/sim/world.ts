@@ -646,9 +646,15 @@ export class World implements IWorld {
       this.enemyAI.onDeath(t);
       // botín ocasional (ver DECISIONES): evita quedarse sin munición si cae el Especialista
       const boss = t.kind === 'miniboss' || t.kind === 'megaboss';
+      // Sin Especialista vivo no hay aura de munición: los caídos sueltan balas mucho más a menudo.
       const r = this.rng();
-      if (boss || r < 0.22) {
-        this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : r < 0.12 ? 'municion_20' : 'vida_20', x: t.x, y: t.y, taken: false });
+      let pAmmo = this.entities.some(e => e.alive && e.cls === 'especialist') ? 0.12 : 0.5;
+      // Red de seguridad: si a la escuadra entera le quedan menos de 40 balas, el caído suelta munición seguro.
+      let squadAmmo = 0;
+      for (const e of this.entities) if (e.alive && e.team === 'ally') squadAmmo += e.mag + e.ammo;
+      if (squadAmmo < 40) pAmmo = 1;
+      if (boss || r < pAmmo + 0.1) {
+        this.pickups.push({ id: this.nextId++, type: boss ? 'vida_50' : r < pAmmo ? 'municion_20' : 'vida_20', x: t.x, y: t.y, taken: false });
       }
     } else if (t.isPlayer) {
       this.status = 'dead';

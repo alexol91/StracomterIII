@@ -52,7 +52,9 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
   no dispara: esa fase se pelea contra los refuerzos.
 * **Los jefes no se quedan sin munición.**
 * **Botín de los enemigos.** Al morir sueltan a veces una caja de munición pequeña (12 %) o un botiquín
-  pequeño (10 %); los jefes, un botiquín mediano. La vida no se regenera y se arrastra de planta en
+  pequeño (10 %); los jefes, un botiquín mediano. Si el Especialista ha muerto (no hay aura de
+  munición), la probabilidad de munición sube al 50 %. Y si a toda la escuadra le quedan menos de 40 balas, el
+  siguiente caído suelta munición seguro (nunca te quedas a cuchillo sin remedio). La vida no se regenera y se arrastra de planta en
   planta: sin esto la campaña no se podía terminar, y si muere el Especialista la escuadra se queda sin
   balas.
 * **Turnos de fuego.** Contra un mismo blanco solo dispara a la vez un número limitado de enemigos
@@ -66,6 +68,14 @@ sale cada cosa de terceros. Una línea por decisión: qué y por qué.
 * **Repliegue solo en grupos de 4 o más** (un grupo de 2-3 que pierde a uno no «se repliega»: sigue).
 * **A menos de 1,6 m te notan aunque les vengas por la espalda** (siempre que no haya pared): tocarles
   sin que reaccionaran parecía un fallo.
+* **Compensación por compañeros caídos.** Cada compañero muerto quita un 12 % de enemigos a las plantas
+  siguientes (y de refuerzos del MegaBoss, que además deja 1,2 s más entre ráfagas por cada uno que
+  falte). La muerte es permanente, como pide el documento, pero sin esto llegar solo a la azotea era
+  una campaña sin salida.
+* **Piedad tras tres derrotas seguidas en la misma planta.** Desde el cuarto intento se entra con la vida
+  llena y al menos 120 balas, y cada intento quita otro 15 % de enemigos (hasta la mitad). Con la vida
+  arrastrándose entre plantas y los compañeros muriendo para siempre, se podía llegar a un guardado del
+  que no había forma de salir. El contador se pone a cero al superar la planta.
 * **Al morir, el ajuste dinámico baja un escalón.** El documento solo habla de ajustar «por zona»;
   morir es la señal más clara de ir ahogado.
 

@@ -51,6 +51,8 @@ export function playZone(world: World, maxTime = 900, god = false): ZoneReport {
       if (d < td && d < 30 && world.shotLine(p, e) >= 0 && world.canSee(p, e)) { td = d; tgt = e; }
     }
     const total = p.mag + p.ammo;
+    // sin balas: una persona no carga a cuchillo contra un jefe, va a por la caja de munición más cercana
+    if (tgt && total === 0 && world.pickups.some(k => !k.taken && k.type.startsWith('municion'))) tgt = null;
     if (tgt) {
       const wantYaw = Math.atan2(tgt.y - p.y, tgt.x - p.x);
       const dy = angDiff(wantYaw, input.yaw);

@@ -177,7 +177,7 @@ export function allyThink(w: World, u: Unit, dt: number): void {
       if (ok && !suppressing && w.time > b.burstUntil) {
         // Los compañeros apoyan, no ganan la partida solos: ráfagas cortas y pausas largas. El Explosivo, tiro a tiro.
         const slow = u.cls === 'explosives' ? 2.4 : 0;
-        if (b.burstUntil > 0 && w.time - b.burstUntil < 0.05) { b.restUntil = w.time + 0.5 + slow + w.rng() * (0.6 + slow * 0.6); b.burstUntil = 0; ok = false; }
+        if (b.burstUntil > 0) { b.restUntil = w.time + 0.5 + slow + w.rng() * (0.6 + slow * 0.6); b.burstUntil = 0; ok = false; }
         else b.burstUntil = w.time + (u.cls === 'explosives' ? 0.05 : 0.35 + w.rng() * 0.45);
       }
       if (ok && u.cls === 'explosives') {
