@@ -18,7 +18,8 @@ import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
 import { onLangChange, setLang, t } from './ui/i18n';
 import { NG_PLUS, SHOP } from './sim/data';
-import { loadSettings, saveSettings, takeBindingsNotice, setDeviceProvider } from './ui/settings';
+import { loadSettings, saveSettings, takeBindingsNotice, setDeviceProvider, type ExtraSettings } from './ui/settings';
+import { Radio } from './ui/radio';
 import { asset, button, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
@@ -166,7 +167,13 @@ function hideLoading(): void {
 const screensLayer = h('div', { id: 'screens' });
 const screens = new Screens(screensLayer);
 const hud = new Hud(uiRoot, () => settings, () => controls.isTouch, () => togglePause(), (x, y, z) => renderer.project(x, y, z));
+const radio = new Radio(uiRoot);
 uiRoot.appendChild(screensLayer);
+// Escenas: bandas negras, rótulo y aviso de omitir (solo visibles con la clase cine-on)
+const cineCap = h('div', { class: 'cine-cap' });
+const cineEl = h('div', { class: 'cine' },
+  h('div', { class: 'cine-bar top' }), h('div', { class: 'cine-bar bot' }), cineCap, h('div', { class: 'cine-skip' }, t('scene.skip')));
+uiRoot.appendChild(cineEl);
 uiRoot.appendChild(loadingEl);
 const consoleUi = new ConsoleOverlay(uiRoot, runConsole, () => closeConsole());
 const tutorial = new Tutorial(uiRoot, {
@@ -257,6 +264,63 @@ function updateGameMusic(force = false): void {
 
 // ───────────────────────────── Pantallas ─────────────────────────────
 
+// ───────────────────────────── Radio de «Mando» y escenas ─────────────────────────────
+
+const extra = (): ExtraSettings => settings as ExtraSettings;
+let radioEnterPending = false;
+let radioFewDone = false;
+let initialEnemies = 0;
+let postLoadPending = false;   // intro/tutorial/radio de entrada: se disparan cuando se quita la pantalla de carga
+const bossSeen = new Set<number>();
+const introPlayed = new WeakSet<object>();
+let victorySceneDone = false;
+
+function radioSay(key: string, params?: Record<string, string | number>, urgent = false): void {
+  if (extra().radio === false || tutorial.active) return;
+  radio.say(t(key, params), urgent);
+}
+
+let cinematicActive = false;
+let sceneThen: (() => void) | null = null;
+let sceneTimer = 0;
+
+function canPlayScene(): boolean {
+  return !!renderer.playCinematic && extra().cinematics !== false && !autoMode && !testMode;
+}
+
+/** Escena corta (si el renderer la ofrece): HUD fuera, bandas negras y rótulo; la simulación espera. Cualquier tecla la omite. */
+function playScene(kind: 'intro' | 'boss' | 'victory', opts: { targetId?: number }, caption: string[], then: () => void): void {
+  if (!canPlayScene() || cinematicActive) { then(); return; }
+  cinematicActive = true;
+  sceneThen = then;
+  controls.setActive(false);
+  hud.show(false);
+  radio.setVisible(false);
+  cineCap.textContent = '';
+  caption.forEach((c, i) => cineCap.appendChild(h('div', { class: i === 0 ? 'c1' : 'c2' }, c)));
+  cineEl.classList.add('cine-on');
+  // Por si el renderer no llegara a avisar nunca del final
+  sceneTimer = window.setTimeout(endScene, 20000);
+  try { renderer.playCinematic!(kind, opts, endScene); } catch (err) { reportError(err); endScene(); }
+}
+
+function endScene(): void {
+  if (!cinematicActive) return;
+  cinematicActive = false;
+  window.clearTimeout(sceneTimer);
+  cineEl.classList.remove('cine-on');
+  const then = sceneThen;
+  sceneThen = null;
+  if (screen === 'game') { hud.show(true); acc = 0; controls.setActive(!consoleUi.isOpen); }
+  then?.();
+}
+
+function cancelScene(): void {
+  if (!cinematicActive) return;
+  try { renderer.cancelCinematic?.(); } catch { /* sin cancelar */ }
+  endScene();
+}
+
 /** Con Ctrl como agacharse, Ctrl+W cierra la pestaña: mientras se juega, el navegador pide confirmación. */
 const onBeforeUnload = (e: BeforeUnloadEvent): void => { e.preventDefault(); e.returnValue = ''; };
 let unloadGuard = false;
@@ -268,6 +332,9 @@ function setUnloadGuard(on: boolean): void {
 }
 
 function leaveGame(): void {
+  cancelScene();
+  radio.clear();
+  postLoadPending = false;
   wheelClose(false);
   setUnloadGuard(false);
   tutorial.stop(null);
@@ -446,6 +513,7 @@ function togglePause(): void {
   if (now - lastPauseToggle < 200) return;
   lastPauseToggle = now;
   if (consoleUi.isOpen) { closeConsole(); return; }
+  if (cinematicActive) cancelScene();
   if (screen === 'game') showPause();
   else if (screen === 'pause') resume();
 }
@@ -683,7 +751,13 @@ function beginWorld(w: IWorld): void {
   if (!testMode && !autoMode) setUnloadGuard(true);
   // Tutorial guiado: primera partida de campaña, planta 1, sin trucos
   tutorial.stop(null);
-  if (state && !state.quick && !state.horde && w.floor === 1 && !autoMode && !w.cheated && Tutorial.shouldStart()) tutorial.start(w);
+  radio.clear();
+  bossSeen.clear();
+  radioFewDone = false;
+  initialEnemies = 0;
+  victorySceneDone = false;
+  // Intro, tutorial y radio de entrada esperan a que se quite la pantalla de carga (ver frame)
+  postLoadPending = true;
   const ae = document.activeElement as HTMLElement | null;
   if (ae && ae !== document.body && !ae.closest('#console')) ae.blur();
 }
@@ -703,6 +777,19 @@ function neutralInput(src: PlayerInput): PlayerInput {
   const e = emptyInput();
   e.yaw = src.yaw; e.pitch = src.pitch; e.camDist = src.camDist;
   return e;
+}
+
+function onBossSpawn(w: IWorld, id: number, kind: string): void {
+  bossSeen.add(id);
+  const ent = w.entityById(id);
+  const v = ent?.bossVariant;
+  radioSay('radio.boss.' + (v ?? (kind === 'megaboss' ? 'mega' : 'mini')), undefined, true);
+  // Nombre propio del jefe para el rótulo de la escena
+  let nm = t('kind.' + kind);
+  const own = ent?.bossName ?? '';
+  if (own) { const k = own.startsWith('boss.') ? own : 'boss.' + own; if (t(k) !== k) nm = t(k); }
+  if (tutorial.active) return;
+  playScene('boss', { targetId: id }, [nm, t('kind.' + kind)], () => { /* la partida sigue */ });
 }
 
 function simulate(dtReal: number): void {
@@ -726,8 +813,14 @@ function simulate(dtReal: number): void {
       else if (ev.type === 'explosion' && Math.hypot(ev.x - w.player.x, ev.y - w.player.y) < 7) rumble(0.7, 0.7, 200);
     }
     tutorial.onEvents(w);
+    for (const ev of w.events) {
+      if (ev.type === 'spawn' && (ev.kind === 'miniboss' || ev.kind === 'megaboss') && !bossSeen.has(ev.id)) onBossSpawn(w, ev.id, ev.kind);
+      else if (ev.type === 'wave' && ev.wave > 0 && ev.wave % 5 === 0) radioSay('radio.horde.five', { n: ev.wave });
+      else if (ev.type === 'cleared') radioSay('radio.clear', undefined, true);
+    }
     acc -= STEP;
     n++;
+    if (cinematicActive) break; // el mundo NO avanza mientras dura una escena
   }
   // Si el frame tardó demasiado, el exceso se descarta (no se acumula deuda de simulación)
   if (acc >= STEP) acc = 0;
@@ -735,7 +828,13 @@ function simulate(dtReal: number): void {
   if (w.status === 'cleared' || w.status === 'dead' || w.status === 'failed') {
     endTimer += dtReal;
     if (endTimer >= END_DELAY) {
-      if (w.status === 'cleared') finishZone(); else showDefeat();
+      if (w.status === 'cleared') {
+        // Última planta de campaña: escena de victoria antes del informe
+        if (w.floor === 9 && state && !state.quick && !state.horde && !victorySceneDone && canPlayScene()) {
+          victorySceneDone = true;
+          playScene('victory', {}, [t('scene.victory')], () => finishZone());
+        } else finishZone();
+      } else showDefeat();
     }
   } else {
     endTimer = 0;
@@ -754,9 +853,42 @@ function frame(nowMs: number): void {
   lastFrameMs = nowMs;
   try {
     if (world) {
-      tutorial.setVisible(screen === 'game' && !consoleUi.isOpen && !loadingActive);
-      if (screen === 'game' && !consoleUi.isOpen && !loadingActive) {
+      tutorial.setVisible(screen === 'game' && !consoleUi.isOpen && !loadingActive && !cinematicActive);
+      // Tras la carga: intro (planta 1 de campaña nueva), tutorial y mensajes de entrada
+      if (postLoadPending && !loadingActive && screen === 'game' && world && !cinematicActive) {
+        postLoadPending = false;
+        const w0 = world;
+        const go = (): void => {
+          if (world !== w0) return;
+          if (state && !state.quick && !state.horde && w0.floor === 1 && !autoMode && !w0.cheated && Tutorial.shouldStart()) tutorial.start(w0);
+          radioEnterPending = true;
+        };
+        const intro = !!state && !state.quick && !state.horde && w0.floor === 1 && (state.score ?? 0) === 0 && !introPlayed.has(state);
+        if (intro && state) {
+          introPlayed.add(state);
+          playScene('intro', {}, [t('scene.intro', { n: '01' }), CLASS_IDS.map((c) => t('kind.' + c)).join(' · ')], go);
+        } else go();
+      }
+      if (radioEnterPending && !cinematicActive && world) {
+        radioEnterPending = false;
+        const w1 = world;
+        if (w1.horde) radioSay('radio.horde.start');
+        else {
+          radioSay('radio.enter.' + Math.floor(Math.random() * 3));
+          const ok = w1.objective?.kind;
+          if (ok && ok !== 'clear') radioSay('radio.obj.' + ok);
+        }
+      }
+      radio.setVisible(screen === 'game' && !consoleUi.isOpen && !loadingActive && !cinematicActive);
+      radio.update(performance.now());
+      if (screen === 'game' && !consoleUi.isOpen && !loadingActive && !cinematicActive) {
         simulate(dtReal);
+        if (world) {
+          const w2 = world;
+          const rem = w2.enemiesRemaining();
+          initialEnemies = Math.max(initialEnemies, rem);
+          if (!radioFewDone && !w2.horde && initialEnemies >= 8 && rem > 0 && rem <= 3) { radioFewDone = true; radioSay('radio.few'); }
+        }
         if (world) tutorial.update(world, dtReal);
         musicTimer += dtReal;
         if (musicTimer >= 0.5 && world) { musicTimer = 0; updateGameMusic(); }
@@ -859,6 +991,12 @@ cons = createConsole(host);
 
 function onGlobalKey(e: KeyboardEvent): void {
   if (flags.capturing || e.repeat) return;
+  // Escena en curso: cualquier tecla la omite; Esc además pausa
+  if (cinematicActive) {
+    cancelScene();
+    if (e.code === 'Escape' || e.code === settings.bindings.pause) { e.preventDefault(); togglePause(); }
+    return;
+  }
   const code = e.code;
   if (code === settings.bindings.console || code === 'IntlBackslash' || code === 'F2') {
     // Backquote, IntlBackslash y F2: en teclados españoles la tecla a la izquierda del 1 varía
@@ -918,9 +1056,18 @@ function unlockAudio(): void {
 for (const ev of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(ev, unlockAudio, true);
 
 // Si la pestaña se oculta en pleno juego, pausa
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && screen === 'game' && !consoleUi.isOpen && !testMode) showPause();
-});
+function autoPause(): void {
+  if (DEBUG && params.has('nopause')) return; // pruebas en una ventana sin foco
+  if (testMode) return;
+  cancelScene();
+  if (screen === 'game' && !consoleUi.isOpen) showPause();
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
+// Al perder el foco la ventana, el juego se pausa solo
+window.addEventListener('blur', () => { if (screen === 'game') autoPause(); });
+// Un clic o un toque también omiten la escena
+window.addEventListener('mousedown', () => { if (cinematicActive) cancelScene(); }, true);
+window.addEventListener('touchstart', () => { if (cinematicActive) cancelScene(); }, { capture: true, passive: true });
 
 function onResize(): void { renderer.resize(window.innerWidth, window.innerHeight); }
 window.addEventListener('resize', onResize);

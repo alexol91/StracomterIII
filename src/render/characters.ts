@@ -338,6 +338,8 @@ export class CharManager implements CharHost {
   private ghostOp = 0.22;
   /** a partir de esta distancia a la cámara los personajes animan 1 de cada 3 frames */
   private farAnimDist = 30;
+  /** alto contraste: Rocketbox con emisivo uniforme por bando */
+  highContrast = false;
   private models = new Map<string, Model>();
   private shadows: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;

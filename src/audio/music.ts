@@ -3,7 +3,7 @@
 // sobre la armonía de cada tema, así que son siempre las mismas y encajan con los acordes.
 // Voces sostenidas por tema: <= 6 (las de batería son ráfagas cortas).
 
-import type { MusicTrack } from '../contracts';
+import type { IWorld, MusicTrack } from '../contracts';
 import type { Samples } from './samples';
 
 /**
@@ -11,6 +11,8 @@ import type { Samples } from './samples';
  * combat usa solo un ambiente discreto. false = siempre la música generada (reserva).
  */
 export const USE_SAMPLE_MUSIC = true;
+/** true = el combate usa música dinámica por capas; false = solo el ambiente discreto. */
+export const USE_DYNAMIC_COMBAT = true;
 /** Volumen del tema original: normal y en el jefe (más alto). */
 const THEME_LEVEL = 0.7;
 const THEME_LEVEL_BOSS = 1.0;
@@ -347,6 +349,7 @@ interface Playing {
   stopAt: number;
   setLevel(level: number): void;
   fadeOut(now: number, dur?: number): void;
+  update?(world: IWorld): void;
   tick(until: number): void;
   dispose(): void;
 }
@@ -434,11 +437,11 @@ class ThemePlayer implements Playing {
   private gain: GainNode;
   private src: AudioBufferSourceNode;
 
-  constructor(private ctx: AudioContext, buf: AudioBuffer, out: AudioNode, level: number) {
+  constructor(private ctx: AudioContext, buf: AudioBuffer, out: AudioNode, level: number, fadeIn = FADE) {
     this.gain = ctx.createGain();
     const t = ctx.currentTime;
     this.gain.gain.setValueAtTime(0.0001, t);
-    this.gain.gain.linearRampToValueAtTime(level, t + FADE);
+    this.gain.gain.linearRampToValueAtTime(level, t + fadeIn);
     this.gain.connect(out);
     this.src = ctx.createBufferSource();
     this.src.buffer = buf;
@@ -532,11 +535,194 @@ class Ambient implements Playing {
   }
 }
 
+// ───────────────────────── Combate dinámico por capas ─────────────────────────
+
+interface DynTheme {
+  bpm: number; chords: Chord[];
+  pad: OscillatorType; padLp: number;
+  bass: OscillatorType; bassLp: number; drive: boolean;
+  arp: OscillatorType; arpLp: number;
+}
+/** Un tema por grupo de plantas: 1-3, 4-6, 7-9 (cambian tonalidad, tempo y timbre). */
+const DYN_THEMES: DynTheme[] = [
+  { bpm: 112, pad: 'sawtooth', padLp: 700, bass: 'sawtooth', bassLp: 550, drive: false, arp: 'square', arpLp: 2400,
+    chords: [ch(33, [0, 3, 7]), ch(29, [0, 4, 7]), ch(36, [0, 4, 7]), ch(31, [0, 4, 7]), ch(33, [0, 3, 7]), ch(29, [0, 4, 7]), ch(38, [0, 3, 7]), ch(40, [0, 4, 7, 10])] },
+  { bpm: 124, pad: 'triangle', padLp: 1300, bass: 'square', bassLp: 700, drive: false, arp: 'sawtooth', arpLp: 2600,
+    chords: [ch(38, [0, 3, 7]), ch(34, [0, 4, 7]), ch(41, [0, 4, 7]), ch(36, [0, 4, 7]), ch(38, [0, 3, 7]), ch(34, [0, 4, 7]), ch(31, [0, 3, 7]), ch(33, [0, 4, 7, 10])] },
+  { bpm: 136, pad: 'sawtooth', padLp: 600, bass: 'sawtooth', bassLp: 450, drive: true, arp: 'sawtooth', arpLp: 2000,
+    chords: [ch(30, [0, 3, 7]), ch(31, [0, 4, 7]), ch(30, [0, 3, 7]), ch(28, [0, 4, 7]), ch(30, [0, 3, 7]), ch(31, [0, 4, 7]), ch(25, [0, 4, 7, 10]), ch(30, [0, 3, 6])] },
+];
+const LAYER_LEVEL = [0.9, 1, 1, 0.8]; // tensión, bajo, percusión, pico
+const ARP_PAT = [0, 1, 2, 1, 0, 2, 1, 2];
+
+/**
+ * Capas sincronizadas (mismo reloj de pasos, bucle de 8 compases): ambiente siempre, y según el estado
+ * del juego entran y salen la tensión, el bajo, la percusión y el pico con fundidos de 2-3 s.
+ */
+class Dynamic implements Playing {
+  readonly key: string;
+  scheduling = true;
+  stopAt = Infinity;
+  private th: DynTheme;
+  private gain: GainNode;
+  private lp: BiquadFilterNode;
+  private lg: GainNode[] = [];
+  private vs: Voices[] = [];
+  private hg: GainNode;
+  private vh: Voices;
+  private amb: Ambient;
+  private target = [0, 0, 0, 0];
+  private offUntil = [0, 0, 0, 0];
+  private low = false;
+  private dbl = false;
+  private pos = 0;
+  private next: number;
+  private sps: number;
+  private extra: AudioNode[] = [];
+
+  constructor(private ctx: AudioContext, noise: AudioBuffer, out: AudioNode, private group: number) {
+    this.key = 'dynamic:' + group;
+    this.th = DYN_THEMES[group];
+    this.sps = 60 / this.th.bpm / 4;
+    const t0 = ctx.currentTime;
+    this.gain = ctx.createGain();
+    this.gain.gain.setValueAtTime(0.0001, t0);
+    this.gain.gain.linearRampToValueAtTime(1, t0 + FADE);
+    this.gain.connect(out);
+    this.lp = ctx.createBiquadFilter();
+    this.lp.type = 'lowpass'; this.lp.frequency.value = 16000; this.lp.Q.value = 0.5;
+    this.lp.connect(this.gain);
+    for (let i = 0; i < 4; i++) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(this.lp);
+      this.lg.push(g);
+      this.vs.push(new Voices(ctx, noise, g));
+    }
+    if (this.th.drive) { // bajo saturado en el tema de las plantas altas
+      const ws = ctx.createWaveShaper();
+      const curve = new Float32Array(257);
+      for (let i = 0; i < 257; i++) curve[i] = Math.tanh(((i / 128) - 1) * 3) * 0.8;
+      ws.curve = curve;
+      ws.connect(this.lg[1]);
+      this.vs[1].drive = ws;
+      this.extra.push(ws);
+    }
+    this.hg = ctx.createGain();
+    this.hg.gain.value = 0;
+    this.hg.connect(this.gain);
+    this.vh = new Voices(ctx, noise, this.hg);
+    this.amb = new Ambient(ctx, noise, this.gain);
+    this.next = t0 + 0.06;
+  }
+
+  /** Estado real del juego -> capas objetivo. */
+  update(world: IWorld): void {
+    let t = [0, 0, 0, 0];
+    const h = world.horde;
+    if (h) {
+      if (h.rest > 0) t = [1, 0, 0, 0];
+      else t = [1, 1, h.wave >= 3 || h.bossWave ? 1 : 0, h.wave >= 6 || h.bossWave ? 1 : 0];
+    } else {
+      switch (world.pacing) {
+        case 'alivio': t = [1, 0, 0, 0]; break;
+        case 'ascenso': t = [1, 1, 0, 0]; break;
+        case 'pico': t = [1, 1, 1, 1]; break;
+        default: break; // descanso: solo ambiente
+      }
+    }
+    const ob = world.objective;
+    this.dbl = !!ob && ob.timeLeft >= 0 && ob.timeLeft < 20; // cuenta atrás corta: percusión a doble tiempo
+    if (this.dbl) { t[0] = 1; t[2] = 1; }
+    const now = this.ctx.currentTime;
+    for (let i = 0; i < 4; i++) {
+      if (t[i] === this.target[i]) continue;
+      const dur = t[i] > this.target[i] ? 2 : 3;
+      const g = this.lg[i].gain;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(g.value, now);
+      g.linearRampToValueAtTime(t[i] * LAYER_LEVEL[i], now + dur);
+      if (!t[i]) this.offUntil[i] = now + dur + 0.2;
+      this.target[i] = t[i];
+    }
+    const p = world.player;
+    const low = !!p && p.alive && p.maxHp > 0 && p.hp / p.maxHp < 0.3;
+    if (low !== this.low) {
+      this.low = low;
+      this.lp.frequency.cancelScheduledValues(now);
+      this.lp.frequency.setTargetAtTime(low ? 900 : 16000, now, 0.5);
+      this.hg.gain.cancelScheduledValues(now);
+      this.hg.gain.setValueAtTime(this.hg.gain.value, now);
+      this.hg.gain.linearRampToValueAtTime(low ? 1 : 0, now + 1);
+    }
+  }
+
+  setLevel(): void { /* fijo */ }
+
+  fadeOut(now: number, dur = FADE): void {
+    this.scheduling = false;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+    this.gain.gain.linearRampToValueAtTime(0.0001, now + dur);
+    this.stopAt = now + dur + 1;
+    this.amb.fadeOut(now, dur);
+  }
+
+  private on(i: number, now: number): boolean { return this.target[i] > 0 || now < this.offUntil[i]; }
+
+  tick(until: number): void {
+    this.amb.tick(until);
+    if (!this.scheduling) return;
+    const now = this.ctx.currentTime;
+    if (this.next < now - 0.3) this.next = now + 0.05;
+    const th = this.th;
+    while (this.next < until) {
+      const t = this.next, sps = this.sps, pos = this.pos;
+      const bar = Math.floor(pos / 16), s = pos % 16, c = th.chords[bar % 8];
+      if (this.on(0, now) && s === 0) { // tensión: colchón y fundamental grave
+        for (const n of padNotes(c)) this.vs[0].tone(th.pad, mtof(n), t, sps * 15.5, 0.04, { lp: th.padLp, att: 0.9, rel: 0.7, det: Math.random() * 8 - 4 });
+        this.vs[0].tone('sine', mtof(c.root + 12), t, sps * 15.5, 0.1, { att: 0.6, rel: 0.6 });
+      }
+      if (this.on(1, now) && s % 2 === 0) { // bajo pulsante
+        const oct = s === 6 || s === 14 || (bar >= 4 && s === 10) ? 12 : 0;
+        const acc = s % 8 === 0 ? 1 : 0.75;
+        this.vs[1].tone(th.bass, mtof(c.root + oct), t, sps * 1.6, 0.15 * acc, { lp: th.bassLp + 600 * acc, att: 0.004, rel: 0.06, drive: th.drive });
+      }
+      if (this.on(2, now)) { // percusión (a doble tiempo con la cuenta atrás corta)
+        const v = this.vs[2];
+        if (s % 4 === 0) v.kick(t, 0.4);
+        if (this.dbl && s % 4 === 2) v.kick(t, 0.25);
+        if (s === 4 || s === 12 || (this.dbl && s === 8)) v.snare(t, 0.28);
+        if (s % 2 === 0 || this.dbl) v.hat(t, s % 4 === 2 ? 0.05 : 0.03, s === 14 && !this.dbl);
+        if (bar % 4 === 3 && s >= 12) v.snare(t, 0.12 + (s - 12) * 0.05); // relleno
+      }
+      if (this.on(3, now) && s % 2 === 0) { // pico: arpegio/ostinato agudo
+        const k = c.iv[ARP_PAT[s >> 1] % c.iv.length];
+        this.vs[3].tone(th.arp, mtof(c.root + 24 + k), t, sps * 1.3, 0.035, { lp: th.arpLp, att: 0.004, rel: 0.05, det: 4 });
+      }
+      if (this.low && s % 4 === 0) { // latido: lub-dub
+        this.vh.kick(t, 0.35);
+        this.vh.kick(t + sps * 1.5, 0.2);
+      }
+      this.next += sps;
+      this.pos = (pos + 1) % (8 * 16);
+    }
+  }
+
+  dispose(): void {
+    this.amb.dispose();
+    try { this.gain.disconnect(); this.lp.disconnect(); this.hg.disconnect(); } catch { /* nada */ }
+    for (const g of this.lg) { try { g.disconnect(); } catch { /* nada */ } }
+    for (const n of this.extra) { try { n.disconnect(); } catch { /* nada */ } }
+  }
+}
+
 export class Music {
   private players: Playing[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private cur: MusicTrack = null;
   private noise: AudioBuffer;
+  private group = 0;
 
   constructor(private ctx: AudioContext, private out: AudioNode, private samples: Samples) {
     const n = Math.floor(ctx.sampleRate * 3);
@@ -554,12 +740,20 @@ export class Music {
     this.reconcile();
   }
 
+  /** Lo llama el juego en cada frame: grupo de plantas y estado real para las capas. */
+  updateWorld(world: IWorld): void {
+    const f = Number.isFinite(world.floor) ? world.floor : 1;
+    const g = f >= 7 ? 2 : f >= 4 ? 1 : 0;
+    if (g !== this.group) { this.group = g; if (this.cur === 'combat') this.reconcile(); else this.group = g; }
+    for (const p of this.players) if (p.scheduling) p.update?.(world);
+  }
+
   /** Qué debe sonar ahora (clave) según el tema pedido y lo que haya cargado. */
   private desired(): { key: string; level: number } | null {
     const track = this.cur;
     if (!track) return null;
     if (USE_SAMPLE_MUSIC) {
-      if (track === 'combat') return { key: 'ambient', level: 0 };
+      if (track === 'combat') return USE_DYNAMIC_COMBAT ? { key: 'dynamic:' + this.group, level: 0 } : { key: 'ambient', level: 0 };
       if (this.samples.get('theme')) return { key: 'theme', level: track === 'boss' ? THEME_LEVEL_BOSS : THEME_LEVEL };
       if (!this.samples.hasFailed('theme')) return null; // aún cargando: silencio hasta que llegue
     }
@@ -574,10 +768,12 @@ export class Music {
       if (want.key === 'theme') live[0].setLevel(want.level); // menu/strategy/victory <-> boss: solo cambia el volumen
     } else {
       // Al pasar del tema al combate, el tema sale en 1 s
-      for (const p of live) p.fadeOut(now, p.key === 'theme' ? 1 : FADE);
+      const fromDyn = live.some((p) => p.key.startsWith('dynamic'));
+      for (const p of live) p.fadeOut(now, p.key === 'theme' ? 1 : (p.key.startsWith('dynamic') && want?.key === 'theme') ? 2 : FADE);
       if (want) {
         let np: Playing | null = null;
-        if (want.key === 'theme') np = new ThemePlayer(this.ctx, this.samples.get('theme')!, this.out, want.level);
+        if (want.key === 'theme') np = new ThemePlayer(this.ctx, this.samples.get('theme')!, this.out, want.level, fromDyn ? 2 : FADE); // del combate al jefe: cruce de 2 s
+        else if (want.key.startsWith('dynamic')) np = new Dynamic(this.ctx, this.noise, this.out, this.group);
         else if (want.key === 'ambient') np = new Ambient(this.ctx, this.noise, this.out);
         else np = new Player(this.ctx, this.noise, this.out, this.cur as Exclude<MusicTrack, null>);
         this.players.push(np);

@@ -3,6 +3,9 @@
 import type { Action, Difficulty, Settings } from '../contracts';
 import { t } from './i18n';
 
+/** Opciones propias de la interfaz que aún no están en el contrato Settings (se guardan junto a los ajustes). */
+export type ExtraSettings = Settings & { radio?: boolean; cinematics?: boolean };
+
 export const SETTINGS_KEY = 'stracomter3.settings';
 /** Versión del esquema de atajos: la 2 es el estilo Counter-Strike (incompatible con la 1); la 3 solo añade roll y ping. */
 export const BINDINGS_VERSION = 3;
@@ -38,11 +41,12 @@ export function defaultSettings(): Settings {
     difficulty: 'normal',
     sensitivity: 1,
     bindings: defaultBindings(),
-    subtitles: false,
+    subtitles: true, // instalaciones nuevas: activados (quien ya tiene ajustes guardados conserva su valor)
     uiScale: 1,
     colorblind: false,
     cameraShake: true,
     graphics: 'auto',
+    fov: 60,
   };
 }
 
@@ -72,6 +76,12 @@ export function loadSettings(): Settings {
   if (typeof r.colorblind === 'boolean') s.colorblind = r.colorblind;
   if (typeof r.cameraShake === 'boolean') s.cameraShake = r.cameraShake;
   s.vibration = r.vibration !== false;
+  // v1.3, oleada 3
+  for (const k of ['toggleCrouch', 'toggleAim', 'toggleSprint', 'aimAssistDesktop', 'highContrast'] as const) s[k] = r[k] === true;
+  s.fov = clamp(r.fov, 50, 80, 60);
+  const ex = s as ExtraSettings;
+  ex.radio = r.radio !== false;
+  ex.cinematics = r.cinematics !== false;
   s.reduceFlashes = r.reduceFlashes === true;
   const g = r.graphics;
   s.graphics = g === 'high' || g === 'medium' || g === 'low' ? g : 'auto'; // ajustes antiguos sin el campo: 'auto'

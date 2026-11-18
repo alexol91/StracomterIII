@@ -233,6 +233,14 @@ Añadidos que no están en el documento, aprobados por el dueño. Lo que cambia 
 * **Modificadores** al empezar campaña (enemigos rápidos, sin aura, jefes dobles, solo pistola, escasez), que multiplican los puntos, y **segunda vuelta** tras ganar (+25 % enemigos, +15 % vida, puntos ×1,5, dos mejoras iniciales). Con modificadores o en segunda vuelta no se guardan récords de nota.
 * **Supervivencia**: modo nuevo por oleadas sin fin en el mapa mediano de una planta, jefe cada 5 oleadas, mejora cada 2 y récord local de oleada. No se guarda la partida. El bot llega a la oleada 20 en Normal.
 
+## v1.3, oleada de presentación (decisión del dueño, 2026-11-18)
+
+* **Historia por radio**: una voz de «Mando» da un informe antes de cada planta y mensajes cortos en combate. La voz y sus frases son nuevas (no están en el documento); se ciñen a las descripciones de planta del §10 y al tono del original. Se pueden desactivar.
+* **Escenas** de entrada (planta 1), presentación de jefe (2 s, la simulación espera) y final en la azotea, hechas con el propio motor y omitibles con cualquier tecla.
+* **Música dinámica**: en combate, música sintetizada por capas que sigue el ritmo del director; el tema original del dueño queda para menús, jefes y victoria. Cambia la decisión anterior de «solo ambiente en combate».
+* **Accesibilidad**: alternar en vez de mantener (agacharse, apuntar, esprintar), ayuda de apuntado también en ordenador, campo de visión 50-80, contorno de alto contraste, reducir destellos, pausa automática al perder el foco, y subtítulos activados por defecto en instalaciones nuevas.
+* **Analítica anónima: no hecha.** Necesita un servidor que reciba los datos y el dueño no ha decidido dónde; sigue el registro local exportable.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo

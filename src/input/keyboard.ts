@@ -74,6 +74,10 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
   let ignorePauseUntil = 0;
   let lastWheelAt = -1000;
 
+  // Modo alternar (Settings.toggleX): la acción conmuta con cada pulsación.
+  const toggleMode = { crouch: false, aim: false, sprint: false };
+  const toggled = { crouch: false, aim: false, sprint: false };
+
   const held: KeyHeld = { moveF: 0, moveR: 0, fire: false, knife: false, crouch: false, sprint: false, aim: false, ping: false, interactHold: false };
 
   function rebuild(): void {
@@ -97,6 +101,7 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
     down.clear();
     latch.clear();
     arrows.clear();
+    toggled.crouch = false; toggled.aim = false; toggled.sprint = false;
     dragging = false;
     haveLast = false;
   }
@@ -117,6 +122,12 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       for (const a of acts) {
         if (a === 'fire' || a === 'knife' || a === 'crouch' || a === 'sprint' || a === 'aim') latch.add(a);
         if (repeat) continue;
+        if (a === 'crouch' && toggleMode.crouch) toggled.crouch = !toggled.crouch;
+        if (a === 'aim' && toggleMode.aim) toggled.aim = !toggled.aim;
+        if (a === 'sprint') {
+          if (toggleMode.sprint) toggled.sprint = !toggled.sprint;
+          toggled.aim = false; // esprintar corta el apuntar alternado
+        }
         switch (a) {
           case 'reload': input.reload = true; break;
           case 'grenade': input.grenade = true; break;
@@ -144,7 +155,10 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       }
     }
     // KeyC agacha como alternativa fija mientras no esté asignada a otra acción.
-    if (!acts && code === 'KeyC') latch.add('crouch');
+    if (!acts && code === 'KeyC') {
+      latch.add('crouch');
+      if (!repeat && toggleMode.crouch) toggled.crouch = !toggled.crouch;
+    }
     // La tecla de consola acepta además IntlBackslash y F2 (teclados sin Backquote).
     if (!repeat && (code === 'IntlBackslash' || code === 'F2') && !(acts && acts.includes('console'))) {
       hooks.onConsole();
@@ -282,6 +296,12 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
 
     applySettings(s: Settings): void {
       bindings = { ...DEFAULT_BINDINGS, ...(s.bindings || {}) };
+      toggleMode.crouch = !!s.toggleCrouch;
+      toggleMode.aim = !!s.toggleAim;
+      toggleMode.sprint = !!s.toggleSprint;
+      if (!toggleMode.crouch) toggled.crouch = false;
+      if (!toggleMode.aim) toggled.aim = false;
+      if (!toggleMode.sprint) toggled.sprint = false;
       rebuild();
     },
 
@@ -299,9 +319,14 @@ export function createKeyboard(root: HTMLElement, canvas: HTMLCanvasElement, hoo
       held.moveR = (isHeld('right') ? 1 : 0) - (isHeld('left') ? 1 : 0);
       held.fire = isHeld('fire') || latch.has('fire');
       held.knife = isHeld('knife') || latch.has('knife');
-      held.crouch = isHeld('crouch') || latch.has('crouch') || (!byCode.has('KeyC') && down.has('KeyC'));
-      held.sprint = isHeld('sprint') || latch.has('sprint');
-      held.aim = isHeld('aim') || latch.has('aim');
+      const cAlt = !byCode.has('KeyC') && down.has('KeyC');
+      held.crouch = toggleMode.crouch ? toggled.crouch : (isHeld('crouch') || latch.has('crouch') || cAlt);
+      held.aim = toggleMode.aim ? toggled.aim : (isHeld('aim') || latch.has('aim'));
+      held.sprint = toggleMode.sprint ? toggled.sprint : (isHeld('sprint') || latch.has('sprint'));
+      // El esprint alternado se corta al pararse o al disparar/apuntar.
+      if (toggleMode.sprint && toggled.sprint && ((held.moveF === 0 && held.moveR === 0) || held.fire || held.aim)) {
+        toggled.sprint = false; held.sprint = false;
+      }
       held.ping = isHeld('ping');
       held.interactHold = isHeld('interact');
       latch.clear();

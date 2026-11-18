@@ -36,6 +36,8 @@ export interface GamepadCtl {
   /** Jugando (true) o en menús (false): decide quién lee el mando. */
   setPlaying(playing: boolean): void;
   connected(): boolean;
+  /** Settings.toggleAim: LT alterna el apuntar en vez de mantenerlo. */
+  setToggleAim(v: boolean): void;
   rumble(strong: number, weak: number, ms: number): void;
   dispose(): void;
 }
@@ -70,10 +72,13 @@ export function createGamepad(hooks: GamepadHooks): GamepadCtl {
   let playing = false;
   let isConnected = !!getPad();
   let prev: boolean[] = [];
+  let toggleAim = false;
+  let aimToggled = false;
   let sprintToggle = false;
   let crouchToggle = false;
   let xDownAt = -1;
   let xInteracted = false;
+  let ltPrev = false;
   let lookHold = 0;
   let raf = 0;
   let navTimer = 0;
@@ -150,6 +155,8 @@ export function createGamepad(hooks: GamepadHooks): GamepadCtl {
       if (!p) { sprintToggle = false; crouchToggle = false; }
     },
 
+    setToggleAim(v: boolean): void { toggleAim = v; if (!v) aimToggled = false; },
+
     connected(): boolean { return isConnected && !!getPad(); },
 
     update(dt: number): GamepadHeld {
@@ -177,7 +184,11 @@ export function createGamepad(hooks: GamepadHooks): GamepadCtl {
       const rmag = Math.hypot(rx, ry);
       lookHold = rmag > 0.85 ? Math.min(lookHold + dt, LOOK_ACCEL_TIME) : Math.max(lookHold - dt * 2, 0);
       const accel = 1 + (LOOK_ACCEL_MAX - 1) * (lookHold / LOOK_ACCEL_TIME);
-      const aiming = (g.buttons[LT] ? g.buttons[LT].value > 0.3 || g.buttons[LT].pressed : false);
+      const ltDown = g.buttons[LT] ? g.buttons[LT].value > 0.3 || g.buttons[LT].pressed : false;
+      if (toggleAim && ltDown && !ltPrev) aimToggled = !aimToggled;
+      ltPrev = ltDown;
+      if (!toggleAim) aimToggled = false;
+      const aiming = toggleAim ? aimToggled : ltDown;
       const rate = LOOK_RATE * core.sensitivity() * accel * (aiming ? AIM_LOOK : 1);
       if (rx || ry) core.rotate(rx * rate * dt, -ry * rate * dt);
 
@@ -185,7 +196,7 @@ export function createGamepad(hooks: GamepadHooks): GamepadCtl {
       held.aim = aiming;
       held.knife = s[R3];
 
-      if (edge(L3)) sprintToggle = !sprintToggle;
+      if (edge(L3)) { sprintToggle = !sprintToggle; if (sprintToggle) aimToggled = false; }
       if (!moving) sprintToggle = false; // el esprint alterno se corta al soltar el stick
       held.sprint = sprintToggle;
       if (edge(B)) crouchToggle = !crouchToggle;

@@ -265,6 +265,8 @@ export class RealFx {
   private ringTex: THREE.CanvasTexture;
   private ringGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   private factor = 1;
+  /** escala de los destellos (reducir destellos: ~0,35) */
+  flashK = 1;
   private autoCount = new Map<number, number>();
   private shotCount = 0;
 
@@ -330,9 +332,9 @@ export class RealFx {
     const px = ax + dx * off, py = ay + dy * off, pz = az + dz * off;
     const nflames = size > 0.6 ? 3 : 2;
     for (let i = 0; i < nflames; i++) {
-      this.add.spawn({ x: px, y: py, z: pz, life: rr(0.03, 0.05), s0: s * rr(0.8, 1.2), s1: s * rr(1.0, 1.5), cell: 3 + Math.floor(Math.random() * 3), c0: [2.0, 1.45, 0.7], c1: [1.2, 0.6, 0.2], a0: 1, a1: 0.2 });
+      this.add.spawn({ x: px, y: py, z: pz, life: rr(0.03, 0.05), s0: s * rr(0.8, 1.2), s1: s * rr(1.0, 1.5), cell: 3 + Math.floor(Math.random() * 3), c0: [2.0, 1.45, 0.7], c1: [1.2, 0.6, 0.2], a0: this.flashK, a1: 0.2 * this.flashK });
     }
-    this.add.spawn({ x: px, y: py, z: pz, life: 0.03, s0: s * 1.1, s1: s * 1.4, cell: 0, c0: [1.6, 1.3, 0.8], a0: 0.8, a1: 0 });
+    this.add.spawn({ x: px, y: py, z: pz, life: 0.03, s0: s * 1.1, s1: s * 1.4, cell: 0, c0: [1.6, 1.3, 0.8], a0: 0.8 * this.flashK, a1: 0 });
     // voluta de humo tenue cada 2-3 disparos en automático
     this.shotCount++;
     if (this.shotCount % 3 === 0 && !isPlayer) {
@@ -448,8 +450,8 @@ export class RealFx {
   /** Cegadora: destello blanco muy breve y chispas, sin fuego ni quemado. */
   flashBang(x: number, y: number, z: number, radius: number): void {
     const R = Math.max(1.5, radius);
-    this.add.spawn({ x, y, z, life: 0.05, s0: R * 2.2, s1: R * 3.0, cell: 0, c0: [2.6, 2.6, 2.9], a0: 1, a1: 0.4 });
-    this.add.spawn({ x, y, z, life: 0.09, s0: R * 1.2, s1: R * 2.0, cell: 3, c0: [2.2, 2.3, 2.6], a0: 1, a1: 0 });
+    this.add.spawn({ x, y, z, life: 0.05, s0: R * 2.2, s1: R * 3.0, cell: 0, c0: [2.6, 2.6, 2.9], a0: this.flashK, a1: 0.4 * this.flashK });
+    this.add.spawn({ x, y, z, life: 0.09, s0: R * 1.2, s1: R * 2.0, cell: 3, c0: [2.2, 2.3, 2.6], a0: this.flashK, a1: 0 });
     for (let i = 0, n = this.n(14, 4); i < n; i++) {
       const a = rr(0, 6.28), sp = rr(4, 10);
       this.add.spawn({ x, y, z, vx: Math.cos(a) * sp, vy: rr(1, 6), vz: Math.sin(a) * sp, life: rr(0.3, 0.6), s0: 0.07, s1: 0.02, cell: 0, c0: [2.0, 2.0, 2.3], c1: [0.7, 0.8, 1.0], grav: 8, drag: 0.5 });
@@ -458,7 +460,7 @@ export class RealFx {
 
   /** Chispas y destello de un escudo antidisturbios que para una bala. */
   shieldSpark(x: number, y: number, z: number): void {
-    this.add.spawn({ x, y, z, life: 0.06, s0: 0.5, s1: 0.8, cell: 3, c0: [2.0, 1.8, 1.2], a0: 1, a1: 0 });
+    this.add.spawn({ x, y, z, life: 0.06, s0: 0.5, s1: 0.8, cell: 3, c0: [2.0, 1.8, 1.2], a0: this.flashK, a1: 0 });
     for (let i = 0; i < this.n(8, 3); i++) {
       this.add.spawn({ x, y, z, vx: rr(-3, 3), vy: rr(0.5, 3.5), vz: rr(-3, 3), life: rr(0.2, 0.4), s0: 0.04, s1: 0.012, cell: 0, c0: [2.0, 1.6, 0.8], c1: [0.7, 0.3, 0.1], grav: 8 });
     }

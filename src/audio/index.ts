@@ -10,7 +10,7 @@ import { Sfx } from './sfx';
 /** Nivel interno de la música respecto a los efectos (la música no debe tapar los disparos). */
 const MUSIC_TRIM = 0.55;
 
-export function createAudio(): IAudio & { setLayers(on: boolean): void } {
+export function createAudio(): IAudio & { setLayers(on: boolean): void; radioBlip(kind: 'open' | 'close'): void } {
   let ctx: AudioContext | null = null;
   let failed = false;
   let sfx: Sfx | null = null;
@@ -72,6 +72,8 @@ export function createAudio(): IAudio & { setLayers(on: boolean): void } {
 
   return {
     /** Apaga/enciende las capas sintetizadas de los disparos y la cola de sala (calidad baja). */
+    /** Chasquido de radio para los mensajes de Mando. */
+    radioBlip(kind: 'open' | 'close') { try { sfx?.radioBlip(kind); } catch { /* sin audio */ } },
     setLayers(on: boolean) { try { layersOn = on; sfx?.setLayers(on); } catch { /* sin audio */ } },
     unlock() {
       try {
@@ -95,6 +97,7 @@ export function createAudio(): IAudio & { setLayers(on: boolean): void } {
     },
     handleEvents(world: IWorld) {
       try { sfx?.handleEvents(world); } catch { /* sin audio */ }
+      try { music?.updateWorld(world); } catch { /* sin audio */ }
     },
     ui(sound) {
       try { sfx?.ui(sound); } catch { /* sin audio */ }

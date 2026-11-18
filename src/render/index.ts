@@ -18,6 +18,7 @@ import { ENEMY_MIX } from '../sim/data';
 import { RbLibrary, sharedRbLibrary, VARIANT_GUN } from './rbchars';
 import { ThreatLayer } from './threats';
 import { ObjectiveLayer } from './objective';
+import { statsOf } from '../sim/data';
 import { FOG, LevelLayer, makeStars, pbrIdsFor, SKY } from './levelMesh';
 import { THEMES } from './palette';
 import { getStyleMode, setStyleMode, type Style } from './style';
@@ -146,6 +147,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   let cssW = canvas.clientWidth || window.innerWidth || 800;
   let cssH = canvas.clientHeight || window.innerHeight || 600;
   let colorblind = false;
+  let userFov = 60;
+  let highContrast = false;
+  let gradePass: ShaderPass | null = null;
   let cameraShake = true;
 
   // cámara suavizada
@@ -163,6 +167,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   resize(cssW, cssH);
 
   function clearWorld(): void {
+    if (cine) finishCine();                       // cambia el mundo: la cinemática acaba (onDone una vez)
     if (levelLayer) { scene.remove(levelLayer.group, levelLayer.sky); levelLayer.dispose(); levelLayer = null; }
     scene.fog = null;
     if (furnLayer) { scene.remove(furnLayer.group); furnLayer.dispose(); furnLayer = null; }
@@ -398,7 +403,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     composer.addPass(new RenderPass(scene, camera));
     if (useAO && getStyleMode() === 'realista') composer.addPass(new GTAOPass(scene, camera, cssW, cssH));
     if (useBloom && getStyleMode() === 'realista') composer.addPass(new UnrealBloomPass(new THREE.Vector2(cssW, cssH), 0.22, 0.5, 0.92));
-    composer.addPass(new ShaderPass(GradeShader));
+    gradePass = new ShaderPass(GradeShader);
+    composer.addPass(gradePass);
+    applyContrast();
     composer.addPass(new OutputPass());
     return composer;
   }
@@ -406,11 +413,138 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
 
   const _tmp = new THREE.Vector3();
 
+  // ───────────── cinemáticas: cámara guiada (ignora world.cam mientras dura) ─────────────
+  interface Cine { kind: 'intro' | 'boss' | 'victory'; t: number; dur: number; onDone: () => void; targetId?: number; fov: number; side: number; a0: number; pos: THREE.Vector3; quat: THREE.Quaternion }
+  let cine: Cine | null = null;
+  /** al terminar, la cámara vuelve a la normal con un fundido corto desde la última pose de la cinemática */
+  let cineOut: { t: number; pos: THREE.Vector3; quat: THREE.Quaternion } | null = null;
+  const CINE_OUT = 0.4;
+
+  function finishCine(): void {
+    const c = cine;
+    if (!c) return;
+    cine = null;
+    cineOut = { t: CINE_OUT, pos: c.pos.clone(), quat: c.quat.clone() };
+    c.onDone();                                   // exactamente una vez
+  }
+  function playCinematic(kind: 'intro' | 'boss' | 'victory', opts: { targetId?: number }, onDone: () => void): void {
+    if (cine) finishCine();
+    const w = world;
+    if (!w) { onDone(); return; }
+    const dur = kind === 'intro' ? 5 : kind === 'boss' ? 2 : 6;
+    if (kind === 'boss' && !w.entityById(opts.targetId ?? -1)) { onDone(); return; }
+    cine = { kind, t: 0, dur, onDone, targetId: opts.targetId, fov: kind === 'boss' ? 42 : 60, side: 0, a0: 0, pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
+    cineOut = null;
+    cine.pos.copy(camera.position); cine.quat.copy(camera.quaternion);
+    if (kind === 'boss') cine.side = pickBossSide(w, w.entityById(opts.targetId!)!);
+    if (kind === 'victory') cine.a0 = Math.atan2(w.player.y - squadCentre(w).y, w.player.x - squadCentre(w).x);
+  }
+  function cancelCinematic(): void { finishCine(); }
+
+  /** Centro (plano de la simulación) de la escuadra viva. */
+  function squadCentre(w: IWorld): { x: number; y: number } {
+    let x = 0, y = 0, n = 0;
+    for (const e of w.entities) if (e.alive && e.team === 'ally') { x += e.x; y += e.y; n++; }
+    return n ? { x: x / n, y: y / n } : { x: w.player.x, y: w.player.y };
+  }
+  /** ¿El segmento (a→b), en el plano de la simulación, cruza algún muro? */
+  function segBlocked(w: IWorld, ax: number, ay: number, bx: number, by: number): boolean {
+    for (const r of w.level.walls) {
+      let t0 = 0, t1 = 1;
+      for (const [a, b, lo, hi] of [[ax, bx, r.x0, r.x1], [ay, by, r.y0, r.y1]] as [number, number, number, number][]) {
+        const d = b - a;
+        if (Math.abs(d) < 1e-9) { if (a < lo || a > hi) { t0 = 2; break; } continue; }
+        let u0 = (lo - a) / d, u1 = (hi - a) / d;
+        if (u0 > u1) [u0, u1] = [u1, u0];
+        t0 = Math.max(t0, u0); t1 = Math.min(t1, u1);
+        if (t0 > t1) break;
+      }
+      if (t0 <= t1) return true;
+    }
+    return false;
+  }
+  /** Lado despejado desde el que enseñar al jefe: ángulo (rad) alrededor de él; primero el del jugador, luego los vecinos. */
+  function pickBossSide(w: IWorld, boss: { x: number; y: number }): number {
+    const base = Math.atan2(w.player.y - boss.y, w.player.x - boss.x);
+    for (const off of [0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1, Math.PI]) {
+      const a = base + off, cx = boss.x + Math.cos(a) * 6.5, cy = boss.y + Math.sin(a) * 6.5;
+      if (w.level.inside(cx, cy) && !segBlocked(w, cx, cy, boss.x, boss.y)) return a;
+    }
+    return base;
+  }
+
+  const _cq = new THREE.Quaternion();
+  const _cm = new THREE.Matrix4();
+  const _cp = new THREE.Vector3();
+  const _cl = new THREE.Vector3();
+  const _cn = new THREE.Quaternion();
+  const smooth = (t: number): number => { const k = Math.min(1, Math.max(0, t)); return k * k * (3 - 2 * k); };
+  function lookQuat(from: THREE.Vector3, to: THREE.Vector3, out: THREE.Quaternion): THREE.Quaternion {
+    _cm.lookAt(from, to, new THREE.Vector3(0, 1, 0));
+    return out.setFromRotationMatrix(_cm);
+  }
+
+  /** Pone la pose de la cinemática (o el fundido de vuelta) sobre la cámara ya calculada con la lógica normal. */
+  function applyCinematic(w: IWorld, dt: number): void {
+    if (cine) {
+      const c = cine;
+      c.t += dt;
+      const u = Math.min(1, c.t / c.dur);
+      if (c.kind === 'intro') {
+        // empieza alto mirando la planta desde detrás de la escuadra, baja y acaba en la cámara normal del jugador
+        const ctr = squadCentre(w), yaw = w.cam.yaw;
+        const dx = Math.cos(yaw), dz = Math.sin(yaw);
+        const start = new THREE.Vector3(ctr.x - dx * 10, 15, ctr.y - dz * 10);
+        const startLook = new THREE.Vector3(ctr.x + dx * 8, 0.5, ctr.y + dz * 8);
+        const endPos = new THREE.Vector3(w.cam.x, w.cam.z, w.cam.y);
+        const cp = Math.cos(w.cam.pitch);
+        const endLook = endPos.clone().add(new THREE.Vector3(Math.cos(yaw) * cp, Math.sin(w.cam.pitch), Math.sin(yaw) * cp));
+        const k = smooth(u);
+        c.pos.lerpVectors(start, endPos, k);
+        c.pos.y += Math.sin(k * Math.PI) * 1.5;
+        lookQuat(start, startLook, _cq);
+        lookQuat(endPos, endLook, _cn);
+        c.quat.slerpQuaternions(_cq, _cn, k);
+      } else if (c.kind === 'boss') {
+        // corte a un plano medio contrapicado del jefe, con ligero empuje hacia él
+        const b = w.entityById(c.targetId ?? -1);
+        if (!b) { finishCine(); return; }
+        const h = statsOf(b.kind).height;
+        const dist = 6.5 - 1.2 * smooth(u);
+        _cp.set(b.x + Math.cos(c.side) * dist, 0.9, b.y + Math.sin(c.side) * dist);
+        _cl.set(b.x, h * 0.72, b.y);
+        c.pos.copy(_cp);
+        lookQuat(_cp, _cl, c.quat);
+      } else {
+        // órbita lenta alrededor de la escuadra, abriendo el plano hacia el cielo
+        const ctr = squadCentre(w), a = c.a0 + 0.9 * smooth(u) + u * 0.25;
+        _cp.set(ctr.x + Math.cos(a) * 7.5, 2.6 + 2.2 * smooth(u), ctr.y + Math.sin(a) * 7.5);
+        _cl.set(ctr.x, 1.3 + 9 * smooth(u), ctr.y);
+        c.pos.copy(_cp);
+        lookQuat(_cp, _cl, c.quat);
+      }
+      camera.position.copy(c.pos);
+      camera.quaternion.copy(c.quat);
+      camera.updateMatrixWorld(true);
+      if (c.t >= c.dur) finishCine();
+    } else if (cineOut) {
+      cineOut.t -= dt;
+      if (cineOut.t <= 0) { cineOut = null; return; }
+      const b = smooth(cineOut.t / CINE_OUT);                 // 1 = pose de la cinemática, 0 = cámara normal
+      _cn.copy(camera.quaternion);
+      camera.position.lerp(cineOut.pos, b);
+      camera.quaternion.slerpQuaternions(_cn, cineOut.quat, b);
+      camera.updateMatrixWorld(true);
+    }
+  }
+
   function updateCamera(w: IWorld, dt: number): void {
     const c = w.cam;
     // campo de visión vertical de la simulación (se cierra al apuntar); en pantallas verticales se abre un 25 %
-    const wantFov = Math.min(110, (c.fov ?? 60) * (camera.aspect < 1 ? 1.25 : 1));
-    if (Math.abs(camera.fov - wantFov) > 0.01) { camera.fov = wantFov; camera.updateProjectionMatrix(); }
+    const wantFov = Math.min(110, (c.fov ?? 60) * (userFov / 60) * (camera.aspect < 1 ? 1.25 : 1));
+    const cineOn = !!cine;
+    const fovNow = cineOn ? Math.min(110, cine!.fov * (userFov / 60) * (camera.aspect < 1 ? 1.25 : 1)) : wantFov;
+    if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
     const tx = c.x, ty = c.z, tz = c.y;
     if (!camInit || camPos.distanceToSquared(_tmp.set(tx, ty, tz)) > 6) {
       camPos.set(tx, ty, tz); camInit = true;
@@ -432,8 +566,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
       camera.position.y + Math.sin(c.pitch),
       camera.position.z + Math.sin(c.yaw) * cp,
     );
-    if (cameraShake && fx.shake > 0) camera.rotateZ((Math.random() - 0.5) * fx.shake * 0.12);
+    if (cameraShake && fx.shake > 0 && !cineOn) camera.rotateZ((Math.random() - 0.5) * fx.shake * 0.12);
     camera.updateMatrixWorld(true);
+    applyCinematic(w, dt);
 
     // la luz de relleno acompaña a la cámara (arriba, detrás y a la izquierda) para que las
     // espaldas de los personajes siempre se lean; la principal (con sombras) es fija en el mundo
@@ -500,7 +635,18 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (quality === 'high') ensureComposer().render(dt); else renderer.render(scene, camera);
   }
 
+  /** Alto contraste: el escenario baja al 85 % de saturación (en calidad alta, que es la que tiene pase final). */
+  function applyContrast(): void {
+    if (gradePass) gradePass.uniforms.uSat.value = highContrast ? 1.12 * 0.85 : 1.12;
+  }
+
   function applySettings(s: Settings): void {
+    userFov = Math.min(80, Math.max(50, s.fov ?? 60));
+    highContrast = !!s.highContrast;
+    chars.highContrast = highContrast;
+    applyContrast();
+    const rf = !!s.reduceFlashes;
+    fx.setReduceFlashes(rf); threats.reduce = rf; objective.reduce = rf;
     colorblind = !!s.colorblind;
     cameraShake = !!s.cameraShake;
     chars.setColorblind(colorblind);
@@ -544,5 +690,5 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (w) setWorld(w);                        // reconstruye escenario, mobiliario y luz con el estilo nuevo
   }
 
-  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality, loadProgress, setStyle, getStyle: () => getStyleMode() };
+  return { setWorld, onEvents, render, resize, applySettings, project, dispose, setQuality, getQuality: () => quality, loadProgress, playCinematic, cancelCinematic, setStyle, getStyle: () => getStyleMode() };
 }

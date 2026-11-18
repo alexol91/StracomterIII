@@ -259,11 +259,24 @@ export interface Settings {
   /** v1.3 — vibración del mando y destellos reducidos (cegadora, fogonazos) */
   vibration?: boolean;
   reduceFlashes?: boolean;
+  /** v1.3, oleada 3 — accesibilidad: alternar en vez de mantener, ayuda de apuntado en ordenador, campo de visión base (50-80, por defecto 60; al apuntar se escala igual) y contorno de alto contraste en enemigos */
+  toggleCrouch?: boolean;
+  toggleAim?: boolean;
+  toggleSprint?: boolean;
+  aimAssistDesktop?: boolean;
+  fov?: number;
+  highContrast?: boolean;
+  /** mensajes de radio de Mando y escenas con cámara (activados por defecto) */
+  radio?: boolean;
+  cinematics?: boolean;
 }
 
 // ───────────────────────── Dibujo (src/render) ─────────────────────────
 
 export interface IRenderer {
+  /** v1.3, oleada 3 — escena corta con cámara guiada sobre el mundo actual; llama a onDone al acabar o al cancelarla con `cancelCinematic`. Mientras dura, el renderer ignora world.cam. */
+  playCinematic?(kind: 'intro' | 'boss' | 'victory', opts: { targetId?: number }, onDone: () => void): void;
+  cancelCinematic?(): void;
   /** Cambia de mundo (nueva zona). Reconstruye la escena. null = sin mundo (menús). */
   setWorld(world: IWorld | null): void;
   /** v1.2 — progreso de carga de los modelos y texturas que necesita el mundo actual, 0..1 (1 = listo para verse bien) */

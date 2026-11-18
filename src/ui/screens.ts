@@ -9,7 +9,7 @@ import { CLASS_STATS } from '../sim/data';
 import { asset, button, fmtTime, flags, h, icon, itemIcon, pad2, uiSound } from './dom';
 import { t, getLang } from './i18n';
 import { drawMiniMap } from './minimap';
-import { ACTIONS, defaultBindings, keyLabel } from './settings';
+import { ACTIONS, defaultBindings, keyLabel, type ExtraSettings } from './settings';
 import { createSquadPreview, type SquadPreview } from '../render/preview';
 import { MUTATOR_IDS, mutatorMult, upgradeInfo } from './upgrades';
 import { VERSION } from './version';
@@ -400,10 +400,16 @@ export function mutChips(st: { mutators?: string[]; ngPlus?: number }): HTMLElem
   return h('div', { class: 'mchips' }, ...names.map((n) => h('span', { class: 'mchip' }, n)));
 }
 
+type StratTab = 'zones' | 'armory' | 'loadout';
+let stratTab: StratTab = 'zones';
+/** planta de la última vez que se abrió Estrategia: al cambiar de planta (o de campaña) se vuelve a «Zonas» */
+let stratFloor = -1;
+
 export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
   s.setBack(p.onMenu);
   const st = p.state;
   const floor = st.floor;
+  if (floor !== stratFloor || st.score === 0) { stratTab = 'zones'; stratFloor = floor; }
 
   // Escuadra
   const members: Partial<Record<ClassId, HTMLElement>> = {};
@@ -447,92 +453,91 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
     members[c] = el;
     party.appendChild(el);
   }
-  // Mejoras de la campaña: iconos; el nombre sale al pasar el ratón o al enfocar
-  const ups = st.upgrades ?? [];
-  const upBox = h('div', { class: 'upgs' }, h('span', { class: 'tag' }, '// ' + t('strat.upgrades')));
-  if (ups.length === 0) upBox.appendChild(h('p', { class: 'hint' }, t('strat.noUpgrades')));
-  else {
-    const row = h('div', { class: 'upg-row' });
-    for (const id of ups) {
-      const u = upgradeInfo(id);
-      row.appendChild(h('span', { class: 'upg', tabindex: 0, 'data-name': u.name, title: `${u.name}: ${u.desc}`, 'aria-label': u.name }, icon(u.icon)));
-    }
-    upBox.appendChild(row);
-  }
-  party.appendChild(upBox);
-
-  // Armamento: dos variantes del arma principal por operador (pestañas por operador; empieza en el que controlas)
-  let loSel: ClassId = st.controlled;
-  const loBox = h('div', { class: 'loadout' });
-  const paintLo = (): void => {
-    loBox.textContent = '';
-    const cur = (st.loadout?.[loSel] ?? 0) as 0 | 1;
-    loBox.appendChild(h('span', { class: 'tag' }, '// ' + t('strat.loadout')));
-    const tabs = h('div', { class: 'lo-tabs' });
-    for (const c of CLASS_IDS) {
-      if (st.members[c].hp <= 0) continue;
-      tabs.appendChild(h('button', {
-        type: 'button', class: 'lo-tab' + (c === loSel ? ' on' : ''), 'data-nav': true,
-        onclick: () => { uiSound('click'); loSel = c; paintLo(); },
-      }, t('kind.' + c)));
-    }
-    loBox.appendChild(tabs);
-    ([0, 1] as const).forEach((v) => {
-      const bars = WEAPON_BARS[loSel][v];
-      loBox.appendChild(h('button', {
-        type: 'button', class: 'lo-opt' + (cur === v ? ' sel' : ''), 'data-nav': true,
-        onclick: () => {
-          uiSound('confirm');
-          p.onLoadout(loSel, v);
-          if (!st.loadout) st.loadout = {};
-          st.loadout[loSel] = v;
-          paintLo();
-        },
-      },
-        h('div', { class: 'lo-n' }, t(`weapon.${loSel}.${v}`)),
-        statLine(t('stat.damage'), bars[0], ''),
-        statLine(t('stat.rof'), bars[1], ''),
-        statLine(t('stat.range'), bars[2], ''),
-      ));
-    });
-  };
-  paintLo();
-  party.appendChild(loBox);
-
-  // Armería: tira de artículos con precio; el botiquín pide elegir operador
-  const armory = h('div', { class: 'armory tech' });
-  if (p.shop && p.shop.length > 0 && st.credits !== undefined) {
+  // ── Pestaña ARMERÍA: créditos, artículos con descripción, lo comprado y las mejoras que lleva la campaña ──
+  const buildArmory = (): HTMLElement => {
+    const pane = h('div', { class: 'pane-in tech' });
     const bought = st.bought;
     const pend = bought ? [bought.grenades ? `${bought.grenades}× ${t('shop.grenade')}` : '', bought.flashes ? `${bought.flashes}× ${t('shop.flash')}` : '', bought.smokes ? `${bought.smokes}× ${t('shop.smoke')}` : ''].filter(Boolean) : [];
-    armory.appendChild(h('div', { class: 'ar-head' },
+    pane.appendChild(h('div', { class: 'ar-head' },
       h('span', { class: 'tag' }, '// ' + t('shop.title')),
       h('b', { class: 'ar-cr' }, `${t('shop.credits')}: ${st.credits ?? 0}`),
       pend.length ? h('span', { class: 'hint' }, `${t('shop.bought')}: ${pend.join(', ')}`) : null));
-    const row = h('div', { class: 'ar-row' });
-    const pick = h('div', { class: 'ar-pick', style: 'display:none' });
-    const ICO: Record<string, string> = { ammo: 'ammo', medkit: 'med', grenade: 'grenade', flash: 'bolt', smoke: 'smoke', upgrade: 'star' };
-    for (const it of p.shop) {
-      const off = !it.available;
-      row.appendChild(h('button', {
-        type: 'button', class: 'ar-item' + (off ? ' off' : ''), 'data-nav': true, disabled: off, title: t(`shop.${it.id}.desc`),
-        onclick: () => {
-          if (off) { uiSound('error'); return; }
-          if (it.needsTarget || it.id === 'medkit') {
-            uiSound('click');
-            pick.textContent = '';
-            pick.style.display = 'flex';
-            pick.appendChild(h('span', { class: 'tag' }, t('shop.pickTarget')));
-            for (const c of CLASS_IDS) {
-              if (st.members[c].hp <= 0) continue;
-              pick.appendChild(h('button', { type: 'button', class: 'lo-tab', 'data-nav': true, onclick: () => { p.onBuy?.(it.id, c); } }, t('kind.' + c)));
-            }
-          } else p.onBuy?.(it.id);
+    if (p.shop && p.shop.length > 0) {
+      const grid = h('div', { class: 'ar-grid' });
+      const pick = h('div', { class: 'ar-pick', style: 'display:none' });
+      const ICO: Record<string, string> = { ammo: 'ammo', medkit: 'med', grenade: 'grenade', flash: 'bolt', smoke: 'smoke', upgrade: 'star' };
+      for (const it of p.shop) {
+        const off = !it.available;
+        grid.appendChild(h('button', {
+          type: 'button', class: 'ar-card' + (off ? ' off' : ''), 'data-nav': true, disabled: off,
+          onclick: () => {
+            if (off) { uiSound('error'); return; }
+            if (it.needsTarget || it.id === 'medkit') {
+              uiSound('click');
+              pick.textContent = '';
+              pick.style.display = 'flex';
+              pick.appendChild(h('span', { class: 'tag' }, t('shop.pickTarget')));
+              for (const c of CLASS_IDS) {
+                if (st.members[c].hp <= 0) continue;
+                pick.appendChild(h('button', { type: 'button', class: 'lo-tab', 'data-nav': true, onclick: () => { p.onBuy?.(it.id, c); } }, t('kind.' + c)));
+              }
+            } else p.onBuy?.(it.id);
+          },
         },
-      }, icon(ICO[it.id] ?? 'star'), h('span', { class: 'ar-n' }, t(`shop.${it.id}`)), h('span', { class: 'ar-p' }, t('shop.price', { n: it.price }))));
+          h('span', { class: 'ar-ico' }, icon(ICO[it.id] ?? 'star')),
+          h('span', { class: 'ar-tx' }, h('b', null, t(`shop.${it.id}`)), h('small', null, t(`shop.${it.id}.desc`))),
+          h('span', { class: 'ar-p' }, t('shop.price', { n: it.price }))));
+      }
+      pane.appendChild(grid);
+      pane.appendChild(pick);
     }
-    armory.appendChild(row);
-    armory.appendChild(pick);
-  }
+    // Mejoras que lleva la campaña
+    pane.appendChild(h('span', { class: 'tag', style: 'margin-top:0.8rem;display:block' }, '// ' + t('strat.upgrades')));
+    const ups = st.upgrades ?? [];
+    if (ups.length === 0) pane.appendChild(h('p', { class: 'hint' }, t('strat.noUpgrades')));
+    else {
+      const list = h('div', { class: 'ar-ups' });
+      for (const id of ups) {
+        const u = upgradeInfo(id);
+        list.appendChild(h('div', { class: 'ar-up' }, icon(u.icon), h('span', null, h('b', null, u.name), h('small', null, u.desc))));
+      }
+      pane.appendChild(list);
+    }
+    return pane;
+  };
+
+  // ── Pestaña ARMAMENTO: los cuatro operadores con sus dos variantes y barras ──
+  const buildLoadout = (): HTMLElement => {
+    const grid = h('div', { class: 'lo-grid' });
+    for (const c of CLASS_IDS) {
+      const dead = st.members[c].hp <= 0;
+      const col = h('div', { class: 'lo-col tech ' + CLS[c] + (dead ? ' dead' : '') });
+      col.appendChild(h('div', { class: 'lo-head' }, h('div', { class: 'av' }, h('img', { src: asset(PORTRAIT[c]), alt: '', draggable: 'false' })), h('b', { class: 'h-title' }, t('kind.' + c))));
+      const opts: HTMLElement[] = [];
+      const cur = (): 0 | 1 => (st.loadout?.[c] ?? 0) as 0 | 1;
+      ([0, 1] as const).forEach((v) => {
+        const bars = WEAPON_BARS[c][v];
+        const btn = h('button', {
+          type: 'button', class: 'lo-opt' + (cur() === v ? ' sel' : ''), 'data-nav': true, disabled: dead,
+          onclick: () => {
+            uiSound('confirm');
+            p.onLoadout(c, v);
+            if (!st.loadout) st.loadout = {};
+            st.loadout[c] = v;
+            opts.forEach((o, i) => o.classList.toggle('sel', i === v));
+          },
+        },
+          h('div', { class: 'lo-n' }, t(`weapon.${c}.${v}`)),
+          statLine(t('stat.damage'), bars[0], ''),
+          statLine(t('stat.rof'), bars[1], ''),
+          statLine(t('stat.range'), bars[2], ''));
+        opts.push(btn);
+        col.appendChild(btn);
+      });
+      grid.appendChild(col);
+    }
+    return grid;
+  };
 
   // Zonas: tarjetas de «plano táctico». Un clic selecciona; ENTRAR (o Enter) despliega.
   const zones = h('div', { class: 'zones' });
@@ -569,6 +574,50 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
     zones.appendChild(card);
   });
 
+  // ── Pestañas: ZONAS (por defecto), ARMERÍA y ARMAMENTO ──
+  const tabDefs: { id: StratTab; label: string }[] = [
+    { id: 'zones', label: t('strat.tab.zones') }, { id: 'armory', label: t('strat.tab.armory') }, { id: 'loadout', label: t('strat.tab.loadout') },
+  ];
+  const pane = h('div', { class: 'pane' });
+  const tabBtns: HTMLButtonElement[] = [];
+  const open = (id: StratTab): void => {
+    stratTab = id;
+    tabBtns.forEach((b, i) => b.classList.toggle('on', tabDefs[i].id === id));
+    pane.textContent = '';
+    if (id === 'zones') pane.appendChild(h('div', { class: 'strat-body' }, party, zones));
+    else if (id === 'armory') pane.appendChild(buildArmory());
+    else pane.appendChild(buildLoadout());
+  };
+  const tabs = h('div', { class: 'tabs', role: 'tablist' });
+  tabDefs.forEach((d) => {
+    const b = h<HTMLButtonElement>('button', {
+      type: 'button', class: 'tab', role: 'tab', 'data-nav': true,
+      onclick: (e: Event) => { e.stopPropagation(); uiSound('click'); open(d.id); },
+    }, d.label);
+    tabBtns.push(b);
+    tabs.appendChild(b);
+  });
+  open(stratTab);
+  // Q / E cambian de pestaña (con el foco fuera de campos de texto)
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.repeat || (e.code !== 'KeyQ' && e.code !== 'KeyE')) return;
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+    const i = tabDefs.findIndex((d) => d.id === stratTab);
+    const n = (i + (e.code === 'KeyE' ? 1 : -1) + tabDefs.length) % tabDefs.length;
+    uiSound('click');
+    open(tabDefs[n].id);
+  };
+  window.addEventListener('keydown', onKey);
+  s.onClear(() => window.removeEventListener('keydown', onKey));
+
+  // Informe de «Mando» compacto: una o dos líneas, con «ver más»
+  const briefTxt = h('p', { class: 'bf-txt' }, t(`brief.${floor}`));
+  const more = h<HTMLButtonElement>('button', {
+    type: 'button', class: 'bf-more', 'data-nav': true,
+    onclick: (e: Event) => { e.stopPropagation(); (e.currentTarget as HTMLElement).blur(); const ex = briefTxt.classList.toggle('open'); more.textContent = ex ? t('strat.less') : t('strat.more'); },
+  }, t('strat.more'));
+
   return scr('bg-blur',
     h('div', { class: 'screen-head' },
       h('div', null,
@@ -577,14 +626,16 @@ export function strategyScreen(s: Screens, p: StrategyParams): HTMLElement {
         h('p', { class: 'hint' }, t(`floor.${floor}.desc`)),
       ),
       h('div', { class: 'btn-row' },
+        st.credits !== undefined ? h('div', { class: 'score-box' }, h('span', { class: 'tag' }, t('shop.credits')), h('div', { class: 'big cr' }, String(st.credits))) : null,
         h('div', { class: 'score-box' }, h('span', { class: 'tag' }, t('strat.score')), h('div', { class: 'big' }, String(st.score))),
         button(t('strat.menu'), p.onMenu, 'small', 'back'),
       ),
     ),
-    h('p', { class: 'hint', style: 'margin-bottom:0.7rem' }, t('strat.hint')),
+    h('div', { class: 'brief-line' },
+      h('span', { class: 'bf-who' }, icon('bolt'), t('radio.name')), briefTxt, more),
     mutChips(st),
-    armory.childElementCount > 0 ? armory : null,
-    h('div', { class: 'strat-body' }, party, zones),
+    tabs,
+    pane,
   );
 }
 
@@ -1045,6 +1096,14 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
     ],
     video: () => [
       toggle(t('opt.subs'), () => st.subtitles, (v) => { st.subtitles = v; }),
+      toggle(t('opt.radio'), () => (st as ExtraSettings).radio !== false, (v) => { (st as ExtraSettings).radio = v; }),
+      toggle(t('opt.cinematics'), () => (st as ExtraSettings).cinematics !== false, (v) => { (st as ExtraSettings).cinematics = v; }),
+      slider(t('opt.fov'), 50, 80, 1, () => st.fov ?? 60, (v) => { st.fov = v; }, (v) => Math.round(v) + '°'),
+      toggle(t('opt.toggleCrouch'), () => !!st.toggleCrouch, (v) => { st.toggleCrouch = v; }),
+      toggle(t('opt.toggleAim'), () => !!st.toggleAim, (v) => { st.toggleAim = v; }),
+      toggle(t('opt.toggleSprint'), () => !!st.toggleSprint, (v) => { st.toggleSprint = v; }),
+      toggle(t('opt.aimAssistDesktop'), () => !!st.aimAssistDesktop, (v) => { st.aimAssistDesktop = v; }),
+      toggle(t('opt.highContrast'), () => !!st.highContrast, (v) => { st.highContrast = v; }),
       slider(t('opt.uiscale'), 0.8, 1.4, 0.05, () => st.uiScale, (v) => { st.uiScale = v; }, pct),
       toggle(t('opt.colorblind'), () => st.colorblind, (v) => { st.colorblind = v; }),
       toggle(t('opt.shake'), () => st.cameraShake, (v) => { st.cameraShake = v; }),

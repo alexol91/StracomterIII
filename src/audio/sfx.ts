@@ -1112,6 +1112,20 @@ export class Sfx {
     }
   }
 
+  /** Chasquido/ruido de radio de Mando (80-150 ms). */
+  radioBlip(kind: 'open' | 'close'): void {
+    if (this.ctx.state !== 'running') return;
+    this.play(null, null, 0.4, (r) => {
+      if (kind === 'open') {
+        this.nz(r, 0, 0.02, 0.6, 'highpass', 2500, 2500);
+        this.nz(r, 0.02, 0.1, 0.18, 'bandpass', 1800, 1500, 1.5, 0.005);
+      } else {
+        this.nz(r, 0, 0.08, 0.16, 'bandpass', 1800, 1400, 1.5, 0.005);
+        this.nz(r, 0.07, 0.03, 0.55, 'highpass', 2500, 2500);
+      }
+    }, { prio: true, novar: true });
+  }
+
   // ───────────────────────── Interfaz ─────────────────────────
 
   ui(sound: 'click' | 'confirm' | 'back' | 'error' | 'reward' | 'victory' | 'defeat'): void {

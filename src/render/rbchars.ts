@@ -946,7 +946,8 @@ export class RbView {
     // materiales: normal (con tinte), muerto, fantasma o destello (compartidos)
     const hurt = alive && !this.ghost && time - e.lastHurtAt < 0.12 && time >= e.lastHurtAt;
     // jefe expuesto: emisivo ámbar pulsante (la ventana para pegarle); enfurecido: rojo tenue permanente
-    const glow = alive && (e.exposedUntil ?? 0) > time ? 'a' : alive && e.enraged ? 'r' : '';
+    const hc = !!(host as { highContrast?: boolean }).highContrast;
+    const glow = alive && (e.exposedUntil ?? 0) > time ? 'a' : alive && e.enraged ? 'r' : alive && hc ? (this.hostage ? 'g' : e.team === 'enemy' ? 'm' : 'c') : '';
     const state = !alive ? 'dead' : this.ghost ? 'ghost' : hurt ? 'flash' : 'norm' + this.variant + glow;
     if (state !== this.matState) {
       this.matState = state;
@@ -960,8 +961,9 @@ export class RbView {
       const amber = glow === 'a';
       for (const m of this.glowMats) for (const mat of Array.isArray(m) ? m : [m]) {
         const sm = mat as THREE.MeshStandardMaterial;
-        sm.emissive.setHex(amber ? 0xffa000 : 0xc01010);
-        sm.emissiveIntensity = amber ? 0.45 + 0.35 * Math.sin(time * 8) : 0.12;
+        const hcCol = glow === 'm' ? 0xff1a6e : glow === 'c' ? 0x18b4ff : glow === 'g' ? 0x20ff60 : 0;
+        sm.emissive.setHex(hcCol || (amber ? 0xffa000 : 0xc01010));
+        sm.emissiveIntensity = hcCol ? 0.6 : amber ? 0.45 + 0.35 * Math.sin(time * 8) : 0.12;   // alto contraste: uniforme
       }
     }
 

@@ -46,6 +46,7 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): Co
   input.aimAssist = isTouch; // obligatorio en táctil, apagado en ordenador
   let settings: Settings | null = null;
   let active = false;
+  let assistDesktop = false;
 
   const core: Core = {
     input,
@@ -81,8 +82,10 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): Co
     applySettings(s: Settings): void {
       settings = s;
       kb.applySettings(s);
+      gp.setToggleAim(!!s.toggleAim);
+      assistDesktop = !!s.aimAssistDesktop;
       if (touch) touch.applySettings(s);
-      input.aimAssist = isTouch || ctl.lastDevice === 'gamepad';
+      input.aimAssist = isTouch || assistDesktop || ctl.lastDevice === 'gamepad';
     },
 
     poll(dt: number, world: IWorld): PlayerInputRef {
@@ -113,7 +116,7 @@ export function createControls(root: HTMLElement, canvas: HTMLCanvasElement): Co
       input.aim = k.aim || (t ? t.aim : false) || p.aim;
       input.interactHold = k.interactHold || (t ? t.interactHold : false) || p.interactHold;
       // Táctil: asistido siempre. Mando: asistido suave si fue la última entrada.
-      input.aimAssist = isTouch || ctl.lastDevice === 'gamepad';
+      input.aimAssist = isTouch || assistDesktop || ctl.lastDevice === 'gamepad';
 
       // Imán del apuntado asistido (solo táctil).
       if (isTouch && world && world.assist) {

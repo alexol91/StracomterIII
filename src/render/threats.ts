@@ -18,6 +18,8 @@ interface Beam { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }
 
 export class ThreatLayer {
   group = new THREE.Group();
+  /** reducir destellos: sin parpadeos, solo relleno progresivo */
+  reduce = false;
   private discTex: THREE.CanvasTexture;
   private ringTex: THREE.CanvasTexture;
   private glowTex: THREE.CanvasTexture;
@@ -105,7 +107,7 @@ export class ThreatLayer {
       if (time > th.at + 0.2) continue;
       if (th.kind === 'blast' && nd < this.discs.length) {
         const d = this.discs[nd++], r = this.rings[nr++];
-        const pulse = 0.75 + 0.25 * Math.sin(time * 14);
+        const pulse = this.reduce ? 1 : 0.75 + 0.25 * Math.sin(time * 14);
         d.mesh.visible = true; d.mesh.position.set(th.x, 0.03, th.y); d.mesh.scale.set(th.r * 2, 1, th.r * 2);
         d.mat.opacity = (0.35 + 0.35 * prog) * pulse;
         // el anillo se cierra desde 1,7·r hasta r hasta el instante de la explosión
@@ -120,7 +122,7 @@ export class ThreatLayer {
         s.mesh.position.set((th.fx + th.x) / 2, 0.03, (th.fy + th.y) / 2);
         s.mesh.rotation.set(0, -Math.atan2(dz, dx), 0);
         s.mesh.scale.set(len, 1, th.r);
-        s.mat.opacity = (0.3 + 0.25 * prog) * (0.6 + 0.4 * Math.sin(time * 16));        // parpadea
+        s.mat.opacity = (0.3 + 0.25 * prog) * (this.reduce ? 1 : 0.6 + 0.4 * Math.sin(time * 16));        // parpadea
       } else if (th.kind === 'laser' && nb < this.beams.length) {
         const b = this.beams[nb], dot = this.dots[nb]; nb++;
         this._a.set(th.fx, 1.4, th.fy); this._b.set(th.x, 1.4, th.y);

@@ -304,7 +304,12 @@ export class Fx {
   }
 
   /** Enciende o apaga las luces puntuales de fogonazos y explosiones (calidad alta). */
-  setHighQuality(on: boolean): void { this.muzzleLight.visible = this.explLight.visible = on; }
+  private hq = false;
+  private reduce = false;
+  private updateLights(): void { this.muzzleLight.visible = this.explLight.visible = this.hq && !this.reduce; }
+  setHighQuality(on: boolean): void { this.hq = on; this.updateLights(); }
+  /** Reducir destellos: fogonazos, cegadora y destello de explosión al ~35 % y sin luces puntuales. */
+  setReduceFlashes(on: boolean): void { this.reduce = on; this.real.flashK = on ? 0.35 : 1; this.updateLights(); }
 
   /** Colores de trazadora para daltonismo: aliados azul claro, hostiles amarillo vivo. */
   setColorblind(cb: boolean): void {

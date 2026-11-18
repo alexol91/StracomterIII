@@ -22,6 +22,8 @@ interface Charge { root: THREE.Group; led: THREE.Mesh; ledMat: THREE.MeshBasicMa
 
 export class ObjectiveLayer {
   group = new THREE.Group();
+  /** reducir destellos: la luz de la carga parpadea como mucho a 2 Hz */
+  reduce = false;
   private charges: Charge[] = [];
   private server: THREE.Group | null = null;
   private serverLeds: THREE.MeshBasicMaterial[] = [];
@@ -115,7 +117,7 @@ export class ObjectiveLayer {
       while (this.charges.length < obj.points.length) this.charges.push(this.makeCharge());
       // parpadeo cada vez más rápido al agotarse el tiempo (de 2 a 12 Hz)
       const urgency = obj.timeLeft >= 0 ? 1 - Math.min(1, Math.max(0, obj.timeLeft / 60)) : 0.2;
-      const hz = 2 + urgency * 10;
+      const hz = this.reduce ? 2 : 2 + urgency * 10;
       obj.points.forEach((p, i) => {
         const c = this.charges[i];
         c.root.visible = true; c.root.position.set(p.x, 0, p.y);
