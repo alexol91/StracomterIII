@@ -160,6 +160,11 @@ export interface Settings {
   uiScale: number; // 0.8..1.4
   colorblind: boolean;
   cameraShake: boolean;
+  /**
+   * Calidad gráfica. 'auto': alta en ordenador, media en táctil.
+   * alta = todo; media = personajes realistas sin sombras ni posprocesado; baja = personajes ligeros de reserva.
+   */
+  graphics?: 'auto' | 'high' | 'medium' | 'low';
 }
 
 // ───────────────────────── Dibujo (src/render) ─────────────────────────

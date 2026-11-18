@@ -333,6 +333,8 @@ export class CharManager implements CharHost {
   private frame = 0;
   private rb: RbLibrary | null = null;
   private useRb = false;
+  /** a partir de esta distancia a la cámara los personajes animan 1 de cada 3 frames */
+  private farAnimDist = 30;
   private models = new Map<string, Model>();
   private shadows: THREE.InstancedMesh;
   private barBg: THREE.InstancedMesh;
@@ -406,6 +408,7 @@ export class CharManager implements CharHost {
 
   /** Biblioteca de personajes realistas (Rocketbox); se usa cuando `setUseRb(true)`. */
   setRb(lib: RbLibrary | null): void { this.rb = lib; this.clear(); }
+  setFarAnimDist(m: number): void { this.farAnimDist = m; }
   setUseRb(on: boolean): void { if (on !== this.useRb) { this.useRb = on; this.clear(); } }
 
   private makeView(kind: Kind, id: number): View {
@@ -477,7 +480,7 @@ export class CharManager implements CharHost {
         const distCam = Math.hypot(v.x - cx, v.y - cz, cy - 1);
         v.root.visible = inF || distCam < 14;
         v.pendingDt += dt;
-        const animate = v.root.visible && ((inF && distCam < 30) || (this.frame + e.id) % 3 === 0);
+        const animate = v.root.visible && ((inF && distCam < this.farAnimDist) || (this.frame + e.id) % 3 === 0);
         const animDt = v.pendingDt;
         if (animate) v.pendingDt = 0;
         v.update(e, time, dt, this, animate, animDt);

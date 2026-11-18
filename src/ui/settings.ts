@@ -34,6 +34,7 @@ export function defaultSettings(): Settings {
     uiScale: 1,
     colorblind: false,
     cameraShake: true,
+    graphics: 'auto',
   };
 }
 
@@ -62,6 +63,8 @@ export function loadSettings(): Settings {
   if (typeof r.subtitles === 'boolean') s.subtitles = r.subtitles;
   if (typeof r.colorblind === 'boolean') s.colorblind = r.colorblind;
   if (typeof r.cameraShake === 'boolean') s.cameraShake = r.cameraShake;
+  const g = r.graphics;
+  s.graphics = g === 'high' || g === 'medium' || g === 'low' ? g : 'auto'; // ajustes antiguos sin el campo: 'auto'
   if (r.bindings && typeof r.bindings === 'object') {
     const b = r.bindings as Record<string, unknown>;
     for (const a of ACTIONS) {

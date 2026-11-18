@@ -11,6 +11,7 @@ import { GeoBuilder, Owned, makeOutlineMat, makeStylized, makeToonVC } from './g
 import { THEMES, type ThemeDef } from './palette';
 import { getStyleMode, outlinesOn } from './style';
 import { loadPBR } from './pbr';
+import { buildRealWalls, DoorSet } from './realwalls';
 
 /** Colores del cielo [cenit, horizonte] por tema; el horizonte es también el color de la niebla. */
 export const SKY: Record<Theme, [number, number]> = {
@@ -71,7 +72,7 @@ function rgba(n: number, f: number, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-function floorTexture(th: ThemeDef): THREE.CanvasTexture {
+function floorTexture(th: ThemeDef, cells = 2, tileMOverride?: number): THREE.CanvasTexture {
   const S = 512;
   const { c, g } = canvas(S);
   const r = rnd(7);
@@ -79,7 +80,7 @@ function floorTexture(th: ThemeDef): THREE.CanvasTexture {
 
   if (th.pattern === 'tiles') {
     // baldosas de mármol 2×2 con veta, variación de tono, junta y bisel
-    const n = 2, t = S / n;
+    const n = cells, t = S / n;
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const base = (i + j) % 2 ? th.floorB : th.floorA;
       const gr = g.createLinearGradient(i * t, j * t, (i + 1) * t, (j + 1) * t);
@@ -97,7 +98,7 @@ function floorTexture(th: ThemeDef): THREE.CanvasTexture {
       g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;                   // bisel claro
       g.strokeRect(i * t + 4, j * t + 4, t - 8, t - 8);
     }
-    g.strokeStyle = 'rgba(40,44,55,0.55)'; g.lineWidth = 5;                          // juntas
+    g.strokeStyle = 'rgba(40,44,55,0.55)'; g.lineWidth = n > 2 ? 2.5 : 5;                // juntas
     for (let i = 0; i <= n; i++) { g.beginPath(); g.moveTo(i * t, 0); g.lineTo(i * t, S); g.stroke(); g.beginPath(); g.moveTo(0, i * t); g.lineTo(S, i * t); g.stroke(); }
   } else if (th.pattern === 'carpet') {
     // moqueta con trama y losetas de 1 m
@@ -164,7 +165,8 @@ function floorTexture(th: ThemeDef): THREE.CanvasTexture {
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / th.tileM, 1 / th.tileM);   // UV en metros -> una repetición cada tileM metros
+  const tm = tileMOverride ?? th.tileM;
+  tex.repeat.set(1 / tm, 1 / tm);   // UV en metros -> una repetición cada tileM metros
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   return tex;
@@ -221,7 +223,7 @@ function skylineTexture(night: boolean, theme: Theme): THREE.CanvasTexture {
 // ───────────────────────── Muros ─────────────────────────
 
 /** Caja de muro con color por vértice: tapa distinta y degradado vertical (más oscuro abajo). */
-function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y0: number, y1: number, main: number, cap: number, grad = true, soft = false): THREE.BufferGeometry {
+export function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y0: number, y1: number, main: number, cap: number, grad = true, soft = false): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(sx, y1 - y0, sz);
   g.rotateY(rotY);
   g.translate(cx, (y0 + y1) / 2, cz);
@@ -255,7 +257,7 @@ function wallBox(cx: number, cz: number, sx: number, sz: number, rotY: number, y
 interface WallGeos { main: THREE.BufferGeometry | null; all: THREE.BufferGeometry | null; glass: THREE.BufferGeometry | null; ao: THREE.BufferGeometry | null }
 
 /** Franja de oclusión falsa: cuadrilátero con alfa 0.4 junto al muro que se desvanece hacia fuera. */
-function aoQuad(out: number[], ax: number, az: number, bx: number, bz: number, nx: number, nz: number, w: number, a: number): void {
+export function aoQuad(out: number[], ax: number, az: number, bx: number, bz: number, nx: number, nz: number, w: number, a: number): void {
   const P = (x: number, z: number, al: number): void => { out.push(x, 0.012, z, 0, 0, 0, al); };
   const ix = ax + nx * w, iz = az + nz * w, jx = bx + nx * w, jz = bz + nz * w;
   P(ax, az, a); P(bx, bz, a); P(jx, jz, 0);
@@ -357,6 +359,7 @@ export class LevelLayer {
   private doors: DoorView[] = [];
   private floorMesh!: THREE.Mesh;
   private doorMeshes: THREE.Mesh[] = [];
+  private doorSet: DoorSet | null = null;
   private version: number;
   private th: ThemeDef;
   private shadowsOn = false;
@@ -384,6 +387,7 @@ export class LevelLayer {
     this.floorMesh.receiveShadow = on;
     this.wallGroup.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && m.userData.solid) { m.castShadow = on; m.receiveShadow = on; } });
     for (const m of this.doorMeshes) m.castShadow = on;
+    this.doorSet?.setShadows(on);
     for (const l of this.lights) l.visible = on;   // luces puntuales solo con calidad alta
   }
 
@@ -397,6 +401,17 @@ export class LevelLayer {
     let mat: THREE.Material;
     if (getStyleMode() === 'realista') {
       const cfg = FLOOR_PBR[this.level.theme] ?? FLOOR_PBR.recepcion;
+      if (this.th.pattern === 'tiles' && this.level.theme !== 'datos') {
+        // losas grandes (~0,75 m) con junta fina: textura propia, más limpia que las de Poly Haven
+        const tex = floorTexture(this.th, 4, 3.0);
+        const tm = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.32, metalness: 0 });
+        this.owned.add(tex); this.owned.add(tm);
+        this.floorMesh = new THREE.Mesh(geo, tm);
+        this.floorMesh.position.y = -0.01;
+        this.floorMesh.frustumCulled = false;
+        this.group.add(this.floorMesh);
+        return;
+      }
       const sm = new THREE.MeshStandardMaterial({ color: new THREE.Color(...cfg.mul).multiplyScalar(0.35), roughness: 1, metalness: 0 });
       this.owned.add(sm);
       void loadPBR(cfg.set).then((set) => {
@@ -417,9 +432,33 @@ export class LevelLayer {
     this.group.add(this.floorMesh);
   }
 
+  /** Muros del estilo realista: blanco, antracita y cristal (ver realwalls.ts). */
+  private buildWallsReal(): void {
+    const theme = this.level.theme;
+    const g = buildRealWalls(this.level, theme, ACCENT[theme] ?? 0x2f66b3, WALL_REAL[theme].wall);
+    const add = (geo: THREE.BufferGeometry | null, mat: THREE.Material, solid: boolean, order = 0): void => {
+      if (!geo) return;
+      this.wallOwned.add(geo); this.wallOwned.add(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false; mesh.renderOrder = order;
+      if (solid) { mesh.userData.solid = true; mesh.castShadow = this.shadowsOn; mesh.receiveShadow = this.shadowsOn; }
+      this.wallGroup.add(mesh);
+    };
+    const wm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+    void loadPBR('white_plaster_02').then((set) => {
+      if (!set || this.disposed) return;
+      wm.normalMap = set.normalMap; wm.normalScale.set(0.15, 0.15); wm.needsUpdate = true;    // yeso muy sutil, sin mapa de color
+    });
+    add(g.main, wm, true);
+    add(g.metal, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.9 }), false);
+    add(g.glass, new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.34, depthWrite: false, roughness: 0.04, metalness: 0.5 }), false, 1);
+    add(g.ao, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), false, 0);
+  }
+
   private buildWalls(): void {
     this.wallOwned.disposeAll();
     this.wallGroup.clear();
+    if (getStyleMode() === 'realista') { this.buildWallsReal(); return; }
     const g = buildWallGeometry(this.level, this.th, this.level.theme);
     if (g.all) {
       const mat = this.wallOwned.add(makeToonVC());
@@ -465,6 +504,12 @@ export class LevelLayer {
   }
 
   private buildDoors(): void {
+    if (getStyleMode() === 'realista') {
+      // dos hojas antracita por hueco, instanciadas (marcos y umbrales van con los muros)
+      this.doorSet = new DoorSet(this.level.doors);
+      this.group.add(this.doorSet.group);
+      return;
+    }
     const mat = this.owned.add(makeToonVC());
     const hullMat = this.owned.add(makeOutlineMat());
     for (const d of this.level.doors) {
@@ -494,6 +539,7 @@ export class LevelLayer {
   }
 
   private updateDoors(): void {
+    if (this.doorSet) { this.doorSet.update(); return; }
     for (const dv of this.doors) {
       const a = Math.max(0, Math.min(1, dv.door.anim));
       dv.pivot.rotation.y = dv.door.vertical ? -Math.PI / 2 - a * (Math.PI / 2) : -a * (Math.PI / 2);
@@ -602,6 +648,7 @@ export class LevelLayer {
 
   dispose(): void {
     this.disposed = true;
+    this.doorSet?.dispose();
     this.wallOwned.disposeAll();
     this.owned.disposeAll();
   }

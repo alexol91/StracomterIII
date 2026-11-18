@@ -704,6 +704,11 @@ export function optionsScreen(s: Screens, p: OptionsParams): HTMLElement {
       slider(t('opt.uiscale'), 0.8, 1.4, 0.05, () => st.uiScale, (v) => { st.uiScale = v; }, pct),
       toggle(t('opt.colorblind'), () => st.colorblind, (v) => { st.colorblind = v; }),
       toggle(t('opt.shake'), () => st.cameraShake, (v) => { st.cameraShake = v; }),
+      segment(t('opt.graphics'), [
+        { v: 'auto', text: t('opt.gfx.auto') }, { v: 'high', text: t('opt.gfx.high') },
+        { v: 'medium', text: t('opt.gfx.medium') }, { v: 'low', text: t('opt.gfx.low') },
+      ], () => st.graphics ?? 'auto', (v) => { st.graphics = v; }),
+      h('p', { class: 'hint' }, t('opt.gfx.help')),
     ],
     lang: () => [
       segment(t('opt.lang'), [{ v: 'es', text: t('lang.es') }, { v: 'en', text: t('lang.en') }], () => st.lang, (v) => { st.lang = v; }),

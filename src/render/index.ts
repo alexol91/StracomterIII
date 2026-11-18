@@ -29,8 +29,14 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-/** Calidad de dibujo: 'high' = sombras reales + posprocesado; 'low' = sombras blob, sin posprocesado. */
-export type RenderQuality = 'low' | 'high';
+/**
+ * Calidad de dibujo:
+ *  · 'high' (auto en ordenador): sombras reales, posprocesado, normal maps en personajes.
+ *  · 'medium' (auto en táctil): personajes Rocketbox sin normales, muebles y texturas PBR, entorno HDRI, sombras blob,
+ *    sin posprocesado, devicePixelRatio ≤ 1,5 y animación lejana (> 18 m) a 1 de cada 3 frames.
+ *  · 'low': personajes Quaternius de reserva, sin HDRI.
+ */
+export type RenderQuality = 'low' | 'medium' | 'high';
 export type RendererWithQuality = IRenderer & {
   setQuality(q: RenderQuality): void; getQuality(): RenderQuality;
   /** 'realista' (PBR, HDRI) o 'comic' (el de antes). También se fuerza con ?estilo= en la URL. */
@@ -98,12 +104,16 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   dir.shadow.bias = -0.0004; dir.shadow.normalBias = 0.04;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // calidad: 'high' por defecto; 'low' en táctiles con densidad de pixel alta (o por ?quality= / localStorage)
-  let quality: RenderQuality = coarse && (window.devicePixelRatio || 1) >= 2 ? 'low' : 'high';
+  // calidad: auto = 'medium' en táctil y 'high' en ordenador; ?quality=high|medium|low la fuerza; Settings.graphics la elige
+  const autoQuality: RenderQuality = coarse ? 'medium' : 'high';
+  let urlQuality: RenderQuality | null = null;
   try {
-    const q = new URLSearchParams(location.search).get('quality') ?? localStorage.getItem('torre.quality');
-    if (q === 'low' || q === 'high') quality = q;
-  } catch { /* sin acceso a la URL o al almacenamiento */ }
+    const q = new URLSearchParams(location.search).get('quality');
+    if (q === 'low' || q === 'medium' || q === 'high') urlQuality = q;
+  } catch { /* sin acceso a la URL */ }
+  let quality: RenderQuality = urlQuality ?? autoQuality;
+  /** devicePixelRatio máximo según la calidad */
+  const prLimit = (): number => Math.min(maxPR, quality === 'medium' ? 1.5 : 2);
   const shadowMapSize = coarse ? 1024 : 2048;
   let composer: EffectComposer | null = null;
 
@@ -137,7 +147,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
 
   function resize(w: number, h: number): void {
     cssW = Math.max(1, w); cssH = Math.max(1, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxPR));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, prLimit()));
     renderer.setSize(cssW, cssH, true);
     camera.aspect = cssW / cssH;
     camera.fov = camera.aspect < 1 ? 75 : 60;
@@ -166,10 +176,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
       hemi.color.setHex(th.hemiSky); hemi.groundColor.setHex(th.hemiGround);
       dir.color.setHex(th.dirColor); dir.intensity = L.dir;
       fill.color.setHex(th.dirColor); fill.intensity = L.dir * 0.12;
-      if (quality === 'high') {
+      if (quality !== 'low') {
         hemi.intensity = L.hemi;
         void loadEnvironment(renderer, L.hdri).then((env) => {
-          if (disposed || currentTheme !== theme || quality !== 'high' || getStyleMode() !== 'realista') return;
+          if (disposed || currentTheme !== theme || quality === 'low' || getStyleMode() !== 'realista') return;
           scene.environment = env; scene.environmentIntensity = L.env;
         });
       } else { scene.environment = null; hemi.intensity = theme === 'azotea' ? 0.7 : 2.4; }   // sin HDRI en calidad baja
@@ -251,8 +261,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   }
 
   /** Rocketbox solo en estilo realista y calidad alta (en 'low' el skinning de ~10k triángulos × 49 sale caro: Quaternius). */
-  function rbWanted(): boolean { return getStyleMode() === 'realista' && quality === 'high'; }
-  function updateUseRb(): void { chars.setUseRb(rbWanted() && rb.loaded && rb.templates.size > 0); }
+  function rbWanted(): boolean { return getStyleMode() === 'realista' && quality !== 'low'; }
+  function updateUseRb(): void { rb.setNormals(quality === 'high'); chars.setUseRb(rbWanted() && rb.loaded && rb.templates.size > 0); }
   function ensureRb(): void {
     if (!rbWanted() || rbStarted || disposed) return;
     rbStarted = true;
@@ -273,10 +283,12 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     if (dir.shadow.map && dir.shadow.mapSize.x !== shadowMapSize) { dir.shadow.map.dispose(); dir.shadow.map = null; }
     dir.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     chars.setShadows(high);
+    chars.setFarAnimDist(quality === 'medium' ? 18 : 30);
     fx.setHighQuality(high);
     levelLayer?.setShadows(high);
     furnLayer?.setShadows(high);
     if (!high && composer) { composer.dispose(); composer = null; }
+    resize(cssW, cssH);                    // el límite de devicePixelRatio depende de la calidad
     if (currentTheme) applyLighting(currentTheme);
     ensureRb(); updateUseRb();
   }
@@ -366,6 +378,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
     chars.setColorblind(colorblind);
     fx.setColorblind(colorblind);
     if (!cameraShake) fx.shake = 0;
+    if (s.graphics !== undefined && !urlQuality) setQuality(s.graphics === 'auto' ? autoQuality : s.graphics);   // ?quality= en la URL manda sobre el ajuste
   }
 
   const _pv = new THREE.Vector3();
@@ -390,7 +403,6 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   function setQuality(q: RenderQuality): void {
     if (q === quality) return;
     quality = q;
-    try { localStorage.setItem('torre.quality', q); } catch { /* ignorar */ }
     applyQuality();
   }
 

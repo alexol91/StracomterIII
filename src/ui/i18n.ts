@@ -285,6 +285,12 @@ const es = {
   'hud.hostile': 'HOSTIL',
   'nav.hint': '↑ ↓ mover · Enter aceptar · Esc volver',
   'menu.foot': 'Chutaos Team · 2011-2012',
+  'opt.graphics': 'Calidad gráfica',
+  'opt.gfx.auto': 'Automática',
+  'opt.gfx.high': 'Alta',
+  'opt.gfx.medium': 'Media',
+  'opt.gfx.low': 'Baja',
+  'opt.gfx.help': 'Alta: sombras y efectos. Media: personajes realistas sin sombras; recomendada en móvil. Baja: personajes ligeros, para equipos antiguos.',
 };
 
 export type Key = keyof typeof es;
@@ -555,6 +561,12 @@ const en: Record<Key, string> = {
   'hud.hostile': 'HOSTILE',
   'nav.hint': '↑ ↓ move · Enter accept · Esc back',
   'menu.foot': 'Chutaos Team · 2011-2012',
+  'opt.graphics': 'Graphics quality',
+  'opt.gfx.auto': 'Automatic',
+  'opt.gfx.high': 'High',
+  'opt.gfx.medium': 'Medium',
+  'opt.gfx.low': 'Low',
+  'opt.gfx.help': 'High: shadows and effects. Medium: realistic characters without shadows; recommended on mobile. Low: lightweight characters, for older hardware.',
 };
 
 const dicts: Record<Lang, Record<string, string>> = { es, en };

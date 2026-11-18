@@ -188,6 +188,9 @@ export class RbLibrary {
   private manifest: Record<string, Record<string, { color?: string; normal?: string }>> = {};
   private ghost: THREE.Material | null = null;
   loaded = false;
+  /** sin normal maps en los personajes (calidad media): se guardan los originales para poder volver */
+  private useNormals = true;
+  private normalOf = new Map<THREE.Material, THREE.Texture | null>();
   private loading: Promise<boolean> | null = null;
 
   /** Carga avatares, maniquí UAL y armas (una sola vez). Nunca rechaza: si falla algo, `loaded` queda en false. */
@@ -272,12 +275,30 @@ export class RbLibrary {
     } catch (e) { console.warn('Rocketbox: arma no cargada', name, e); }
   }
 
+  setNormals(on: boolean): void {
+    this.useNormals = on;
+    for (const t of this.templates.values()) this.applyNormals(t);
+  }
+
+  private applyNormals(t: RbTemplate): void {
+    const each = (m: THREE.Material | THREE.Material[]): void => {
+      for (const mat of Array.isArray(m) ? m : [m]) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        if (!this.normalOf.has(sm)) this.normalOf.set(sm, sm.normalMap);
+        const want = this.useNormals ? this.normalOf.get(sm) ?? null : null;
+        if (sm.normalMap !== want) { sm.normalMap = want; sm.needsUpdate = true; }
+      }
+    };
+    for (const v of t.variants) for (const m of v) each(m);
+    for (const m of t.dead) each(m);
+  }
+
   /** Construye (o reconstruye, p. ej. al cambiar daltonismo) las plantillas de todos los tipos. */
   build(cb: boolean): void {
     this.templates.clear();
     if (!this.loaded) return;
     for (const kind of Object.keys(CFG) as Kind[]) {
-      try { this.templates.set(kind, this.buildOne(kind, cb)); } catch (e) { console.warn('Rocketbox: plantilla', kind, e); }
+      try { const t = this.buildOne(kind, cb); this.templates.set(kind, t); this.applyNormals(t); } catch (e) { console.warn('Rocketbox: plantilla', kind, e); }
     }
   }
 
