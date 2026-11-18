@@ -4,6 +4,7 @@
 
 import type { IAudio, IWorld, MusicTrack, Settings } from '../contracts';
 import { Music } from './music';
+import { Samples } from './samples';
 import { Sfx } from './sfx';
 
 /** Nivel interno de la música respecto a los efectos (la música no debe tapar los disparos). */
@@ -49,8 +50,10 @@ export function createAudio(): IAudio {
     sfxBus = ctx.createGain();
     musicBus.connect(master);
     sfxBus.connect(master);
-    sfx = new Sfx(ctx, sfxBus);
-    music = new Music(ctx, musicBus);
+    const samples = new Samples(ctx);
+    sfx = new Sfx(ctx, sfxBus, samples);
+    music = new Music(ctx, musicBus, samples);
+    samples.loadAll(); // en segundo plano; mientras tanto suena lo sintetizado
     applyVolumes();
     if (typeof document !== 'undefined' && document.addEventListener) {
       // En segundo plano, el audio se suspende (ahorra batería y evita música sin partida visible).

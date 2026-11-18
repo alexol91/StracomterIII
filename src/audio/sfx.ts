@@ -3,6 +3,7 @@
 
 import type { IWorld } from '../contracts';
 import type { GameEvent, Kind } from '../sim/types';
+import type { Samples } from './samples';
 
 const MAX_VOICES = 24;       // polifonía normal de efectos
 const MAX_VOICES_PRIO = 32;  // tope para sonidos del jugador / interfaz
@@ -47,11 +48,24 @@ const SHOTS: Record<string, ShotDef> = {
   megaboss:    { nt: 'lowpass', nf0: 2200, nf1: 350, nq: 0.8, nd: 0.1, ng: 0.85, tw: 'sawtooth', tf0: 95, tf1: 45, td: 0.1, tg: 0.4, extra: 'double' },
 };
 
+const SINGLE = new Set<string>(['enemy1', 'enemy3']);
+const AUTO = new Set<string>(['captain', 'technic', 'especialist', 'enemy2', 'megaboss']);
+
 export class Sfx {
   private noise: AudioBuffer;
   private active = 0;
+  // Estado de limitación de cadencia y del Modo Chutaos
+  private lastHurt = new Map<number, number>();
+  private lastShot = new Map<number, number>();
+  private mv = new Map<number, { src: AudioBufferSourceNode; g: GainNode; last: number }>();
+  private chutVoices = 0;
+  private lastChut = false;
+  private lastWorld: IWorld | null = null;
+  private lastStepV = -9;
+  private lastSexo = -9;
+  private lastGo = -9;
 
-  constructor(private ctx: AudioContext, private out: AudioNode) {
+  constructor(private ctx: AudioContext, private out: AudioNode, private samples: Samples) {
     // Un único buffer de ruido blanco de 3 s, reutilizado por todos los efectos.
     const n = Math.floor(ctx.sampleRate * 3);
     this.noise = ctx.createBuffer(1, n, ctx.sampleRate);
@@ -178,9 +192,95 @@ export class Sfx {
     try { fn(r); } finally { r.finish(); }
   }
 
+  /** Reproduce una muestra en la ruta. Devuelve false si aún no está cargada. */
+  private smp(r: Route, name: string, rate: number, vol: number): boolean {
+    const b = this.samples.get(name);
+    if (!b) return false;
+    const s = this.ctx.createBufferSource();
+    s.buffer = b;
+    s.playbackRate.value = rate * r.pv;
+    const g = this.ctx.createGain();
+    g.gain.value = vol;
+    s.connect(g);
+    g.connect(r.in);
+    s.start(r.t);
+    r.len = Math.max(r.len, b.duration / (rate * r.pv) + 0.02);
+    return true;
+  }
+
+  /** Voz de broma (Modo Chutaos): máx. 6 a la vez. */
+  private voice(world: IWorld, pos: { x: number; y: number } | null, name: string, vol: number): boolean {
+    const b = this.samples.get(name);
+    if (!b || this.chutVoices >= 6) return false;
+    const r = this.route(world, pos, vol, { prio: !pos });
+    if (!r) return false;
+    this.smp(r, name, 1, 1);
+    this.chutVoices++;
+    setTimeout(() => { this.chutVoices = Math.max(0, this.chutVoices - 1); }, b.duration * 1000 + 150);
+    r.finish();
+    return true;
+  }
+
+  /** Voz de ametralladora de broma: una sola instancia por tirador mientras siga disparando. */
+  private machineVoice(world: IWorld, id: number, pos: { x: number; y: number } | null): void {
+    const now = this.ctx.currentTime;
+    const st = this.mv.get(id);
+    if (st) {
+      if (now - st.last <= 0.6) { st.last = now; return; }
+      this.cutMv(id, st);
+    }
+    const b = this.samples.get('v:machine');
+    if (!b || this.chutVoices >= 6) return;
+    const r = this.route(world, pos, 0.9, { prio: !pos });
+    if (!r) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = b;
+    src.playbackRate.value = r.pv;
+    const g = this.ctx.createGain();
+    src.connect(g);
+    g.connect(r.in);
+    const entry = { src, g, last: now };
+    this.mv.set(id, entry);
+    this.chutVoices++;
+    src.onended = () => {
+      if (this.mv.get(id) === entry) this.mv.delete(id);
+      this.chutVoices = Math.max(0, this.chutVoices - 1);
+      r.len = 0;
+      r.finish();
+    };
+    src.start(r.t);
+  }
+
+  private cutMv(id: number, st: { src: AudioBufferSourceNode; g: GainNode }): void {
+    this.mv.delete(id);
+    try {
+      const t = this.ctx.currentTime;
+      st.g.gain.cancelScheduledValues(t);
+      st.g.gain.setValueAtTime(st.g.gain.value, t);
+      st.g.gain.linearRampToValueAtTime(0, t + 0.08);
+      st.src.stop(t + 0.09);
+    } catch { /* ya parada */ }
+  }
+
   // ───────────────────────── Sonidos concretos ─────────────────────────
 
   private shot(r: Route, kind: Kind): void {
+    // Muestras originales: pistola para armas de un tiro, ametralladora para automáticas.
+    if (SINGLE.has(kind) || !SHOTS[kind]) {
+      const old = Math.random() < 0.25 && this.samples.get('pistolOld');
+      const shotgun = kind === 'enemy3';
+      if (this.smp(r, old ? 'pistolOld' : 'pistol', shotgun ? 0.794 : 1, shotgun ? 1.0 : 0.9)) {
+        if (shotgun) this.osc(r, 'sine', 120, 45, 0, 0.22, 0.45); // más cuerpo
+        return;
+      }
+    } else if (AUTO.has(kind)) {
+      const rate = kind === 'megaboss' ? 0.8 : kind === 'especialist' ? 0.9 : kind === 'technic' ? 1.1 : 1;
+      if (this.smp(r, 'machine', rate, 0.9)) return;
+    }
+    this.shotSynth(r, kind);
+  }
+
+  private shotSynth(r: Route, kind: Kind): void {
     const p = SHOTS[kind] ?? SHOTS.enemy2;
     this.nz(r, 0, p.nd, p.ng, p.nt, p.nf0, p.nf1, p.nq);
     this.osc(r, p.tw, p.tf0, p.tf1, 0, p.td, p.tg);
@@ -234,28 +334,30 @@ export class Sfx {
   }
 
   private ability(r: Route, a: 'orders' | 'hack' | 'suppress' | 'demolition', ok: boolean): void {
-    if (!ok) {
-      this.osc(r, 'sawtooth', 180, 120, 0, 0.18, 0.35);
-      this.osc(r, 'sawtooth', 170, 100, 0.2, 0.22, 0.35);
+    if (!ok) { // fallo: clic seco y golpe sordo
+      this.nz(r, 0, 0.03, 0.5, 'bandpass', 1500, 1000, 2);
+      this.osc(r, 'triangle', 140, 90, 0, 0.12, 0.25);
       return;
     }
     switch (a) {
-      case 'orders': // tres notas de radio ascendentes
-        [520, 660, 800].forEach((f, i) => this.osc(r, 'square', f, f, i * 0.09, 0.09, 0.14));
-        this.nz(r, 0, 0.3, 0.06, 'highpass', 3000, 3000);
+      case 'orders': // radio: clic, estática breve, clic
+        this.nz(r, 0, 0.02, 0.5, 'highpass', 2500, 2500);
+        this.nz(r, 0.03, 0.2, 0.14, 'bandpass', 1800, 1500, 1.5);
+        this.osc(r, 'sine', 900, 900, 0.05, 0.12, 0.08);
+        this.nz(r, 0.26, 0.02, 0.4, 'highpass', 2500, 2500);
         break;
-      case 'hack': // arpegio digital rápido
-        for (let i = 0; i < 8; i++) this.osc(r, 'square', 900 + ((i * 5) % 7) * 220, 900 + ((i * 3) % 5) * 260, i * 0.045, 0.04, 0.1);
-        this.osc(r, 'sine', 300, 1800, 0.36, 0.25, 0.2);
+      case 'hack': // teclado y relés: clics rápidos
+        for (let i = 0; i < 7; i++) this.nz(r, i * 0.05 + Math.random() * 0.02, 0.02, 0.4, 'highpass', 3000 + Math.random() * 2000, 3000, 1);
+        this.nz(r, 0.4, 0.05, 0.5, 'lowpass', 1500, 400);
         break;
       case 'suppress': // ráfaga grave de pulsos
         for (let i = 0; i < 6; i++) {
           this.nz(r, i * 0.07, 0.06, 0.45, 'bandpass', 1200, 700, 1);
-          this.osc(r, 'sawtooth', 120, 60, i * 0.07, 0.06, 0.3);
+          this.osc(r, 'sawtooth', 120, 60, i * 0.07, 0.06, 0.25);
         }
         break;
-      case 'demolition': // tres pitidos y un golpe seco
-        for (let i = 0; i < 3; i++) this.osc(r, 'square', 880, 880, i * 0.14, 0.07, 0.15);
+      case 'demolition': // tres pulsos de temporizador y carga
+        for (let i = 0; i < 3; i++) this.nz(r, i * 0.14, 0.025, 0.5, 'bandpass', 1400, 1400, 3);
         this.osc(r, 'sine', 120, 35, 0.45, 0.35, 0.8);
         this.nz(r, 0.45, 0.2, 0.4, 'lowpass', 1800, 200);
         break;
@@ -272,18 +374,20 @@ export class Sfx {
   }
 
   /** Convierte un suceso en algo reproducible (o null si no suena). */
-  private describe(e: GameEvent, world: IWorld): Item | null {
+  private describe(e: GameEvent, world: IWorld, chut: boolean): Item | null {
     const pid = world.player.id;
     const cam = world.cam;
+    const now = this.ctx.currentTime;
     const dist = (p: { x: number; y: number }) => Math.hypot(p.x - cam.x, p.y - cam.y);
+    const hasV = (n: string) => chut && this.samples.get(n) !== null;
     // Suceso de una entidad, localizada por id
-    const ent = (key: string, id: number, vol: number, fn: (r: Route) => void, opt: { maxD?: number; prio?: boolean } = {}): Item | null => {
-      if (id === pid) return { key, d: 0, own: true, play: () => this.play(world, null, vol * 1.2, fn, { prio: true }) };
+    const ent = (key: string, id: number, vol: number, fn: (r: Route, own: boolean) => void, opt: { maxD?: number } = {}): Item | null => {
+      if (id === pid) return { key, d: 0, own: true, play: () => this.play(world, null, vol * 1.2, (r) => fn(r, true), { prio: true }) };
       const p = this.posOf(world, id);
       if (!p) return null;
       const d = dist(p);
       if (opt.maxD !== undefined && d > opt.maxD) return null;
-      return { key, d, own: false, play: () => this.play(world, p, vol, fn) };
+      return { key, d, own: false, play: () => this.play(world, p, vol, (r) => fn(r, false)) };
     };
     const at = (key: string, x: number, y: number, vol: number, fn: (r: Route) => void, own = false): Item => {
       const p = { x, y };
@@ -293,44 +397,88 @@ export class Sfx {
     };
     const global = (key: string, vol: number, fn: (r: Route) => void): Item =>
       ({ key, d: 0, own: true, play: () => this.play(world, null, vol, fn, { prio: true, novar: true }) });
+    /** Voz de broma de una entidad (posicional salvo el jugador). */
+    const vEnt = (key: string, id: number, name: string, vol: number): Item | null => {
+      if (id === pid) return { key, d: 0, own: true, play: () => { this.voice(world, null, name, vol); } };
+      const p = this.posOf(world, id);
+      if (!p) return null;
+      return { key, d: dist(p), own: false, play: () => { this.voice(world, p, name, vol); } };
+    };
+    const vAt = (key: string, x: number, y: number, name: string, vol: number, own: boolean): Item =>
+      own ? { key, d: 0, own: true, play: () => { this.voice(world, null, name, vol); } }
+        : { key, d: dist({ x, y }), own: false, play: () => { this.voice(world, { x, y }, name, vol); } };
+    const goVoice = (): Item | null => {
+      if (!hasV('v:go') || now - this.lastGo < 1.5) return null;
+      this.lastGo = now;
+      return { key: 'go', d: 0, own: true, play: () => { this.voice(world, null, 'v:go', 0.9); } };
+    };
 
     switch (e.type) {
       case 'shot': {
         const kind = e.kind;
+        const id = e.id;
+        const own = id === pid;
+        const auto = AUTO.has(kind);
+        const explos = kind === 'explosives' || kind === 'miniboss';
+        const pos = own ? null : { x: e.fx, y: e.fy };
+        if (hasV('v:machine') && auto) {
+          // Una sola instancia por tirador (se corta sola cuando deja de disparar)
+          return { key: 'shotm' + id, d: pos ? dist(pos) : 0, own, play: () => this.machineVoice(world, id, pos) };
+        }
+        if (hasV('v:pistol') && !explos) {
+          return { key: 'shotv', d: pos ? dist(pos) : 0, own, play: () => { this.voice(world, pos, 'v:pistol', 0.9); } };
+        }
         const fn = (r: Route) => this.shot(r, kind);
-        if (e.id === pid) return { key: 'shot', d: 0, own: true, play: () => this.play(world, null, 1.3, fn, { prio: true }) };
-        return at('shot', e.fx, e.fy, 1.0, fn);
+        const gate = () => {
+          if (!auto) return true;
+          const last = this.lastShot.get(id) ?? -9;
+          if (now - last < 1 / 12) return false; // máx. ~12 disparos/s por tirador
+          this.lastShot.set(id, now);
+          return true;
+        };
+        if (own) return { key: 'shot', d: 0, own: true, play: () => { if (gate()) this.play(world, null, 1.3, fn, { prio: true }); } };
+        return { key: 'shot', d: dist(pos!), own: false, play: () => { if (gate()) this.play(world, pos, 1.0, fn); } };
       }
       case 'dryfire':
         return ent('dryfire', e.id, 0.5, (r) => {
           this.nz(r, 0, 0.02, 0.6, 'highpass', 3000, 3000);
-          this.osc(r, 'square', 1300, 900, 0, 0.015, 0.15);
+          this.osc(r, 'square', 900, 600, 0, 0.012, 0.08);
         }, { maxD: 25 });
-      case 'explosion':
-        return at('explosion', e.x, e.y, 1.5, (r) => this.explosion(r));
+      case 'explosion': {
+        const synthVol = hasV('v:explosion') ? 0.8 : 1.5;
+        const it = at('explosion', e.x, e.y, synthVol, (r) => this.explosion(r));
+        if (hasV('v:explosion')) {
+          const base = it.play;
+          const p = { x: e.x, y: e.y };
+          it.play = () => { base(); this.voice(world, p, 'v:explosion', 1.0); };
+        }
+        return it;
+      }
       case 'knife': {
         const hit = e.hit;
+        if (hasV('v:knife')) return vEnt('knife', e.id, 'v:knife', 0.9);
         return ent('knife', e.id, 0.7, (r) => {
-          this.nz(r, 0, 0.16, 0.5, 'bandpass', 2500, 6000, 1.5, 0.05);
+          if (!this.smp(r, 'knife', 1, 1.0)) this.nz(r, 0, 0.16, 0.5, 'bandpass', 2500, 6000, 1.5, 0.05);
           if (hit) {
             this.nz(r, 0.07, 0.09, 0.6, 'lowpass', 900, 250);
-            this.osc(r, 'triangle', 220, 90, 0.07, 0.08, 0.35);
+            this.osc(r, 'triangle', 220, 90, 0.07, 0.08, 0.3);
           }
         }, { maxD: 30 });
       }
       case 'reload':
         return ent('reload', e.id, 0.5, (r) => {
-          this.nz(r, 0, 0.03, 0.5, 'bandpass', 2600, 2200, 2);          // quitar cargador
-          this.osc(r, 'square', 700, 500, 0, 0.02, 0.08);
-          this.nz(r, 0.28, 0.07, 0.35, 'bandpass', 1500, 2500, 1.5, 0.02); // meter cargador
-          this.nz(r, 0.45, 0.03, 0.55, 'highpass', 2500, 2500);           // cerrojo
-          this.osc(r, 'square', 900, 600, 0.45, 0.02, 0.1);
+          this.nz(r, 0, 0.03, 0.5, 'bandpass', 2600, 2200, 2);              // quitar cargador
+          this.nz(r, 0.01, 0.05, 0.3, 'lowpass', 900, 300);                 // golpe metálico sordo
+          this.nz(r, 0.28, 0.07, 0.35, 'bandpass', 1500, 2500, 1.5, 0.02);  // meter cargador
+          this.nz(r, 0.3, 0.06, 0.3, 'lowpass', 700, 250);
+          this.nz(r, 0.45, 0.03, 0.55, 'highpass', 2500, 2500);             // cerrojo
+          this.nz(r, 0.46, 0.05, 0.3, 'lowpass', 1100, 300);
         }, { maxD: 30 });
       case 'door': {
         const open = e.open;
         return at('door', e.x, e.y, 0.8, (r) => {
-          this.osc(r, 'sawtooth', open ? 70 : 95, open ? 95 : 65, 0, 0.35, 0.18, 0.05); // chirrido grave
-          this.nz(r, 0, 0.35, 0.12, 'bandpass', 600, 900, 3, 0.1);
+          this.osc(r, 'sawtooth', open ? 70 : 95, open ? 95 : 65, 0, 0.35, 0.1, 0.05); // bisagra
+          this.nz(r, 0, 0.35, 0.14, 'bandpass', 600, 900, 3, 0.1);
           if (!open) { // el golpe seco del cierre
             this.nz(r, 0.33, 0.08, 0.5, 'lowpass', 700, 200);
             this.osc(r, 'sine', 110, 50, 0.33, 0.1, 0.4);
@@ -340,51 +488,78 @@ export class Sfx {
         });
       }
       case 'step': {
-        if (e.id !== pid && dist({ x: e.x, y: e.y }) > STEP_RANGE) return null;
+        const own = e.id === pid;
+        if (!own && dist({ x: e.x, y: e.y }) > STEP_RANGE) return null;
+        if (own && hasV('v:step')) {
+          if (now - this.lastStepV < 0.45) return null;
+          this.lastStepV = now;
+          return { key: 'stepv', d: 0, own: true, play: () => { this.voice(world, null, 'v:step', 0.8); } };
+        }
         return at('step', e.x, e.y, 0.2, (r) => {
           this.nz(r, 0, 0.06, 0.5, 'lowpass', 450 + Math.random() * 150, 180, 0.8, 0.01);
-        }, e.id === pid);
+        }, own);
       }
       case 'hurt': {
+        const last = this.lastHurt.get(e.id) ?? -9;
+        if (now - last < 0.25) return null; // no un "ouch" por cada bala
+        this.lastHurt.set(e.id, now);
+        if (hasV('v:ouch')) return vEnt('hurt', e.id, 'v:ouch', 1.0);
         const heavy = e.zone === 'head' || e.zone === 'blast';
+        const ouch = () => (Math.random() < 0.25 && this.samples.get('ouchOld')) ? 'ouchOld' : 'ouch';
         if (e.id === pid) {
           return { key: 'hurt', d: 0, own: true, play: () => this.play(world, null, 1.3, (r) => {
-            this.osc(r, 'sine', 170, 55, 0, 0.18, 0.8);
-            this.nz(r, 0, 0.14, 0.6, 'bandpass', 900, 400, 1);
-            this.osc(r, 'sawtooth', 260, 120, 0.01, 0.12, 0.2);
+            this.smp(r, ouch(), 1, 1.0);
+            this.osc(r, 'sine', 170, 55, 0, 0.18, 0.6);           // impacto
+            this.nz(r, 0, 0.12, 0.4, 'bandpass', 900, 400, 1);
             if (heavy) this.osc(r, 'sine', 70, 35, 0.05, 0.3, 0.5);
           }, { prio: true }) };
         }
         return ent('hurt', e.id, 0.7, (r) => {
-          this.nz(r, 0, 0.1, 0.55, 'lowpass', 600, 200);
-          this.osc(r, 'sine', 140, 70, 0, 0.1, 0.35);
+          if (!this.smp(r, ouch(), 1, 0.9)) {
+            this.nz(r, 0, 0.1, 0.55, 'lowpass', 600, 200);
+            this.osc(r, 'sine', 140, 70, 0, 0.1, 0.35);
+          } else {
+            this.nz(r, 0, 0.08, 0.3, 'lowpass', 600, 200);
+          }
         }, { maxD: 35 });
       }
       case 'death': {
         const ally = e.team === 'ally';
-        if (e.id === pid) return { key: 'death', d: 0, own: true, play: () => this.play(world, null, 1.0, (r) => this.deathSound(r, true), { prio: true }) };
-        return at('death', e.x, e.y, 1.0, (r) => this.deathSound(r, ally));
+        if (hasV('v:dead')) return vAt('death', e.x, e.y, 'v:dead', 1.0, e.id === pid);
+        const fn = (r: Route) => {
+          if (this.smp(r, 'dead', ally ? 1 : 0.92, 1.0)) this.nz(r, 0.05, 0.2, 0.35, 'lowpass', 500, 160); // golpe del cuerpo
+          else this.deathSound(r, ally);
+        };
+        if (e.id === pid) return { key: 'death', d: 0, own: true, play: () => this.play(world, null, 1.0, fn, { prio: true }) };
+        return at('death', e.x, e.y, 1.0, fn);
       }
       case 'pickup':
-        return at('pickup', e.x, e.y, 0.6, (r) => {
-          this.osc(r, 'sine', 660, 660, 0, 0.09, 0.3);
-          this.osc(r, 'sine', 990, 990, 0.08, 0.14, 0.3);
-          this.osc(r, 'triangle', 1980, 1980, 0.08, 0.12, 0.08);
+        if (hasV('v:sexo') && now - this.lastSexo >= 2) {
+          this.lastSexo = now;
+          return vAt('pickup', e.x, e.y, 'v:sexo', 0.9, e.id === pid);
+        }
+        return at('pickup', e.x, e.y, 0.5, (r) => { // recogida: roce de tela y golpecito
+          this.nz(r, 0, 0.08, 0.4, 'bandpass', 2200, 1400, 1);
+          this.nz(r, 0.05, 0.06, 0.4, 'lowpass', 800, 300);
+          this.osc(r, 'sine', 300, 200, 0.05, 0.06, 0.15);
         }, e.id === pid);
       case 'itemUsed':
-        return ent('itemUsed', e.id, 0.6, (r) => {
-          this.osc(r, 'triangle', 400, 900, 0, 0.22, 0.3, 0.03);
-          this.osc(r, 'sine', 800, 1600, 0.08, 0.2, 0.12, 0.03);
-          this.nz(r, 0, 0.15, 0.1, 'highpass', 4000, 6000);
+        if (hasV('v:sexo') && now - this.lastSexo >= 2) {
+          this.lastSexo = now;
+          return vEnt('itemUsed', e.id, 'v:sexo', 0.9);
+        }
+        return ent('itemUsed', e.id, 0.5, (r) => { // velcro de la bolsa, cremallera y golpe seco
+          this.nz(r, 0, 0.18, 0.35, 'bandpass', 2500, 1500, 1.2, 0.02);
+          this.nz(r, 0.2, 0.07, 0.35, 'lowpass', 900, 300);
         }, { maxD: 25 });
       case 'throw':
         return ent('throw', e.id, 0.7, (r) => {
-          this.nz(r, 0, 0.25, 0.5, 'bandpass', 700, 1600, 1, 0.08);
-          this.osc(r, 'sine', 200, 120, 0, 0.1, 0.2);
+          this.nz(r, 0, 0.25, 0.4, 'bandpass', 700, 1500, 1, 0.08);
+          this.nz(r, 0, 0.06, 0.4, 'lowpass', 800, 300);
         }, { maxD: 35 });
       case 'ability': {
         const a = e.ability, ok = e.ok;
-        return at('ability', e.x, e.y, 0.9, (r) => this.ability(r, a, ok), e.id === pid);
+        return at('ability', e.x, e.y, 0.8, (r) => this.ability(r, a, ok), e.id === pid);
       }
       case 'breach':
         return at('breach', e.x, e.y, 1.3, (r) => {
@@ -393,48 +568,49 @@ export class Sfx {
           for (let i = 0; i < 7; i++) this.nz(r, 0.15 + i * 0.12 + Math.random() * 0.08, 0.07, 0.3, 'bandpass', 900 + Math.random() * 1500, 400, 1.5); // cascotes
         });
       case 'order':
-        return global('order', 0.5, (r) => {
-          this.nz(r, 0, 0.12, 0.12, 'highpass', 2500, 2500);
-          this.osc(r, 'sine', 1400, 1400, 0.01, 0.06, 0.3);
-          this.osc(r, 'sine', 1100, 1100, 0.09, 0.07, 0.3);
+        if (hasV('v:go')) return goVoice();
+        return global('order', 0.5, (r) => { // radio: clic de pulsar, ráfaga de estática y clic de soltar
+          this.nz(r, 0, 0.02, 0.5, 'highpass', 2500, 2500);
+          this.nz(r, 0.02, 0.14, 0.13, 'bandpass', 1800, 1600, 1.5);
+          this.nz(r, 0.17, 0.02, 0.4, 'highpass', 2500, 2500);
         });
+      case 'phase':
+        return chut ? goVoice() : null;
       case 'bossPhase':
-        return global('bossPhase', 0.9, (r) => {
+        return global('bossPhase', 0.8, (r) => {
           const o = this.ctx.createOscillator();
           o.type = 'sawtooth';
           const t = r.t;
-          for (let i = 0; i < 4; i++) {
-            o.frequency.setValueAtTime(300, t + i * 0.3);
-            o.frequency.linearRampToValueAtTime(620, t + i * 0.3 + 0.28);
+          for (let i = 0; i < 3; i++) { // sirena grave
+            o.frequency.setValueAtTime(160, t + i * 0.4);
+            o.frequency.linearRampToValueAtTime(260, t + i * 0.4 + 0.36);
           }
           const f = this.ctx.createBiquadFilter();
-          f.type = 'lowpass'; f.frequency.value = 1800;
+          f.type = 'lowpass'; f.frequency.value = 900;
           const g = this.ctx.createGain();
           g.gain.setValueAtTime(0.0001, t);
-          g.gain.linearRampToValueAtTime(0.3, t + 0.05);
-          g.gain.setValueAtTime(0.3, t + 1.0);
+          g.gain.linearRampToValueAtTime(0.25, t + 0.05);
+          g.gain.setValueAtTime(0.25, t + 1.0);
           g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
           o.connect(f); f.connect(g); g.connect(r.in);
           o.start(t); o.stop(t + 1.35);
           r.len = Math.max(r.len, 1.4);
-          this.nz(r, 0, 1.5, 0.7, 'lowpass', 500, 90, 0.7, 0.1); // rugido
+          this.nz(r, 0, 1.5, 0.7, 'lowpass', 500, 90, 0.7, 0.1); // retumbo
           this.osc(r, 'sine', 60, 30, 0, 1.2, 0.8, 0.1);
         });
       case 'alert':
-        return at('alert', e.x, e.y, 1.1, (r) => {
-          this.osc(r, 'square', 880, 880, 0, 0.07, 0.2);
-          this.osc(r, 'square', 1320, 1320, 0.09, 0.11, 0.2);
+        return at('alert', e.x, e.y, 0.9, (r) => { // chasquido seco de alerta, sin pitido de videojuego
+          this.nz(r, 0, 0.05, 0.7, 'bandpass', 1800, 1200, 1.5);
+          this.osc(r, 'triangle', 500, 380, 0, 0.12, 0.2);
         });
       case 'cleared':
-        return global('cleared', 0.8, (r) => {
-          [523, 659, 784, 1047].forEach((f, i) => {
-            this.osc(r, 'triangle', f, f, i * 0.12, i === 3 ? 0.6 : 0.16, 0.3, 0.01);
-            this.osc(r, 'square', f, f, i * 0.12, i === 3 ? 0.6 : 0.16, 0.06, 0.01);
-          });
+        return global('cleared', 0.6, (r) => { // sobrio: acorde grave y corto, sin fanfarria
+          [262, 330, 392].forEach((f, i) => this.osc(r, 'triangle', f, f, i * 0.1, 0.7, 0.2, 0.02));
+          this.nz(r, 0, 0.1, 0.2, 'lowpass', 800, 300);
         });
       case 'playerDead':
         return global('playerDead', 0.9, (r) => {
-          this.osc(r, 'sawtooth', 220, 40, 0, 1.4, 0.35, 0.05);
+          this.osc(r, 'sawtooth', 160, 40, 0, 1.4, 0.2, 0.05);
           this.osc(r, 'sine', 80, 25, 0, 1.6, 0.7, 0.05);
           this.nz(r, 0, 1.0, 0.3, 'lowpass', 1200, 80);
         });
@@ -445,12 +621,34 @@ export class Sfx {
 
   handleEvents(world: IWorld): void {
     if (this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const chut = world.cheats?.chutaos === true; // por defecto, modo normal
+    // Mundo nuevo (otra zona): se olvidan los ids anteriores
+    const newWorld = world !== this.lastWorld;
+    if (newWorld) {
+      this.lastWorld = world;
+      for (const [id, st] of [...this.mv]) this.cutMv(id, st);
+      this.lastHurt.clear();
+      this.lastShot.clear();
+    }
+    // Cambio de modo: «go» de confirmación (y se cortan las ráfagas de broma al desactivar)
+    if (chut !== this.lastChut) {
+      this.lastChut = chut;
+      this.lastGo = now;
+      this.voice(world, null, 'v:go', 0.9);
+      if (!chut) for (const [id, st] of [...this.mv]) this.cutMv(id, st);
+    } else if (chut && newWorld && now - this.lastGo >= 1.5) {
+      this.lastGo = now; // inicio de zona
+      this.voice(world, null, 'v:go', 0.9);
+    }
+    // Ráfaga de broma: se corta (fundido de 80 ms) ~0,4 s después del último disparo
+    for (const [id, st] of [...this.mv]) if (now - st.last > 0.4) this.cutMv(id, st);
     const evs = world.events;
     if (!evs || evs.length === 0) return;
     const groups = new Map<string, Item[]>();
     for (const e of evs) {
       let it: Item | null = null;
-      try { it = this.describe(e, world); } catch { it = null; }
+      try { it = this.describe(e, world, chut); } catch { it = null; }
       if (!it) continue;
       const g = groups.get(it.key);
       if (g) g.push(it); else groups.set(it.key, [it]);
@@ -474,25 +672,25 @@ export class Sfx {
     this.play(null, null, 0.6, (r) => {
       switch (sound) {
         case 'click':
-          this.osc(r, 'square', 1200, 900, 0, 0.03, 0.12);
-          this.nz(r, 0, 0.02, 0.2, 'highpass', 4000, 4000);
+          this.nz(r, 0, 0.025, 0.5, 'bandpass', 2400, 1800, 2);
+          this.osc(r, 'sine', 300, 200, 0, 0.03, 0.12);
           break;
         case 'confirm':
-          this.osc(r, 'triangle', 660, 660, 0, 0.08, 0.3);
-          this.osc(r, 'triangle', 990, 990, 0.07, 0.14, 0.3);
+          this.nz(r, 0, 0.03, 0.5, 'bandpass', 2000, 1600, 2);
+          this.osc(r, 'triangle', 440, 440, 0.02, 0.12, 0.18);
+          this.osc(r, 'triangle', 660, 660, 0.09, 0.18, 0.15);
           break;
         case 'back':
-          this.osc(r, 'triangle', 700, 700, 0, 0.07, 0.25);
-          this.osc(r, 'triangle', 470, 470, 0.07, 0.1, 0.25);
+          this.nz(r, 0, 0.03, 0.4, 'bandpass', 1500, 1200, 2);
+          this.osc(r, 'triangle', 400, 300, 0.02, 0.12, 0.15);
           break;
         case 'error':
-          this.osc(r, 'sawtooth', 160, 130, 0, 0.14, 0.3);
-          this.osc(r, 'sawtooth', 150, 110, 0.15, 0.2, 0.3);
+          this.nz(r, 0, 0.04, 0.4, 'bandpass', 1200, 900, 2);
+          this.osc(r, 'triangle', 150, 110, 0, 0.18, 0.3);
           break;
         case 'reward':
-          [784, 988, 1175, 1568, 1976].forEach((f, i) => {
-            this.osc(r, 'sine', f, f, i * 0.07, 0.25, 0.25);
-            this.osc(r, 'triangle', f * 2, f * 2, i * 0.07, 0.12, 0.05);
+          [392, 494, 587, 784].forEach((f, i) => {
+            this.osc(r, 'triangle', f, f, i * 0.09, 0.35, 0.2, 0.01);
           });
           break;
         case 'victory':

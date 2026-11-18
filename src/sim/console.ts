@@ -24,7 +24,7 @@ export function createConsole(host: ConsoleHost): IConsole {
       const w = world as World | null;
       if (cmd === 'help' || cmd === 'ayuda') {
         return ['spawn <tipo> <x> <y> · team <tipo> <x> <y> · kill all|bad|me · god · noclip · ammo · health',
-          'floor <n> · zone <n> · tp <x> <y> · info [id] · ai.debug', 'tipos: ' + KINDS.join(', ')];
+          'floor <n> · zone <n> · tp <x> <y> · info [id] · ai.debug · chutaos on|off', 'tipos: ' + KINDS.join(', ')];
       }
       if (cmd === 'floor' || cmd === 'zone') {
         const n = parseInt(parts[1], 10);
@@ -88,6 +88,13 @@ export function createConsole(host: ConsoleHost): IConsole {
           if (!e) return ['no existe esa entidad'];
           return [`#${e.id} ${e.kind} (${e.team}) ${e.alive ? 'vivo' : 'MUERTO'} — vida ${Math.round(e.hp)}/${e.maxHp} — munición ${e.mag}+${e.ammo}` +
             ` — pos (${e.x.toFixed(1)}, ${e.y.toFixed(1)}) — estado: ${e.isPlayer ? 'jugador' : e.aiState || '-'}`];
+        }
+        case 'chutaos': {
+          // Modo Chutaos: lo lee el audio (src/audio) en cada sonido
+          const arg = (parts[1] || '').toLowerCase();
+          if (arg !== 'on' && arg !== 'off') return ['uso: chutaos on | chutaos off  (ahora: ' + (w.cheats.chutaos ? 'on' : 'off') + ')'];
+          w.cheats.chutaos = arg === 'on';
+          return ['Modo Chutaos ' + (w.cheats.chutaos ? 'ACTIVADO' : 'desactivado')];
         }
         case 'ai.debug': w.cheats.aiDebug = !w.cheats.aiDebug; return ['ai.debug ' + (w.cheats.aiDebug ? 'ACTIVADO' : 'desactivado')];
       }

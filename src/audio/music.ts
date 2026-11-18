@@ -4,6 +4,16 @@
 // Voces sostenidas por tema: <= 6 (las de batería son ráfagas cortas).
 
 import type { MusicTrack } from '../contracts';
+import type { Samples } from './samples';
+
+/**
+ * true = el tema original (.ogg) sustituye a la música generada en menu/strategy/victory/boss y
+ * combat usa solo un ambiente discreto. false = siempre la música generada (reserva).
+ */
+export const USE_SAMPLE_MUSIC = true;
+/** Volumen del tema original: normal y en el jefe (más alto). */
+const THEME_LEVEL = 0.7;
+const THEME_LEVEL_BOSS = 1.0;
 
 const LOOKAHEAD = 0.25;     // s de notas planificadas por delante
 const TICK_MS = 50;
@@ -331,7 +341,18 @@ const TRACKS: Record<Exclude<MusicTrack, null>, TrackDef> = {
 
 // ───────────────────────── Reproductor y mezcla ─────────────────────────
 
-class Player {
+interface Playing {
+  key: string;
+  scheduling: boolean;
+  stopAt: number;
+  setLevel(level: number): void;
+  fadeOut(now: number, dur?: number): void;
+  tick(until: number): void;
+  dispose(): void;
+}
+
+class Player implements Playing {
+  readonly key: string;
   readonly gain: GainNode;
   private v: Voices;
   private step: StepFn;
@@ -344,6 +365,7 @@ class Player {
   stopAt = Infinity;
 
   constructor(private ctx: AudioContext, noise: AudioBuffer, out: AudioNode, track: Exclude<MusicTrack, null>) {
+    this.key = 'synth:' + track;
     this.def = TRACKS[track];
     this.sps = 60 / this.def.bpm / 4;
     this.gain = ctx.createGain();
@@ -375,12 +397,14 @@ class Player {
     this.next = t0 + 0.06;
   }
 
-  fadeOut(now: number): void {
+  setLevel(): void { /* el nivel de la música generada es fijo */ }
+
+  fadeOut(now: number, dur = FADE): void {
     this.scheduling = false;
     this.gain.gain.cancelScheduledValues(now);
     this.gain.gain.setValueAtTime(this.gain.gain.value, now);
-    this.gain.gain.linearRampToValueAtTime(0.0001, now + FADE);
-    this.stopAt = now + FADE + 2.5; // deja morir las colas (eco, releases)
+    this.gain.gain.linearRampToValueAtTime(0.0001, now + dur);
+    this.stopAt = now + dur + 2.5; // deja morir las colas (eco, releases)
   }
 
   tick(until: number): void {
@@ -402,26 +426,163 @@ class Player {
   }
 }
 
+/** Tema original en bucle (AudioBufferSourceNode.loop: sin corte audible). */
+class ThemePlayer implements Playing {
+  readonly key = 'theme';
+  scheduling = true;
+  stopAt = Infinity;
+  private gain: GainNode;
+  private src: AudioBufferSourceNode;
+
+  constructor(private ctx: AudioContext, buf: AudioBuffer, out: AudioNode, level: number) {
+    this.gain = ctx.createGain();
+    const t = ctx.currentTime;
+    this.gain.gain.setValueAtTime(0.0001, t);
+    this.gain.gain.linearRampToValueAtTime(level, t + FADE);
+    this.gain.connect(out);
+    this.src = ctx.createBufferSource();
+    this.src.buffer = buf;
+    this.src.loop = true;
+    this.src.connect(this.gain);
+    this.src.start(t);
+  }
+  setLevel(level: number): void {
+    const t = this.ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(t);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, t);
+    this.gain.gain.linearRampToValueAtTime(level, t + FADE);
+  }
+  fadeOut(now: number, dur = FADE): void {
+    this.scheduling = false;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+    this.gain.gain.linearRampToValueAtTime(0.0001, now + dur);
+    this.stopAt = now + dur + 0.1;
+    try { this.src.stop(now + dur + 0.05); } catch { /* ya parada */ }
+  }
+  tick(): void { /* nada que planificar */ }
+  dispose(): void { try { this.gain.disconnect(); } catch { /* nada */ } }
+}
+
+/** Combate: sin melodía. Zumbido grave de edificio/aire acondicionado y algún pulso lento. */
+class Ambient implements Playing {
+  readonly key = 'ambient';
+  scheduling = true;
+  stopAt = Infinity;
+  private gain: GainNode;
+  private nodes: (AudioScheduledSourceNode)[] = [];
+  private nextPulse: number;
+
+  constructor(private ctx: AudioContext, private noise: AudioBuffer, out: AudioNode) {
+    const t = ctx.currentTime;
+    this.gain = ctx.createGain();
+    this.gain.gain.setValueAtTime(0.0001, t);
+    this.gain.gain.linearRampToValueAtTime(0.6, t + FADE);
+    this.gain.connect(out);
+    // Zumbido: dos senos muy graves ligeramente desafinados (batido lento)
+    for (const [f, v] of [[48, 0.2], [48.7, 0.16], [96.5, 0.04]] as const) {
+      const o = ctx.createOscillator();
+      o.type = 'sine'; o.frequency.value = f;
+      const g = ctx.createGain(); g.gain.value = v;
+      o.connect(g); g.connect(this.gain); o.start(t);
+      this.nodes.push(o);
+    }
+    // Aire: ruido muy filtrado con respiración lenta
+    const n = ctx.createBufferSource();
+    n.buffer = noise; n.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = 0.6;
+    const ng = ctx.createGain(); ng.gain.value = 0.12;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.11;
+    const lg = ctx.createGain(); lg.gain.value = 0.07;
+    lfo.connect(lg); lg.connect(ng.gain);
+    n.connect(lp); lp.connect(ng); ng.connect(this.gain);
+    n.start(t); lfo.start(t);
+    this.nodes.push(n, lfo);
+    this.nextPulse = t + 2;
+  }
+  setLevel(): void { /* fijo */ }
+  fadeOut(now: number, dur = FADE): void {
+    this.scheduling = false;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+    this.gain.gain.linearRampToValueAtTime(0.0001, now + dur);
+    this.stopAt = now + dur + 0.1;
+    for (const n of this.nodes) { try { n.stop(now + dur + 0.05); } catch { /* nada */ } }
+  }
+  tick(until: number): void {
+    if (!this.scheduling) return;
+    while (this.nextPulse < until) { // pulso lento y grave, muy bajo
+      const t = this.nextPulse;
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(52, t);
+      o.frequency.exponentialRampToValueAtTime(34, t + 0.5);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+      o.connect(g); g.connect(this.gain);
+      o.start(t); o.stop(t + 0.95);
+      o.onended = () => { try { g.disconnect(); } catch { /* nada */ } };
+      this.nextPulse += 3.5 + Math.random() * 2;
+    }
+  }
+  dispose(): void {
+    try { this.gain.disconnect(); } catch { /* nada */ }
+  }
+}
+
 export class Music {
-  private players: Player[] = [];
+  private players: Playing[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private cur: MusicTrack = null;
   private noise: AudioBuffer;
 
-  constructor(private ctx: AudioContext, private out: AudioNode) {
+  constructor(private ctx: AudioContext, private out: AudioNode, private samples: Samples) {
     const n = Math.floor(ctx.sampleRate * 3);
     this.noise = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    // Si el tema termina de cargar después de pedirlo, se arranca entonces
+    samples.load('theme').then(() => { try { this.reconcile(); } catch { /* nada */ } });
   }
 
   /** Cambia de tema con fundido cruzado. Pedir el que ya suena no hace nada. */
   set(track: MusicTrack): void {
     if (track === this.cur) return;
     this.cur = track;
+    this.reconcile();
+  }
+
+  /** Qué debe sonar ahora (clave) según el tema pedido y lo que haya cargado. */
+  private desired(): { key: string; level: number } | null {
+    const track = this.cur;
+    if (!track) return null;
+    if (USE_SAMPLE_MUSIC) {
+      if (track === 'combat') return { key: 'ambient', level: 0 };
+      if (this.samples.get('theme')) return { key: 'theme', level: track === 'boss' ? THEME_LEVEL_BOSS : THEME_LEVEL };
+      if (!this.samples.hasFailed('theme')) return null; // aún cargando: silencio hasta que llegue
+    }
+    return { key: 'synth:' + track, level: 0 }; // reserva: música generada
+  }
+
+  private reconcile(): void {
+    const want = this.desired();
     const now = this.ctx.currentTime;
-    for (const p of this.players) if (p.scheduling) p.fadeOut(now);
-    if (track) this.players.push(new Player(this.ctx, this.noise, this.out, track));
+    const live = this.players.filter((p) => p.scheduling);
+    if (want && live.length === 1 && live[0].key === want.key) {
+      if (want.key === 'theme') live[0].setLevel(want.level); // menu/strategy/victory <-> boss: solo cambia el volumen
+    } else {
+      // Al pasar del tema al combate, el tema sale en 1 s
+      for (const p of live) p.fadeOut(now, p.key === 'theme' ? 1 : FADE);
+      if (want) {
+        let np: Playing | null = null;
+        if (want.key === 'theme') np = new ThemePlayer(this.ctx, this.samples.get('theme')!, this.out, want.level);
+        else if (want.key === 'ambient') np = new Ambient(this.ctx, this.noise, this.out);
+        else np = new Player(this.ctx, this.noise, this.out, this.cur as Exclude<MusicTrack, null>);
+        this.players.push(np);
+      }
+    }
     if (this.players.length && this.timer === null) {
       this.timer = setInterval(() => this.tick(), TICK_MS);
     }

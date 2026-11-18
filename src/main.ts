@@ -16,9 +16,9 @@ import { createAudio } from './audio';
 import { createControls } from './input';
 import { createCampaign } from './sim/campaign';
 import { createConsole } from './sim/console';
-import { getLang, onLangChange, setLang, t } from './ui/i18n';
+import { onLangChange, setLang, t } from './ui/i18n';
 import { loadSettings, saveSettings } from './ui/settings';
-import { flags, h, setUiAudio } from './ui/dom';
+import { asset, flags, h, pad2, setUiAudio, stepNav } from './ui/dom';
 import {
   Screens, classScreen, creditsScreen, defeatScreen, optionsScreen, pauseScreen, strategyScreen, summaryScreen,
   titleScreen, victoryScreen,
@@ -43,6 +43,9 @@ const settings = loadSettings();
   if (q === 'en' || q === 'es') settings.lang = q;
 }
 setLang(settings.lang);
+
+// Fondo de menús (public/ui): variable CSS para usarlo en varias pantallas sin repetir la ruta
+document.documentElement.style.setProperty('--tower', `url("${new URL(asset('ui/fondo-torre.webp'), location.href).href}")`);
 
 // ───────────────────────────── Almacenamiento ─────────────────────────────
 
@@ -114,11 +117,31 @@ let audioUnlocked = false;
 let lastPauseToggle = -1e9;
 let lastConsoleToggle = -1e9;
 
-// Dentro de #ui, de abajo arriba: HUD, capa de pantallas, consola.
+// Pantalla de carga de zona: se quita al primer frame dibujado (mínimo 0,4 s para que no parpadee) o a los 1,5 s
+const loadingText = h('div', { class: 'ld-t' });
+const loadingEl = h('div', { id: 'loading', class: 'out' }, loadingText, h('div', { class: 'ld-bar' }));
+let loadingActive = false;
+let loadingSince = 0;
+let loadingFrames = 0;
+
+function showLoading(floor: number, zone: number): void {
+  loadingText.textContent = t('load.deploying', { floor: pad2(floor), zone: pad2(zone) });
+  loadingEl.classList.remove('out');
+  loadingActive = true;
+  loadingSince = performance.now();
+  loadingFrames = 0;
+}
+function hideLoading(): void {
+  loadingActive = false;
+  loadingEl.classList.add('out');
+}
+
+// Dentro de #ui, de abajo arriba: HUD, capa de pantallas, carga, consola.
 const screensLayer = h('div', { id: 'screens' });
 const screens = new Screens(screensLayer);
 const hud = new Hud(uiRoot, () => settings, () => controls.isTouch, () => togglePause());
 uiRoot.appendChild(screensLayer);
+uiRoot.appendChild(loadingEl);
 const consoleUi = new ConsoleOverlay(uiRoot, runConsole, () => closeConsole());
 
 // ───────────────────────────── Ajustes aplicados ─────────────────────────────
@@ -169,6 +192,7 @@ function leaveGame(): void {
   controls.setActive(false);
   hud.show(false);
   gameTrack = null;
+  if (loadingActive) hideLoading();
 }
 
 function showTitle(): void {
@@ -182,14 +206,14 @@ function showTitle(): void {
     onQuick: () => showClassSelect(true),
     onOptions: () => showOptions('title'),
     onCredits: showCredits,
-    onLang: () => { settings.lang = getLang() === 'es' ? 'en' : 'es'; applyAll(true); },
+    onLang: (l) => { settings.lang = l; applyAll(true); },
   }));
 }
 
 function showClassSelect(quick: boolean): void {
   screen = 'class';
   music('menu');
-  screens.show(() => classScreen({
+  screens.show((sc) => classScreen(sc, {
     quickFloor: quick ? quickFloor : null,
     onFloor: (n) => { quickFloor = n; screens.refresh(); },
     onPick: (c) => {
@@ -221,7 +245,7 @@ function showStrategy(): void {
     if (alive) st.controlled = alive;
   }
   const zones = campaign.zonesOf(st.floor);
-  screens.show(() => strategyScreen({
+  screens.show((sc) => strategyScreen(sc, {
     state: st, zones,
     onEnter: enterZone,
     onControl: (c: ClassId) => { st.controlled = c; },
@@ -234,7 +258,7 @@ function showPause(): void {
   screen = 'pause';
   lastPauseToggle = performance.now();
   controls.setActive(false);
-  screens.show(() => pauseScreen({
+  screens.show((sc) => pauseScreen(sc, {
     onResume: resume,
     onOptions: () => showOptions('pause'),
     onConsole: () => openConsole(),
@@ -278,7 +302,7 @@ function showCredits(): void {
   leaveGame();
   screen = 'credits';
   music('menu');
-  screens.show(() => creditsScreen({ onBack: showTitle }));
+  screens.show((sc) => creditsScreen(sc, { onBack: showTitle }));
 }
 
 function showSummary(summary: ZoneSummary): void {
@@ -304,7 +328,7 @@ function showDefeat(): void {
   if (state) campaign.failZone(state); // el ajuste dinámico afloja un escalón tras una derrota
   const floor = world?.floor ?? state?.floor ?? 1;
   const zone = world?.zone ?? 1;
-  screens.show(() => defeatScreen({ floor, zone, onRetry: retryFloor, onMenu: showTitle }));
+  screens.show((sc) => defeatScreen(sc, { floor, zone, onRetry: retryFloor, onMenu: showTitle }));
 }
 
 function retryFloor(): void {
@@ -326,9 +350,11 @@ function showVictory(): void {
 
 function enterZone(zone: number): void {
   if (!state) return;
+  showLoading(state.floor, zone);
   try {
     beginWorld(campaign.startZone(state, zone));
   } catch (err) {
+    hideLoading();
     console.error(err);
     toast(t('err.zone', { msg: err instanceof Error ? err.message : String(err) }));
   }
@@ -397,7 +423,7 @@ function frame(nowMs: number): void {
   lastFrameMs = nowMs;
   try {
     if (world) {
-      if (screen === 'game' && !consoleUi.isOpen) {
+      if (screen === 'game' && !consoleUi.isOpen && !loadingActive) {
         simulate(dtReal);
         musicTimer += dtReal;
         if (musicTimer >= 0.5 && world) { musicTimer = 0; updateGameMusic(); }
@@ -405,6 +431,11 @@ function frame(nowMs: number): void {
       if (world) {
         renderer.render(dtReal);
         if (screen === 'game' || screen === 'pause') hud.update(world);
+        if (loadingActive) {
+          loadingFrames++;
+          const el = performance.now() - loadingSince;
+          if ((loadingFrames >= 1 && el >= 400) || el >= 1500) hideLoading();
+        }
       }
     }
   } catch (err) {
@@ -483,7 +514,17 @@ function onGlobalKey(e: KeyboardEvent): void {
   if (code === 'Escape' || code === settings.bindings.pause) {
     if (consoleUi.isOpen) { e.preventDefault(); closeConsole(); return; }
     // Con el juego activo lo gestionan los controles (onPause); aquí solo se reanuda desde la pausa
-    if (screen === 'pause') { e.preventDefault(); togglePause(); }
+    if (screen === 'pause') { e.preventDefault(); togglePause(); return; }
+    // En el resto de menús, Esc vuelve atrás (si la pantalla lo admite)
+    if (screen !== 'game' && code === 'Escape' && screens.goBack()) { e.preventDefault(); return; }
+  }
+  // Navegación por teclado en menús: flechas + Enter (Enter lo resuelve el propio botón enfocado)
+  if (screen !== 'game' && screens.visible && !consoleUi.isOpen
+    && (code === 'ArrowUp' || code === 'ArrowDown' || code === 'ArrowLeft' || code === 'ArrowRight')) {
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) return;
+    e.preventDefault();
+    stepNav(screens.root, code === 'ArrowUp' || code === 'ArrowLeft' ? -1 : 1);
   }
 }
 window.addEventListener('keydown', onGlobalKey, true);

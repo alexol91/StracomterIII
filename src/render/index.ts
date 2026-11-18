@@ -43,13 +43,13 @@ const BLOOM_DEFAULT = false;
 
 /** Luz del estilo realista por tema: exposición, intensidad del entorno HDRI, hemisférica, direccional y HDRI. */
 export const REAL_LIGHT: Record<Theme, { exposure: number; env: number; hemi: number; dir: number; hdri: string }> = {
-  recepcion: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'newman_lobby_1k' },
+  recepcion: { exposure: 0.88, env: 0.75, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
   soporte: { exposure: 0.9, env: 0.8, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
   desarrollo: { exposure: 0.9, env: 0.8, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
-  calidad: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'unfinished_office_1k' },
+  calidad: { exposure: 0.88, env: 0.75, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
   datos: { exposure: 1.0, env: 0.5, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
-  comercial: { exposure: 0.9, env: 0.85, hemi: 0.3, dir: 1.7, hdri: 'newman_lobby_1k' },
-  direccion: { exposure: 0.88, env: 0.8, hemi: 0.28, dir: 1.5, hdri: 'newman_lobby_1k' },
+  comercial: { exposure: 0.88, env: 0.75, hemi: 0.3, dir: 1.6, hdri: 'unfinished_office_1k' },
+  direccion: { exposure: 0.88, env: 0.8, hemi: 0.28, dir: 1.5, hdri: 'unfinished_office_1k' },
   juntas: { exposure: 0.88, env: 0.8, hemi: 0.28, dir: 1.5, hdri: 'unfinished_office_1k' },
   azotea: { exposure: 1.0, env: 0.1, hemi: 0.18, dir: 1.6, hdri: 'unfinished_office_1k' },
 };

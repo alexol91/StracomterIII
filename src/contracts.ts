@@ -55,7 +55,8 @@ export interface IWorld {
   enemiesAlive(): number;
   /** Fase del ritmo de la zona. */
   pacing: 'ascenso' | 'pico' | 'alivio' | 'descanso';
-  cheats: { god: boolean; noclip: boolean; aiDebug: boolean };
+  /** chutaos: «Modo Chutaos», los efectos de sonido pasan a ser las voces de broma del equipo original */
+  cheats: { god: boolean; noclip: boolean; aiDebug: boolean; chutaos: boolean };
   /** Avanza la simulación dt segundos (usa paso fijo 1/60). Consume los flancos de input. */
   step(dt: number, input: PlayerInput): void;
   /** Datos para dibujar ai.debug. Solo se rellenan si cheats.aiDebug. */

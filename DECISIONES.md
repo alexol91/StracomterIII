@@ -135,6 +135,38 @@ tamaños de la sección 11 y de «constrúyelos tal cual» para los mapas de mue
 * Efecto secundario bueno: la regla de aparecer a 12 m ya cabe en todos los mapas, y el MiniBoss ya no se
   ve desde la entrada en ninguno.
 
+## V2: estilo realista, interfaz y audio (decisiones del dueño, 2026-11-18)
+
+Sustituye al «cambio de estilo gráfico» de más abajo, que queda como reserva (`?estilo=comic`).
+
+* **Personajes realistas: Microsoft Rocketbox (licencia MIT).** Reparto elegido por el dueño: escuadra =
+  Military_Male_01 (Capitán, original), 05 (Técnico, azul marino), 04 (Especialista, gris urbano con
+  brazalete azul) y 03 (Explosivo, negro). Hostiles = Security_Male_01 (Sicario), Police_Male_01
+  (Miliciano, en negro, rojo oscuro, tierra o marrón) y Police_Male_02 (Veterano, marrón rojizo), todos
+  con brazalete rojo. Jefes (decisión nuestra): MiniBoss = Police_Male_02 a 2,2 m; MegaBoss =
+  Military_Male_02 a 2,6 m. El dueño pidió brazalete rojo también en el aliado gris; se le ha puesto
+  azul para no confundirlo con un hostil.
+* **Animaciones de combate retargeteadas.** Rocketbox no trae ninguna. Se adaptan en tiempo de carga las
+  de la «Universal Animation Library» de Quaternius (CC0) con `src/render/retarget.ts`. Son animaciones
+  de PISTOLA a dos manos aunque el personaje lleve fusil, y no existe animación específica de fusil.
+* **Armas:** siguen siendo las estilizadas de Quaternius, oscurecidas. No se encontró una colección de
+  armas realistas con licencia utilizable (las de CuiGames prohíben redistribuir los ficheros).
+* **Escenario:** mobiliario de oficina de 3DAssets.dev (CC0 según el sitio, **generado por IA**, sin
+  garantía de originalidad: aceptado expresamente por el dueño), texturas PBR y HDRI de Poly Haven y
+  ambientCG (CC0).
+* **En táctil (calidad baja) se siguen usando los personajes de Quaternius:** los de Rocketbox (10-15 mil
+  triángulos, 80 huesos) pesan demasiado para un móvil de gama media.
+* **Interfaz rediseñada** con el fondo y el ejemplo de menú aportados por el dueño
+  (`public/ui/fondo-torre.webp`). Fuentes del sistema (condensadas), sin descargas.
+* **Audio original del juego**, aportado por el dueño (`public/audio/`, metadatos «Chutaos Team»): tema
+  musical en menús, estrategia, victoria y jefes; efectos de pistola, ametralladora, cuchillo, quejido y
+  muerte. En combate normal no hay música melódica, solo ambiente (decisión nuestra: el tema dura 57 s).
+  El resto de efectos sigue sintetizado.
+* **Truco nuevo `chutaos on|off` («Modo Chutaos»)**, pedido por el dueño: los efectos pasan a ser las
+  voces de broma del equipo original. «go» suena con las órdenes y al empezar zona, y «sexo» al recoger
+  o usar un objeto (asignación nuestra, a falta de indicación).
+* **Peso:** el juego construido pasa de 12 a ~46 MB (modelos, texturas, animaciones).
+
 ## Cambio de estilo gráfico (decisión del dueño, 2026-11-18)
 
 Tras jugar la primera versión, el dueño pidió subir la calidad gráfica hacia un estilo de «hero shooter»
@@ -181,6 +213,13 @@ sonidos y fuentes siguen sin ser de terceros.
 | Vite, vitest | npm (solo desarrollo) | MIT |
 | TypeScript | npm (solo desarrollo) | Apache-2.0 |
 | tsx, @types/* | npm (solo desarrollo) | MIT |
+| Personajes realistas (8 avatares) | Microsoft Rocketbox — github.com/microsoft/Microsoft-Rocketbox | MIT (aviso en `public/models/rb/LICENSE-Microsoft-Rocketbox.md`) |
+| Animaciones de combate | Quaternius, «Universal Animation Library» | CC0 |
+| Mobiliario de oficina | 3DAssets.dev | CC0 según el sitio; generado por IA |
+| Texturas PBR, HDRI, botiquín y caja de munición | Poly Haven y ambientCG | CC0 |
+| Fondo del menú (`public/ui/fondo-torre.webp`) | Aportado por el dueño | del dueño |
+| Música y efectos originales, voces del Modo Chutaos (`public/audio/`) | Aportados por el dueño (Chutaos Team) | del dueño |
+| Retratos de la selección de personaje | Vistas previas de Microsoft Rocketbox | MIT |
 | Personajes, armas, botiquín, granada | Quaternius, «Toon Shooter Game Kit» — quaternius.com/packs/toonshootergamekit.html | CC0 (consta en la página del autor; la descarga no trae fichero de licencia) |
 | Mesas, escritorios, sillas, estanterías, sofás, butacas, macetas | Kenney, «Furniture Pack 1.0» — opengameart.org/content/furniture-kit | CC0 (`public/models/furniture/LICENSE-Kenney.txt`) |
 | Escenario, racks, aire acondicionado, modelos de reserva | Generados por código (`src/render`) | propio |

@@ -100,7 +100,7 @@ export class World implements IWorld {
   order: { kind: OrderKind; x: number; y: number; targetId: number } = { kind: 'follow', x: 0, y: 0, targetId: -1 };
   private prevOrder: { kind: OrderKind; x: number; y: number; targetId: number } | null = null;
   pacing: 'ascenso' | 'pico' | 'alivio' | 'descanso' = 'ascenso';
-  cheats = { god: false, noclip: false, aiDebug: false };
+  cheats = { god: false, noclip: false, aiDebug: false, chutaos: false };
 
   rng: () => number;
   director: Director;

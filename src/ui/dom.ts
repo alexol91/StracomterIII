@@ -52,7 +52,7 @@ export function h<T extends HTMLElement = HTMLElement>(tag: string, props?: Prop
 export function button(label: string, onClick: () => void, cls = '', sound: UiSound = 'click'): HTMLButtonElement {
   return h<HTMLButtonElement>('button', {
     class: ('btn ' + cls).trim(),
-    type: 'button',
+    type: 'button', 'data-nav': true,
     onclick: (e: Event) => {
       e.stopPropagation();
       (e.currentTarget as HTMLElement).blur();
@@ -111,4 +111,47 @@ export function bar(cls = ''): { el: HTMLElement; fill: HTMLElement } {
 export function setBar(b: { fill: HTMLElement }, frac: number): void {
   const f = Math.max(0, Math.min(1, isFinite(frac) ? frac : 0));
   setStyle(b.fill, 'width', (Math.round(f * 1000) / 10) + '%');
+}
+
+// ───────────── Recursos estáticos e iconos ─────────────
+
+/** Ruta a un fichero de public/ relativa a la página (la base de Vite es './'). */
+export function asset(path: string): string { return './' + path.replace(/^\/+/, ''); }
+
+const ICONS: Record<string, string> = {
+  med: '<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>',
+  ammo: '<path d="M7 3h3.5v13H7zM13.5 7H17v9h-3.5zM5 18h14v3H5z"/>',
+  warn: '<path fill-rule="evenodd" d="M12 3l10 18H2zM11 10v5h2v-5zM11 16.5v2h2v-2z"/>',
+  grenade: '<circle cx="12" cy="14.5" r="6.5"/><path d="M10 2h5v3h-5z"/>',
+  kia: '<path d="M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="3" fill="none"/>',
+  door: '<path fill-rule="evenodd" d="M6 3h12v18H6zM14 11v2h2v-2z"/>',
+  target: '<path fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a6 6 0 110 12 6 6 0 010-12zm0 4a2 2 0 100 4 2 2 0 000-4z"/>',
+  star: '<path d="M12 2l2.9 6.9 7.1.6-5.4 4.7 1.7 7.1L12 17.6 5.7 21.3l1.7-7.1L2 9.5l7.1-.6z"/>',
+};
+
+/** Icono SVG en línea (hereda el color del texto). */
+export function icon(name: keyof typeof ICONS | string, cls = ''): HTMLElement {
+  const el = document.createElement('span');
+  el.className = ('ico ' + cls).trim();
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">${ICONS[name] ?? ''}</svg>`;
+  return el;
+}
+
+/** Icono según el tipo de objeto (botiquín / munición). */
+export function itemIcon(it: ItemType): HTMLElement {
+  return icon(it.startsWith('vida') ? 'med' : 'ammo');
+}
+
+/** Número con cero a la izquierda: 3 → «03». */
+export function pad2(n: number): string { return String(Math.max(0, Math.floor(n))).padStart(2, '0'); }
+
+/** Mueve el foco entre los elementos [data-nav] del contenedor (flechas del teclado). */
+export function stepNav(root: ParentNode, dir: 1 | -1): void {
+  const items = Array.from(root.querySelectorAll<HTMLElement>('[data-nav]:not([disabled])'))
+    .filter((e) => e.offsetParent !== null);
+  if (items.length === 0) return;
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  const next = i < 0 ? (dir > 0 ? 0 : items.length - 1) : (i + dir + items.length) % items.length;
+  items[next].focus({ preventScroll: false });
 }

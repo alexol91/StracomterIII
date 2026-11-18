@@ -1,13 +1,14 @@
-// HUD de juego. Se construye una vez y después solo se escriben en el DOM los valores que cambian.
-// Distribución pensada para móvil en horizontal: jugador y compañeros arriba a la izquierda, puntos/tiempo/enemigos
-// arriba a la derecha, moral y jefe arriba al centro, inventario abajo al centro. El centro, la esquina inferior
-// izquierda (stick) y la franja inferior derecha (botones táctiles) quedan libres.
+// HUD táctico y discreto. Se construye una vez y después solo se escriben en el DOM los valores que cambian.
+// Escritorio: escuadra arriba a la izquierda, puntos/tiempo/hostiles arriba a la derecha, brújula, moral y jefe arriba
+// al centro, inventario abajo al centro, vida abajo a la izquierda y munición/habilidad abajo a la derecha.
+// Táctil: la esquina inferior izquierda (stick) y la franja inferior derecha (botones) son de los mandos, así que
+// vida y munición suben a las esquinas superiores (clase `touch` en #hud).
 
 import type { IWorld, Settings } from '../contracts';
 import type { ClassId, Entity, ItemType, OrderKind } from '../sim/types';
 import { CLASS_IDS } from '../sim/types';
 import { CLASS_STATS, isClass } from '../sim/data';
-import { bar, fmtTime, h, itemClass, itemShort, setBar, setCls, setStyle, setText } from './dom';
+import { fmtTime, h, icon, itemIcon, setBar, setCls, setStyle, setText } from './dom';
 import { t } from './i18n';
 import { keyLabel } from './settings';
 
@@ -20,15 +21,22 @@ const SUB_LIFE = 2.6;       // s
 const SUB_MAX = 3;
 const HIT_LIFE = 0.16;      // s
 const VIGNETTE_LIFE = 0.7;  // s
+const FIRE_OPEN = 0.12;     // s que la retícula permanece abierta tras disparar
 
 /** Estados de IA que indican que el jefe ya ha detectado al jugador (la IA los etiqueta como texto libre). */
-// etiquetas de la IA de jefes (src/sim/ai_enemy.ts): 'guardia' = aún no sabe de ti; el resto, en combate
-const BOSS_ENGAGED = /cohetes|fase|acecha|escudo/i;
+const BOSS_ENGAGED = /attack|ataca|chase|persig|combat|engage|suppress|fire|disp|alert/i;
 
 function normAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a <= -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+/** Barra segmentada (vida, escuadra, jefe…). */
+function sbar(cls = ''): { el: HTMLElement; fill: HTMLElement } {
+  const fill = h('i');
+  const el = h('div', { class: ('sbar ' + cls).trim() }, fill);
+  return { el, fill };
 }
 
 export class Hud {
@@ -68,7 +76,6 @@ export class Hud {
     this.subsKey = '';
     this.hitUntil = this.vigUntil = this.phaseUntil = -1;
     this.lastSubAt.clear();
-    for (const a of this.arcs) { a.active = false; a.el.style.opacity = '0'; }
     this.r = this.build();
   }
 
@@ -77,66 +84,77 @@ export class Hud {
   private build() {
     this.el.textContent = '';
     this.arcs = [];
+    this.el.classList.toggle('touch', this.isTouch());
 
-    // Jugador
-    const plName = h('span');
-    const plHp = h('span', { class: 'hp' });
-    const plBar = bar();
-    const plAmmo = h('span', { class: 'pl-ammo' });
-    const plGren = h('span');
-    const plWarn = h('div', { class: 'pl-warn' });
-    const abilLbl = h('div', { class: 'abil' });
-    const abilBar = bar('thin cd');
-    const allies = h('div', { class: 'allies' });
-    const allyRows = [0, 1, 2].map(() => {
-      const nm = h('span', { class: 'nm' });
-      const b = bar('thin');
-      const gone = h('span', { class: 'gone' });
-      const row = h('div', { class: 'ally hbox' }, nm, h('div', null, b.el, gone));
-      allies.appendChild(row);
-      return { row, nm, bar: b, gone };
-    });
-    const tl = h('div', { class: 'hud-tl' },
-      h('div', { class: 'hbox' },
-        h('div', { class: 'pl-head' }, plName, plHp),
-        plBar.el,
-        h('div', { class: 'pl-row' }, plAmmo, plGren),
-        plWarn,
-        abilLbl, abilBar.el,
-      ),
-      allies,
+    // Vida (abajo a la izquierda; en táctil, arriba)
+    const plName = h('span', { class: 'vit-cls' });
+    const plHp = h('span', { class: 'vit-hp' });
+    const plBar = sbar();
+    const vit = h('div', { class: 'hud-vit hp-box' },
+      h('div', { class: 'lbl' }, t('hud.hp')),
+      h('div', { class: 'vit-top' }, plHp, plName),
+      plBar.el,
     );
 
-    // Puntos / tiempo / enemigos / pausa
+    // Munición, arma, granadas y habilidad (abajo a la derecha; en táctil, arriba bajo los puntos)
+    const plAmmo = h('div', { class: 'ammo-big' });
+    const plWeapon = h('div', { class: 'ammo-w' });
+    const plGren = h('span');
+    const plWarn = h('div', { class: 'ammo-warn' });
+    const abilLbl = h('div');
+    const abilBar = sbar('thin cd');
+    const ammo = h('div', { class: 'hud-ammo hud-r hp-box' },
+      plWeapon, plAmmo,
+      h('div', { class: 'ammo-row' }, h('span', null, icon('grenade'), ' ', plGren)),
+      plWarn,
+      h('div', { class: 'abil' }, abilLbl, abilBar.el),
+    );
+
+    // Escuadra (arriba a la izquierda): tres filas finas
+    const squad = h('div', { class: 'hud-squad' });
+    const allyRows = [0, 1, 2].map(() => {
+      const nm = h('span', { class: 'nm' });
+      const b = sbar('thin ally');
+      const gone = h('span', { class: 'gone' });
+      const row = h('div', { class: 'ally' }, nm, h('div', null, b.el, gone));
+      squad.appendChild(row);
+      return { row, nm, bar: b, gone };
+    });
+
+    // Puntos / tiempo / hostiles / pausa (arriba a la derecha)
     const vScore = h('span', { class: 'v' });
     const vTime = h('span', { class: 'v' });
-    const vEnemies = h('span', { class: 'v' });
-    const stats = h('div', { class: 'stats hbox' },
+    const vEnemies = h('span', { class: 'v hostile' });
+    const stats = h('div', { class: 'stats hud-r hp-box' },
       h('span', { class: 'k' }, t('hud.score')), vScore,
       h('span', { class: 'k' }, t('hud.time')), vTime,
-      h('span', { class: 'k' }, t('hud.enemies')), vEnemies,
+      h('span', { class: 'k' }, t('hud.enemies')), h('span', { class: 'v hostile' }, icon('warn'), vEnemies),
     );
     const pauseBtn = h<HTMLButtonElement>('button', {
       class: 'hud-pause', type: 'button', 'aria-label': t('hud.pause'),
       onpointerdown: (e: Event) => { e.stopPropagation(); },
       onclick: (e: Event) => { e.stopPropagation(); (e.currentTarget as HTMLElement).blur(); this.onPauseButton(); },
     }, 'II');
-    const tr = h('div', { class: 'hud-tr' }, stats, pauseBtn);
+    const tr = h('div', { class: 'hud-stats' }, stats, pauseBtn);
 
-    // Moral y jefe
-    const moraleBar = bar('thin blue');
-    const bossName = h('div');
+    // Brújula, moral y jefe (arriba al centro)
+    const compass = h('div', { class: 'compass' });
+    const moraleBar = sbar('thin mor');
+    const bossName = h('span');
+    const bossBar = sbar('boss');
     const bossShield = h('div', { class: 'shield' });
-    const bossBar = bar('boss');
-    const boss = h('div', { class: 'boss hbox' }, bossName, bossBar.el, bossShield);
+    const boss = h('div', { class: 'boss' }, h('div', { class: 'bn' }, icon('warn'), bossName), bossBar.el, bossShield);
     const phaseMsg = h('div', { class: 'phase-msg' });
-    const tc = h('div', { class: 'hud-tc' },
+    const chutaos = h('div', { class: 'chutaos' }, t('hud.chutaos'));
+    const top = h('div', { class: 'hud-top' },
+      compass,
       h('div', { class: 'morale' }, h('span', null, t('hud.morale')), moraleBar.el),
-      boss, phaseMsg,
+      boss, phaseMsg, chutaos,
     );
 
-    // Centro
-    const xh = h('div', { class: 'xh' }, h('b'), h('i'));
+    // Centro: retícula fina, marca de impacto, arcos de daño, viñeta, avisos
+    const xh = h('div', { class: 'xh' },
+      h('i', { class: 't' }), h('i', { class: 'b' }), h('i', { class: 'l' }), h('i', { class: 'r' }), h('i', { class: 'd' }), h('i', { class: 'dia' }));
     const hit = h('div', { class: 'hit' });
     const hurtLayer = h('div', { class: 'hurt-layer' });
     for (let i = 0; i < ARC_POOL; i++) {
@@ -148,19 +166,19 @@ export class Hud {
     const prompt = h('div', { class: 'prompt' });
     const clearedMsg = h('div', { class: 'cleared-msg' }, t('hud.cleared'));
 
-    // Abajo al centro
+    // Abajo al centro: subtítulos, orden, inventario
     const subsBox = h('div', { class: 'subs' });
     const order = h('div', { class: 'order' });
     const invName = h('div', { class: 'inv-name' });
     const slots = [0, 1, 2, 3, 4].map(() => h('div', { class: 'slot' }));
     const bc = h('div', { class: 'hud-bc' }, subsBox, order, invName, h('div', { class: 'inv' }, ...slots));
 
-    this.el.append(vignette, tl, tr, tc, xh, hit, hurtLayer, prompt, clearedMsg, bc);
+    this.el.append(vignette, vit, ammo, squad, tr, top, xh, hit, hurtLayer, prompt, clearedMsg, bc);
 
     return {
-      plName, plHp, plBar, plAmmo, plGren, plWarn, abilLbl, abilBar, allyRows,
+      plName, plHp, plBar, plAmmo, plWeapon, plGren, plWarn, abilLbl, abilBar, allyRows,
       vScore, vTime, vEnemies, pauseBtn,
-      moraleBar, boss, bossName, bossBar, bossShield, phaseMsg,
+      compass, moraleBar, boss, bossName, bossBar, bossShield, phaseMsg, chutaos,
       xh, hit, vignette, prompt, clearedMsg, subsBox, order, invName, slots,
     };
   }
@@ -178,11 +196,18 @@ export class Hud {
   }
 
   private pushSub(text: string, now: number): void {
-    // Evita repetir el mismo subtítulo: si ya está, solo se renueva su vida
     const ex = this.subs.find((s) => s.text === text);
     if (ex) { ex.until = now + SUB_LIFE; return; }
     this.subs.push({ text, until: now + SUB_LIFE });
     while (this.subs.length > SUB_MAX) this.subs.shift();
+  }
+
+  private subThrottled(key: string, now: number, dir: string, minGap: number): void {
+    const text = t(key, { dir });
+    const last = this.lastSubAt.get(text) ?? -99;
+    if (now - last < minGap) return;
+    this.lastSubAt.set(text, now);
+    this.pushSub(text, now);
   }
 
   /** Lee world.events (los del último step). Llamar tras CADA paso. */
@@ -240,14 +265,6 @@ export class Hud {
     }
   }
 
-  private subThrottled(key: string, now: number, dir: string, minGap: number): void {
-    const text = t(key, { dir });
-    const last = this.lastSubAt.get(text) ?? -99;
-    if (now - last < minGap) return;
-    this.lastSubAt.set(text, now);
-    this.pushSub(text, now);
-  }
-
   // ───────────── actualización por frame ─────────────
 
   update(world: IWorld): void {
@@ -256,19 +273,24 @@ export class Hud {
     const p = world.player;
     const s = this.getSettings();
 
-    // Jugador
+    // Vida
+    const hpFrac = p.hp / (p.maxHp || 1);
     setText(r.plName, t('kind.' + p.kind));
     setText(r.plHp, String(Math.max(0, Math.ceil(p.hp))));
-    setBar(r.plBar, p.hp / (p.maxHp || 1));
-    setCls(r.plBar.el, 'low', p.hp / (p.maxHp || 1) < 0.3);
+    setBar(r.plBar, hpFrac);
+    setCls(r.plBar.el, 'low', hpFrac < 0.3);
+
+    // Munición
+    const emptyMag = p.mag <= 0;
     setText(r.plAmmo, `${p.mag} / ${p.ammo}`);
-    setText(r.plGren, `${t('hud.grenades')} ×${p.grenades}`);
+    setCls(r.plAmmo, 'empty', emptyMag);
+    setText(r.plGren, `×${p.grenades}`);
     let warn = '', crit = false;
     if (p.reloading > 0) warn = t('hud.reloading');
-    else if (p.mag <= 0) {
-      if (p.ammo > 0) { warn = t('hud.empty', { key: keyLabel(s.bindings.reload) }); crit = true; }
-      else { warn = t('hud.noAmmo'); crit = true; }
-    }
+    else if (emptyMag) {
+      warn = p.ammo > 0 ? t('hud.empty', { key: keyLabel(s.bindings.reload) }) : t('hud.noAmmo');
+      crit = true;
+    } else if (p.mag <= Math.max(3, p.magSize * 0.25) && p.ammo > 0) warn = t('hud.reloadHint', { key: keyLabel(s.bindings.reload) });
     setText(r.plWarn, warn);
     setCls(r.plWarn, 'crit', crit);
 
@@ -277,6 +299,7 @@ export class Hud {
       const ready = p.abilityCd <= 0;
       const max = p.abilityCdMax > 0 ? p.abilityCdMax : 1;
       const nm = t('ability.' + p.kind);
+      setText(r.plWeapon, t('weapon.' + p.kind));
       setText(r.abilLbl, ready ? `[${keyLabel(s.bindings.ability)}] ${nm} — ${t('hud.ready')}` : `${nm} — ${Math.ceil(p.abilityCd)} s`);
       setBar(r.abilBar, ready ? 1 : 1 - p.abilityCd / max);
       setCls(r.abilBar.el, 'ready', ready);
@@ -293,7 +316,7 @@ export class Hud {
         if (!e.isPlayer && isClass(e.kind)) allyByKind[e.kind] = e;
       } else if (e.alive && (e.kind === 'miniboss' || e.kind === 'megaboss')) {
         const d = Math.hypot(e.x - p.x, e.y - p.y);
-        const engaged = d < 14 || BOSS_ENGAGED.test(e.aiState || '');
+        const engaged = d < 20 || BOSS_ENGAGED.test(e.aiState || '');
         if (engaged && d < bossD) { boss = e; bossD = d; }
       }
     }
@@ -304,10 +327,7 @@ export class Hud {
       const row = r.allyRows[i];
       const c = others[i];
       const e = c ? allyByKind[c] : undefined;
-      if (!c || !e) {
-        setStyle(row.row, 'display', 'none');
-        continue;
-      }
+      if (!c || !e) { setStyle(row.row, 'display', 'none'); continue; }
       setStyle(row.row, 'display', '');
       const dead = !e.alive || e.hp <= 0;
       setText(row.nm, t('kind.' + c));
@@ -318,14 +338,16 @@ export class Hud {
       setText(row.gone, dead ? t('hud.fallen') : '');
     }
 
-    // Puntos, tiempo, enemigos
+    // Puntos, tiempo, hostiles
     setText(r.vScore, String(Math.round(world.score)));
     setText(r.vTime, fmtTime(world.time));
     setText(r.vEnemies, String(world.enemiesRemaining()));
     setCls(r.pauseBtn, 'show', this.isTouch());
 
-    // Moral
+    // Brújula (marcas que se desplazan con la cámara) y moral
+    setStyle(r.compass, '--k', (Math.round((-world.cam.yaw * 180 / Math.PI) / 15 * 20) / 20).toString());
     setBar(r.moraleBar, world.morale / 100);
+    setCls(r.chutaos, 'on', !!world.cheats?.chutaos);
 
     // Jefe
     if (boss) {
@@ -338,13 +360,14 @@ export class Hud {
       setCls(r.boss, 'on', false);
     }
 
-    // Fase del ritmo (nada intrusivo: línea pequeña unos segundos)
+    // Fase del ritmo (línea pequeña unos segundos)
     const phaseOn = now < this.phaseUntil;
     if (phaseOn) setText(r.phaseMsg, this.phaseText);
     setCls(r.phaseMsg, 'on', phaseOn);
 
-    // Mira y marca de impacto
+    // Retícula: se abre al disparar; roja (y con rombo) sobre enemigo. Marca de impacto.
     setCls(r.xh, 'on-target', world.aim.entityId >= 0);
+    setCls(r.xh, 'fire', now - p.lastShotAt < FIRE_OPEN && p.lastShotAt >= 0);
     setCls(r.hit, 'on', now < this.hitUntil);
 
     // Arcos de daño recibido: siguen la rotación de la cámara
@@ -356,7 +379,6 @@ export class Hud {
       setStyle(a.el, 'transform', `rotate(${rel.toFixed(2)}rad)`);
       setStyle(a.el, 'opacity', (Math.round(Math.min(1, life * 1.4) * 20) / 20).toString());
     }
-    // Viñeta roja
     const vl = (this.vigUntil - now) / VIGNETTE_LIFE;
     setStyle(r.vignette, 'opacity', vl > 0 ? (Math.round(vl * this.vigPeak * 20) / 20).toString() : '0');
 
@@ -371,14 +393,17 @@ export class Hud {
     // Orden vigente
     setText(r.order, `${t('hud.order')}: ${t('order.' + (world.order.kind as OrderKind))}`);
 
-    // Inventario
+    // Inventario: cinco ranuras pequeñas con icono + cantidad
     for (let i = 0; i < 5; i++) {
       const it: ItemType | null = p.inventory[i] ?? null;
       const slot = r.slots[i];
-      setText(slot, it ? itemShort(it) : '');
+      const key = it ?? '';
+      if (slot.dataset.it !== key) {
+        slot.dataset.it = key;
+        slot.textContent = '';
+        if (it) { slot.appendChild(itemIcon(it)); slot.appendChild(document.createTextNode(it.slice(it.indexOf('_') + 1))); }
+      }
       setCls(slot, 'sel', i === p.invSel);
-      setCls(slot, 'it-hp', !!it && itemClass(it) === 'it-hp');
-      setCls(slot, 'it-ammo', !!it && itemClass(it) === 'it-ammo');
     }
     const sel = p.inventory[p.invSel] ?? null;
     setText(r.invName, sel ? t('item.' + sel) : '');
