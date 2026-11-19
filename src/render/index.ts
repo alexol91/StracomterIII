@@ -279,9 +279,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   function scanVariantGuns(e: { kind: Kind; primaryVariant?: number; variant?: string | null; bossVariant?: string | null } | undefined): void {
     if (!e || !rbWanted()) return;
     if (e.primaryVariant === 1 && VARIANT_GUN[e.kind]) rb.needGun(VARIANT_GUN[e.kind]!);
-    if (e.variant === 'tirador') rb.needGun('Sniper');
+    if (e.variant === 'tirador') rb.needGun('SVD');
     if (e.variant === 'asaltante') rb.needGun('Knife_1');
-    if (e.bossVariant === 'ametrallador') rb.needGun('ShortCannon');
+    if (e.bossVariant === 'ametrallador') rb.needGun('M249');
   }
 
   function ensureOffice(): void {
@@ -358,6 +358,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
   /** Rocketbox solo en estilo realista y calidad alta (en 'low' el skinning de ~10k triángulos × 49 sale caro: Quaternius). */
   function rbWanted(): boolean { return getStyleMode() === 'realista' && quality !== 'low'; }
   function updateUseRb(): void { rb.setNormals(quality === 'high'); chars.setUseRb(rbWanted() && rb.loaded && rb.templates.size > 0); }
+  /** La granada M67 nueva sirve también de proyectil en el estilo realista. */
+  function syncGunAssets(): void { const g = rb.gunGeo('M67'); fx.setM67(g && !g.fromPack ? g : null, g && !g.fromPack ? rb.gunMaterial() : null); }
+
   function ensureRb(): void {
     if (!rbWanted() || disposed || !world || rbBusy) return;
     const kinds = kindsForWorld(world);
@@ -372,6 +375,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererWithQuality {
       await rb.prewarm();                              // retargeteo repartido en tareas pequeñas; mientras, se ven los de reserva
       if (disposed) return;
       chars.setRb(rb);
+      const prev = rb.onChange;
+      rb.onChange = () => { prev?.(); syncGunAssets(); };
+      syncGunAssets();
       updateUseRb();
     }).finally(() => { rbBusy = false; if (!disposed) ensureRb(); });
   }

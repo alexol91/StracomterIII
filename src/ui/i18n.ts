@@ -515,6 +515,8 @@ const es = {
   'strat.tab.loadout': 'Armamento',
   'strat.more': 'ver más',
   'strat.less': 'ver menos',
+  'cred.weaponsHead': 'Modelos de armas',
+  'cred.weaponsText': 'Low-Poly M4a1, HK MP5, M249 SAW, Milkor MGL Mk 1s, M1911, Remington 870, SVD Dragunov y M67, de TastyTony (sketchfab.com/TastyTony), con licencia CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modificados: materiales y escala.',
 };
 
 export type Key = keyof typeof es;
@@ -1015,6 +1017,8 @@ const en: Record<Key, string> = {
   'strat.tab.loadout': 'Loadout',
   'strat.more': 'more',
   'strat.less': 'less',
+  'cred.weaponsHead': 'Weapon models',
+  'cred.weaponsText': 'Low-Poly M4a1, HK MP5, M249 SAW, Milkor MGL Mk 1s, M1911, Remington 870, SVD Dragunov and M67, by TastyTony (sketchfab.com/TastyTony), licensed under CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: materials and scale.',
 };
 
 const dicts: Record<Lang, Record<string, string>> = { es, en };

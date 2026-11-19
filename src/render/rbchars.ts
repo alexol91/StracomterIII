@@ -16,6 +16,7 @@ import type { Entity, Kind } from '../sim/types';
 import { statsOf } from '../sim/data';
 import { bakeColored, modelsUrl } from './assets';
 import { retargetClip, UAL_TO_ROCKETBOX } from './retarget';
+import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addArmband, isTintable, tintMaterial, type BandStyle, type TintSpec } from './tint';
 import type { CharHost } from './skinchars';
 
@@ -68,11 +69,41 @@ export const GUN_GRIP: Record<string, GunGrip> = {
   Sniper: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
   Sniper_2: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
   GrenadeLauncher: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
-  Knife_1: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
+  // armas nuevas: el origen del modelo está en la empuñadura, el cañón apunta a -X y arriba es +Y (ver canonicalizeTasty)
+  M4A1: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  MP5: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  M249: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  MGL: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  M1911: { pos: [5, 0, 0], rot: [0, 180, 0], scale: 1 },
+  REM870: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  SVD: { pos: [6, 0, 0], rot: [0, 180, 0], scale: 1 },
+  M67: { pos: [5, 0, 0], rot: [0, 0, 0], scale: 1 },
+  Knife_1: { pos: [5, 0, 0], rot: [0, 0, -90], scale: 1 },   // el cuchillo del pack es largo en Y: se tumba a lo largo del antebrazo (X de la mano)
   Grenade: { pos: [5, 0, 0], rot: [0, 0, 0], scale: 1 },
 };
+/** Peso del blocaje de puntería durante la recarga (la animación sube el arma ~47°; así quedan ~10°). */
+const RELOAD_LOCK = 0.8;
+/** Armas cuyo agarre se calcula solo a partir de la pose de apuntado (ver RbLibrary.calibrateGrips). */
+const AUTO_GRIP: Record<string, true> = { M4A1: true, MP5: true, M249: true, MGL: true, M1911: true, REM870: true, SVD: true };
 /** Longitud real (m) de cada arma. */
-export const GUN_LEN: Record<string, number> = { Sniper: 1.2, Sniper_2: 1.15, GrenadeLauncher: 0.9, AK: 0.85, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 1.1, Pistol: 0.22, Shotgun: 0.95, Knife_1: 0.28, Grenade: 0.1 };
+/**
+ * Armas nuevas (TastyTony, Sketchfab, CC BY 4.0): clave de juego → carpeta en public/models/armas, punto de agarre
+ * [fracción de la longitud desde la culata, fracción de la altura desde abajo] de la empuñadura, y el arma del pack anterior
+ * que se usa como reserva si falla la carga.
+ */
+export const TASTY: Record<string, { folder: string; grip: [number, number]; fallback: string }> = {
+  M4A1: { folder: 'm4a1', grip: [0.27, 0.40], fallback: 'AK' },
+  MP5: { folder: 'mp5', grip: [0.41, 0.40], fallback: 'SMG' },
+  M249: { folder: 'm249', grip: [0.31, 0.34], fallback: 'ShortCannon' },
+  MGL: { folder: 'milkor', grip: [0.27, 0.40], fallback: 'RocketLauncher' },
+  M1911: { folder: 'm1911', grip: [0.17, 0.35], fallback: 'Pistol' },
+  REM870: { folder: 'remington870', grip: [0.10, 0.32], fallback: 'Shotgun' },
+  SVD: { folder: 'dragunov', grip: [0.20, 0.22], fallback: 'Sniper' },
+  M67: { folder: 'm67', grip: [0.5, 0.5], fallback: 'Grenade' },
+};
+/** Longitud total real (m) de cada arma nueva (M67: alto). */
+export const GUN_LEN_NEW: Record<string, number> = { M4A1: 0.84, MP5: 0.68, M249: 1.04, MGL: 0.78, M1911: 0.22, REM870: 1.0, SVD: 1.22, M67: 0.09 };
+export const GUN_LEN: Record<string, number> = { Sniper: 1.1, Sniper_2: 1.05, GrenadeLauncher: 0.75, AK: 0.9, SMG: 0.6, ShortCannon: 0.8, RocketLauncher: 0.8, Pistol: 0.2, Shotgun: 1.0, Knife_1: 0.28, Grenade: 0.1, ...GUN_LEN_NEW };
 
 // ───────────────────────── Configuración por tipo ─────────────────────────
 
@@ -86,6 +117,8 @@ interface Cfg {
   tints: TintSpec[];
   wx: number;
   band: 'none' | 'ally' | 'hostile';
+  /** teñir también el material de la cabeza (lleva la gorra/casco; la máscara «sinpiel» respeta la piel) */
+  tintHead?: boolean;
   /** brazalete en los dos brazos */
   both?: boolean;
   bandRadius?: number;
@@ -93,18 +126,18 @@ interface Cfg {
 }
 
 const CFG: Record<Kind, Cfg> = {
-  captain: { avatar: 'Military_Male_01', gun: 'AK', tints: [], wx: 1, band: 'none', barW: 0.7 },
-  technic: { avatar: 'Military_Male_05', gun: 'SMG', tints: [NAVY], wx: 1, band: 'none', barW: 0.7 },
-  especialist: { avatar: 'Military_Male_04', gun: 'ShortCannon', tints: [URBAN_GREY], wx: 1.05, band: 'ally', barW: 0.75 },
-  explosives: { avatar: 'Military_Male_03', gun: 'RocketLauncher', tints: [BLACK], wx: 1.05, band: 'none', barW: 0.75 },
-  enemy1: { avatar: 'Security_Male_01', gun: 'Pistol', tints: [], wx: 0.95, band: 'hostile', barW: 0.6 },
+  captain: { avatar: 'Military_Male_01', gun: 'M4A1', tints: [], wx: 1, band: 'none', barW: 0.7 },
+  technic: { avatar: 'Military_Male_05', gun: 'MP5', tints: [NAVY], wx: 1, band: 'none', tintHead: true, barW: 0.7 },
+  especialist: { avatar: 'Military_Male_04', gun: 'M249', tints: [URBAN_GREY], wx: 1.05, band: 'ally', barW: 0.75 },
+  explosives: { avatar: 'Military_Male_03', gun: 'MGL', tints: [BLACK], wx: 1.05, band: 'none', barW: 0.75 },
+  enemy1: { avatar: 'Security_Male_01', gun: 'M1911', tints: [], wx: 0.95, band: 'hostile', barW: 0.6 },
   enemy2: {
-    avatar: 'Police_Male_01', gun: 'SMG', wx: 1, band: 'hostile', barW: 0.7,
+    avatar: 'Police_Male_01', gun: 'MP5', wx: 1, band: 'hostile', barW: 0.7,
     tints: [BLACK, { tono: 0.0, satMul: 0, satAdd: 0.55, valMul: 0.5 }, { tono: 0.09, satMul: 0, satAdd: 0.35, valMul: 0.6 }, { tono: 0.07, satMul: 0, satAdd: 0.45, valMul: 0.42 }],
   },
-  enemy3: { avatar: 'Police_Male_02', gun: 'Shotgun', tints: [{ tono: 0.03, satMul: 0, satAdd: 0.5, valMul: 0.5 }], wx: 1.08, band: 'hostile', barW: 0.75 },
+  enemy3: { avatar: 'Police_Male_02', gun: 'REM870', tints: [{ tono: 0.03, satMul: 0, satAdd: 0.5, valMul: 0.5 }], wx: 1.08, band: 'hostile', barW: 0.75 },
   miniboss: { avatar: 'Police_Male_02', gun: 'RocketLauncher', tints: [{ tono: 0.0, satMul: 0, satAdd: 0.12, valMul: 0.26 }], wx: 1.15, band: 'hostile', bandRadius: 7.6, barW: 1.0 },
-  megaboss: { avatar: 'Military_Male_02', gun: 'ShortCannon', tints: [{ tono: 0.97, satMul: 0, satAdd: 0.5, valMul: 0.28 }], wx: 1.15, band: 'hostile', both: true, bandRadius: 7.4, barW: 1.2 },
+  megaboss: { avatar: 'Military_Male_02', gun: 'M249', tints: [{ tono: 0.97, satMul: 0, satAdd: 0.5, valMul: 0.28 }], wx: 1.15, band: 'hostile', both: true, bandRadius: 7.4, barW: 1.2 },
 };
 
 function bandStyle(cfg: Cfg, cb: boolean): BandStyle {
@@ -120,7 +153,7 @@ const TORSO_BONES = new Set(['Bip01_Spine1', 'Bip01_Spine2', 'Bip01_Neck', 'Bip0
   'Bip01_L_Forearm', 'Bip01_R_Forearm', 'Bip01_L_Hand', 'Bip01_R_Hand']);
 /** armas extra de las ranuras del jugador: pistola, cuchillo, granada */
 /** arma alternativa de la clase (primaryVariant 1): el capitán conserva su fusil */
-export const VARIANT_GUN: Partial<Record<Kind, string>> = { technic: 'Shotgun', especialist: 'Sniper_2', explosives: 'GrenadeLauncher' };
+export const VARIANT_GUN: Partial<Record<Kind, string>> = { technic: 'REM870', especialist: 'SVD', explosives: 'MGL' };
 /** tintes sobrios de los oficios de enemigo */
 export const VARIANT_TINT: Record<string, TintSpec> = {
   asaltante: { tono: 0.0, satMul: 0, satAdd: 0.42, valMul: 0.42 },
@@ -128,8 +161,8 @@ export const VARIANT_TINT: Record<string, TintSpec> = {
   granadero: { tono: 0.25, satMul: 0, satAdd: 0.38, valMul: 0.48 },
   blindado: { tono: 0.62, satMul: 0, satAdd: 0.42, valMul: 0.34 },
 };
-const EXTRA_GUNS = ['Pistol', 'Knife_1', 'Grenade'];
-const SLOT_GUN: Record<string, string> = { secondary: 'Pistol', knife: 'Knife_1', grenade: 'Grenade' };
+const EXTRA_GUNS = ['M1911', 'Knife_1', 'M67'];
+const SLOT_GUN: Record<string, string> = { secondary: 'M1911', knife: 'Knife_1', grenade: 'M67' };
 const IN_PLACE = new Set(['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Idle_Loop', 'Roll']);
 export const RB_CLIPS = ['Pistol_Idle_Loop', 'Pistol_Aim_Neutral', 'Pistol_Shoot', 'Pistol_Reload', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Punch_Jab', 'Punch_Cross', 'Hit_Chest', 'Hit_Head', 'Death01', 'Sword_Attack'];
@@ -141,13 +174,15 @@ function filterClip(clip: THREE.AnimationClip, bones: Set<string>, suffix: strin
 }
 
 /** Registro de armas en las manos (para reajustar el agarre en vivo con ?armas=1). */
-interface GunEntry { mesh: THREE.Object3D; weapon: string; k: number; maxDim: number; mul?: number }
+export interface GunEntry { mesh: THREE.Object3D; weapon: string; k: number; maxDim: number; mul?: number; len?: number }
 const gunRegistry = new Set<GunEntry>();
-function applyGrip(e: GunEntry): void {
+/** Para las vistas de desarrollo (armas.html): permite el ajuste en vivo ?armas=1 sobre su propia malla. */
+export function registerGun(e: GunEntry): () => void { gunRegistry.add(e); return () => { gunRegistry.delete(e); }; }
+export function applyGrip(e: GunEntry): void {
   const g = GUN_GRIP[e.weapon] ?? { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 };
   e.mesh.position.set(g.pos[0], g.pos[1], g.pos[2]);
   e.mesh.rotation.set(THREE.MathUtils.degToRad(g.rot[0]), THREE.MathUtils.degToRad(g.rot[1]), THREE.MathUtils.degToRad(g.rot[2]));
-  const s = ((GUN_LEN[e.weapon] ?? 0.8) / e.maxDim) * e.k * g.scale * (e.mul ?? 1);
+  const s = ((e.len ?? GUN_LEN[e.weapon] ?? 0.8) / e.maxDim) * e.k * g.scale * (e.mul ?? 1);
   e.mesh.scale.setScalar(s);
 }
 try {
@@ -215,6 +250,194 @@ export class RbTemplate {
   }
 }
 
+// ───────────────────────── Armas: materiales PBR creíbles ─────────────────────────
+
+function noiseCanvas(size: number, base: number, amp: number, blobs: number, seed: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  let sd = seed;
+  const r = (): number => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+  g.fillStyle = `rgb(${base},${base},${base})`; g.fillRect(0, 0, size, size);
+  for (let i = 0; i < blobs; i++) {
+    const x = r() * size, y = r() * size, rad = size * (0.06 + r() * 0.2), v = base + (r() - 0.5) * 2 * amp;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, `rgba(${v | 0},${v | 0},${v | 0},0.5)`); gr.addColorStop(1, `rgba(${v | 0},${v | 0},${v | 0},0)`);
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+function woodCanvas(): THREE.CanvasTexture {
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  let sd = 77;
+  const r = (): number => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+  g.fillStyle = '#4c3a2c'; g.fillRect(0, 0, S, S);       // nogal oscuro y poco saturado
+  for (let i = 0; i < 70; i++) {                       // vetas largas a lo largo de u
+    const y = r() * S, a = 0.08 + r() * 0.16;
+    g.strokeStyle = r() > 0.5 ? `rgba(24,16,10,${a})` : `rgba(110,90,70,${a})`; g.lineWidth = 0.6 + r() * 1.6;
+    g.beginPath(); g.moveTo(0, y);
+    g.bezierCurveTo(S * 0.3, y + (r() - 0.5) * 8, S * 0.7, y + (r() - 0.5) * 8, S, y + (r() - 0.5) * 4); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+/** metal pavonado, polímero negro mate, madera con veta, detalles más claros y pintura (granada), con rugosidad variable de baja frecuencia. */
+function makeGunMaterials(): THREE.MeshStandardMaterial[] {
+  const rough = noiseCanvas(128, 200, 40, 40, 5);        // rugosidad × 0,78..1 en G: desgaste sutil de baja frecuencia
+  return [
+    new THREE.MeshStandardMaterial({ color: 0x2a2d32, metalness: 0.85, roughness: 0.42, roughnessMap: rough }),
+    new THREE.MeshStandardMaterial({ color: 0x121315, metalness: 0.0, roughness: 0.7, roughnessMap: rough }),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, map: woodCanvas(), metalness: 0.0, roughness: 0.6 }),
+    new THREE.MeshStandardMaterial({ color: 0x5c6066, metalness: 0.6, roughness: 0.5, roughnessMap: rough }),
+    new THREE.MeshStandardMaterial({ color: 0x4a5238, metalness: 0.2, roughness: 0.65, roughnessMap: rough }),
+    // 5: polímero o pintura color arena (FDE), mate y sin veta: los marrones claros de armas que no son de madera
+    new THREE.MeshStandardMaterial({ color: 0x8a7a5c, metalness: 0.0, roughness: 0.82, roughnessMap: rough }),
+  ];
+}
+
+/** Clase de pieza por el color original del material del pack (0 metal, 1 polímero, 2 madera, 3 detalle). */
+function gunClass(r: number, g: number, b: number, wood = true): number {
+  const sr = Math.pow(r, 1 / 2.2), sg = Math.pow(g, 1 / 2.2), sb = Math.pow(b, 1 / 2.2);
+  const mx = Math.max(sr, sg, sb), mn = Math.min(sr, sg, sb), sat = mx > 0 ? (mx - mn) / mx : 0;
+  const lum = 0.299 * sr + 0.587 * sg + 0.114 * sb;
+  let hue = 0;
+  if (mx > mn) {
+    const d = mx - mn;
+    hue = mx === sr ? ((sg - sb) / d) % 6 : mx === sg ? (sb - sr) / d + 2 : (sr - sg) / d + 4;
+    hue *= 60; if (hue < 0) hue += 360;
+  }
+  if (hue >= 12 && hue <= 50 && sat > 0.28 && lum > 0.06) return wood ? 2 : 5;   // marrón: madera (o arena mate en las armas que no la llevan)
+  if (sat > 0.35) return 3;                                              // verdes, azules, naranjas planos del pack: detalle gris
+  if (lum < 0.2) return 1;                                               // negro: polímero
+  if (lum > 0.62) return 3;                                              // claros: miras, cargador
+  return 0;
+}
+
+/** Armas con madera de verdad (veta); en el resto los marrones claros son polímero/pintura arena. */
+const WOODEN = new Set(['SVD', 'REM870', 'AK', 'Shotgun', 'Sniper', 'Sniper_2', 'SMG', 'ShortCannon', 'RocketLauncher', 'GrenadeLauncher', 'Pistol', 'Knife_1', 'Grenade']);
+
+/** Pasada de realismo por código sobre el modelo del pack: normales con pliegue (35°), grosor moderado, UV planares y grupos por material. */
+function refineGun(geo0: THREE.BufferGeometry, name: string, squash = false): THREE.BufferGeometry {
+  const g = toCreasedNormals(geo0, THREE.MathUtils.degToRad(35));
+  g.computeBoundingBox();
+  const size = g.boundingBox!.getSize(new THREE.Vector3());
+  const dims = [size.x, size.y, size.z];
+  const L = dims.indexOf(Math.max(...dims));
+  const len = dims[L];
+  const others = [0, 1, 2].filter((i) => i !== L);
+  // si el modelo es demasiado «gordo» se afina el grosor (como mucho -25 %)
+  const thick = Math.max(dims[others[0]], dims[others[1]]) / len;
+  const f = squash && thick > 0.3 ? Math.max(0.75, 0.3 / thick) : 1;
+  if (f < 1) g.scale(others.includes(0) ? f : 1, others.includes(1) ? f : 1, others.includes(2) ? f : 1);
+  const pos = g.getAttribute('position'), nor = g.getAttribute('normal'), col = g.getAttribute('color');
+  const n = pos.count, tris = n / 3;
+  const cls = new Uint8Array(tris), counts = [0, 0, 0, 0, 0, 0];
+  for (let t = 0; t < tris; t++) {
+    const nade = name === 'Grenade' || name === 'M67';
+    let k = nade ? 4 : gunClass(col.getX(t * 3), col.getY(t * 3), col.getZ(t * 3), WOODEN.has(name));
+    if (nade && col.getX(t * 3) + col.getY(t * 3) + col.getZ(t * 3) < 0.18) k = 1;
+    cls[t] = k; counts[k]++;
+  }
+  const P = new Float32Array(n * 3), N = new Float32Array(n * 3), U = new Float32Array(n * 2);
+  const out = new THREE.BufferGeometry();
+  let w = 0;
+  for (let k = 0; k < 6; k++) {
+    const start = w;
+    for (let t = 0; t < tris; t++) {
+      if (cls[t] !== k) continue;
+      for (let v = 0; v < 3; v++, w++) {
+        const i = t * 3 + v;
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        P[w * 3] = x; P[w * 3 + 1] = y; P[w * 3 + 2] = z;
+        N[w * 3] = nor.getX(i); N[w * 3 + 1] = nor.getY(i); N[w * 3 + 2] = nor.getZ(i);
+        const a = [x, y, z];
+        U[w * 2] = a[L] * 2.0; U[w * 2 + 1] = (a[others[0]] + a[others[1]]) * 2.0;
+      }
+    }
+    if (w > start) out.addGroup(start, w - start, k);
+  }
+  out.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+  out.computeBoundingBox(); out.computeBoundingSphere();
+  return out;
+}
+
+/** Color lineal del material: el difuso de KHR_materials_pbrSpecularGlossiness (que three ya no interpreta) o el base. */
+function gunMatColor(m: THREE.Material): [number, number, number] {
+  const ext = (m.userData?.gltfExtensions as { KHR_materials_pbrSpecularGlossiness?: { diffuseFactor?: number[] } } | undefined)?.KHR_materials_pbrSpecularGlossiness;
+  if (ext?.diffuseFactor) return [ext.diffuseFactor[0], ext.diffuseFactor[1], ext.diffuseFactor[2]];
+  const c = (m as THREE.MeshStandardMaterial).color;
+  return c ? [c.r, c.g, c.b] : [0.04, 0.04, 0.04];
+}
+
+/**
+ * Carga un modelo de TastyTony (CC BY 4.0), lo hornea en su pose de reposo (varias mallas llevan esqueleto de Blender sin
+ * animación), lo coloca en el marco canónico del juego —origen en la empuñadura, cañón hacia -X, arriba +Y— y le aplica la
+ * pasada de materiales PBR. Todos estos modelos traen el cañón hacia +X (comprobado sobre su silueta), así que basta girar 180° en Y.
+ */
+async function loadTasty(key: string, folder: string, grip: [number, number]): Promise<{ geo: THREE.BufferGeometry; maxDim: number; len: number; muzzle?: [number, number, number]; eject?: [number, number, number] }> {
+  const g = await new GLTFLoader().loadAsync(modelsUrl(`armas/${folder}/scene.gltf`));
+  g.scene.updateMatrixWorld(true);
+  const pos: number[] = [], col: number[] = [];
+  const v = new THREE.Vector3();
+  g.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const sk = m as THREE.SkinnedMesh;
+    if (sk.isSkinnedMesh) sk.skeleton.update();
+    const geo = m.geometry, p = geo.getAttribute('position'), idx = geo.index;
+    const mats = (Array.isArray(m.material) ? m.material : [m.material]) as THREE.Material[];
+    const n = idx ? idx.count : p.count;
+    const groups = geo.groups.length ? geo.groups : [{ start: 0, count: n, materialIndex: 0 }];
+    for (const gr of groups) {
+      const c = gunMatColor(mats[gr.materialIndex ?? 0] ?? mats[0]);
+      for (let t = gr.start; t < gr.start + gr.count; t++) {
+        const i = idx ? idx.getX(t) : t;
+        v.fromBufferAttribute(p, i);
+        if (sk.isSkinnedMesh) sk.applyBoneTransform(i, v);
+        v.applyMatrix4(m.matrixWorld);
+        pos.push(v.x, v.y, v.z); col.push(c[0], c[1], c[2]);
+      }
+    }
+  });
+  if (!pos.length) throw new Error('sin geometría');
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < pos.length; i += 3) {
+    minX = Math.min(minX, pos[i]); maxX = Math.max(maxX, pos[i]); minY = Math.min(minY, pos[i + 1]); maxY = Math.max(maxY, pos[i + 1]); minZ = Math.min(minZ, pos[i + 2]); maxZ = Math.max(maxZ, pos[i + 2]);
+  }
+  const sx = maxX - minX, sy = maxY - minY;
+  const grenade = key === 'M67';
+  // marco canónico
+  let gx = 0, gy = 0, gz = (minZ + maxZ) / 2;
+  if (grenade) { gx = (minX + maxX) / 2; gy = (minY + maxY) / 2; }
+  else { gx = minX + grip[0] * sx; gy = minY + grip[1] * sy; }
+  for (let i = 0; i < pos.length; i += 3) {
+    if (grenade) { pos[i] -= gx; pos[i + 1] -= gy; pos[i + 2] -= gz; }
+    else { pos[i] = gx - pos[i]; pos[i + 1] -= gy; pos[i + 2] = -(pos[i + 2] - gz); }       // giro de 180° en Y y traslado a la empuñadura
+  }
+  let geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo = refineGun(geo, key, false);
+  geo.computeBoundingBox();
+  const bs = geo.boundingBox!.getSize(new THREE.Vector3());
+  const maxDim = Math.max(bs.x, bs.y, bs.z) || 1;
+  const len = GUN_LEN_NEW[key] ?? 0.8;
+  const sc = len / maxDim;
+  // boca del cañón (para el fogonazo) y recámara (para los casquillos), en metros del marco canónico
+  let muzzle: [number, number, number] | undefined, eject: [number, number, number] | undefined;
+  if (!grenade) {
+    const bb = geo.boundingBox!;
+    const P = geo.getAttribute('position');
+    const ys: number[] = [];
+    for (let i = 0; i < P.count; i++) if (P.getX(i) < bb.min.x + 0.04 * (bb.max.x - bb.min.x)) ys.push(P.getY(i));
+    ys.sort((a, b) => a - b);
+    muzzle = [bb.min.x * sc, (ys.length ? ys[ys.length >> 1] : 0) * sc, 0];
+    eject = [-0.08 * len, 0.075, 0.025];
+  }
+  return { geo, maxDim, len, muzzle, eject };
+}
+
 /** Registra el arma de un clon (hueso Bip01_R_Hand, malla «arma») para el ajuste en vivo ?armas=1. Devuelve el desregistro. */
 export function trackGun(root: THREE.Object3D, weapon: string): () => void {
   void weapon;
@@ -222,7 +445,7 @@ export function trackGun(root: THREE.Object3D, weapon: string): () => void {
   for (const name of ['arma', 'arma_secondary', 'arma_knife', 'arma_grenade']) {
     const o = root.getObjectByName(name);
     if (!o) continue;
-    const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim };
+    const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim, len: o.userData.len };
     gunRegistry.add(e); added.push(e);
   }
   return () => { for (const e of added) gunRegistry.delete(e); };
@@ -233,8 +456,8 @@ export class RbLibrary {
   ual: { animations: THREE.AnimationClip[] } | null = null;
   ualOrigin: THREE.Object3D | null = null;
   avatars = new Map<string, THREE.Group>();
-  private guns = new Map<string, { geo: THREE.BufferGeometry; maxDim: number }>();
-  private gunMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.7 });
+  private guns = new Map<string, { geo: THREE.BufferGeometry; maxDim: number; len: number; muzzle?: [number, number, number]; eject?: [number, number, number]; fromPack?: boolean }>();
+  private gunMats: THREE.MeshStandardMaterial[] | null = null;
   private manifest: Record<string, Record<string, { color?: string; normal?: string }>> = {};
   private ghost: THREE.Material | null = null;
   loaded = false;
@@ -265,12 +488,12 @@ export class RbLibrary {
       if (sm.normalMap !== want) { sm.normalMap = want; sm.needsUpdate = true; }
     }
   }
-  gunGeo(name: string): { geo: THREE.BufferGeometry; maxDim: number } | null { return this.guns.get(name) ?? null; }
+  gunGeo(name: string): { geo: THREE.BufferGeometry; maxDim: number; len: number; muzzle?: [number, number, number]; eject?: [number, number, number]; fromPack?: boolean } | null { return this.guns.get(name) ?? null; }
   /** Pide un arma que solo usa esta planta (variantes de arma y de enemigo). */
   needGun(name: string): void {
     this.extraNeed.add(name);
     if (this.guns.has(name) || this.gunPromises.has(name)) return;
-    const p = this.loadGun(name).then(() => { this.onChange?.(); });
+    const p = this.loadGun(name).then(() => { this.calibrateGrips(); this.onChange?.(); });
     this.gunPromises.set(name, p);
   }
 
@@ -379,24 +602,26 @@ export class RbLibrary {
     this.avatars.set(name, g);
   }
 
-  private async loadGun(name: string): Promise<void> {
+  /** Carga el arma de la clave de juego: el modelo nuevo (CC BY 4.0, TastyTony) y, si falla, el del pack anterior. */
+  private async loadGun(key: string): Promise<void> {
+    const t = TASTY[key];
+    if (t) {
+      try {
+        const r = await loadTasty(key, t.folder, t.grip);
+        this.guns.set(key, r);
+        return;
+      } catch (e) { console.warn('Armas: no se pudo cargar el modelo nuevo, uso el del pack anterior', key, e); }
+    }
+    const old = t ? t.fallback : key;
     try {
-      const g = await new GLTFLoader().loadAsync(modelsUrl(`guns/${name}.gltf`));
-      const geo = bakeColored(g.scene);
+      const g = await new GLTFLoader().loadAsync(modelsUrl(`guns/${old}.gltf`));
+      let geo = bakeColored(g.scene);
       if (!geo) return;
-      // acero pavonado y polímero negro: se reasignan los colores por luminosidad
-      const c = geo.getAttribute('color');
-      const olive = name === 'Grenade';
-      const steel = new THREE.Color(olive ? 0x4a5238 : 0x30343a), poly = new THREE.Color(olive ? 0x2c3224 : 0x0e0f12);
-      for (let i = 0; i < c.count; i++) {
-        const lum = 0.299 * c.getX(i) + 0.587 * c.getY(i) + 0.114 * c.getZ(i);
-        const k = lum > 0.12 ? steel : poly;
-        c.setXYZ(i, k.r, k.g, k.b);
-      }
+      geo = refineGun(geo, old, true);
       geo.computeBoundingBox();
       const s = geo.boundingBox!.getSize(new THREE.Vector3());
-      this.guns.set(name, { geo, maxDim: Math.max(s.x, s.y, s.z) || 1 });
-    } catch (e) { console.warn('Rocketbox: arma no cargada', name, e); }
+      this.guns.set(key, { geo, maxDim: Math.max(s.x, s.y, s.z) || 1, len: GUN_LEN[old] ?? 0.8, fromPack: true });
+    } catch (e) { console.warn('Rocketbox: arma no cargada', key, e); }
   }
 
   setNormals(on: boolean): void {
@@ -425,6 +650,63 @@ export class RbLibrary {
     for (const kind of this.wanted) {
       if (this.templates.has(kind) || !this.avatars.has(CFG[kind].avatar)) continue;
       try { const t = this.buildOne(kind, cb); this.templates.set(kind, t); this.applyNormals(t); } catch (e) { console.warn('Rocketbox: plantilla', kind, e); }
+    }
+    this.calibrateGrips();
+  }
+
+  /** Armas cuyo agarre ya se calibró a partir de la pose real, y ángulo (grados) entre su cañón y el frente del avatar (< 3 esperado). */
+  private gripDone = new Set<string>();
+  gripAngle: Record<string, number> = {};
+
+  /**
+   * Agarre automático: con el avatar en la pose de apuntado real (torso Pistol_Aim_Neutral), calcula la rotación local de la mano
+   * que deja el cañón del arma (-X del marco canónico) en el frente del avatar (+Z antes de girarlo al yaw), horizontal, y el
+   * «arriba» del arma en +Y de mundo. No depende de los ejes de cada modelo: solo de que el marco canónico sea el del juego.
+   */
+  calibrateGrips(): void {
+    const tpl = this.templates.get('captain') ?? [...this.templates.values()][0];
+    if (!tpl || !this.ual) return;
+    const todo = Object.keys(AUTO_GRIP).filter((k) => this.guns.has(k) && !this.gripDone.has(k));
+    if (!todo.length) return;
+    const aim = tpl.layerClip('Pistol_Aim_Neutral', 'torso'), idle = tpl.layerClip('Pistol_Idle_Loop', 'legs');
+    if (!aim) return;
+    const root = new THREE.Group();
+    const inner = SkeletonUtils.clone(tpl.holder);
+    root.add(inner);
+    inner.traverse((o) => { if (o.name.startsWith('arma')) o.visible = false; });
+    const mixer = new THREE.AnimationMixer(inner);
+    if (idle) mixer.clipAction(idle).play();
+    mixer.clipAction(aim).play();
+    mixer.update(0);
+    root.updateMatrixWorld(true);
+    const hand = inner.getObjectByName('Bip01_R_Hand');
+    if (!hand) return;
+    const qh = new THREE.Quaternion(), p0 = new THREE.Vector3(), s0 = new THREE.Vector3();
+    hand.matrixWorld.decompose(p0, qh, s0);
+    const want = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0)));   // cañón (-X) -> +Z, arriba (+Y) -> +Y
+    const local = qh.clone().invert().multiply(want);
+    const eu = new THREE.Euler().setFromQuaternion(local, 'XYZ');
+    const rot: [number, number, number] = [THREE.MathUtils.radToDeg(eu.x), THREE.MathUtils.radToDeg(eu.y), THREE.MathUtils.radToDeg(eu.z)];
+    for (const k of todo) {
+      const g0 = GUN_GRIP[k] ?? { pos: [6, 0, 0], rot: [0, 0, 0], scale: 1 };
+      GUN_GRIP[k] = { ...g0, rot: [...rot] as [number, number, number] };
+      this.gripDone.add(k);
+      // comprobación: cañón en mundo frente al frente del avatar
+      const gg = this.guns.get(k)!;
+      const m = new THREE.Mesh(gg.geo); hand.add(m);
+      applyGrip({ mesh: m, weapon: k, k: 1 / inner.scale.y, maxDim: gg.maxDim, len: gg.len });
+      root.updateMatrixWorld(true);
+      const d = new THREE.Vector3(-1, 0, 0).transformDirection(m.matrixWorld);
+      this.gripAngle[k] = THREE.MathUtils.radToDeg(d.angleTo(new THREE.Vector3(0, 0, 1)));
+      hand.remove(m);
+    }
+    // las mallas de las plantillas ya creadas toman el agarre nuevo
+    for (const t of this.templates.values()) {
+      t.holder.traverse((o) => {
+        const w = o.userData?.weapon as string | undefined;
+        if (w && this.gripDone.has(w) && o.userData.maxDim) applyGrip({ mesh: o, weapon: w, k: o.userData.k, maxDim: o.userData.maxDim, len: o.userData.len });
+      });
     }
   }
 
@@ -455,7 +737,7 @@ export class RbLibrary {
     t.base = meshes.map((m) => m.material);
     const variants = cfg.tints.length ? cfg.tints : [null];
     for (const tint of variants) {
-      t.variants.push(meshes.map((m) => each(m.material, (mat) => (tint && isTintable(mat.name) ? tintMaterial(mat, tint) : mat))));
+      t.variants.push(meshes.map((m) => each(m.material, (mat) => (tint && (isTintable(mat.name) || (cfg.tintHead && /_head$/.test(mat.name))) ? tintMaterial(mat, tint) : mat))));
     }
     t.dead = meshes.map((m) => each(m.material, (mat) => { const c = (mat as THREE.MeshStandardMaterial).clone(); c.color.multiplyScalar(0.35); return c; }));
     // las mallas del modelo base usan la variante 0
@@ -473,24 +755,24 @@ export class RbLibrary {
     const gun = this.guns.get(cfg.gun);
     const hand = model.getObjectByName('Bip01_R_Hand');
     if (gun && hand) {
-      const mesh = new THREE.Mesh(gun.geo, this.gunMat);
+      const mesh = new THREE.Mesh(gun.geo, this.gunMaterial());
       mesh.name = 'arma';
       mesh.frustumCulled = false;
       mesh.userData.weapon = cfg.gun;
       mesh.userData.k = 1 / s;
-      mesh.userData.maxDim = gun.maxDim;
+      mesh.userData.maxDim = gun.maxDim; mesh.userData.len = gun.len;
       hand.add(mesh);
-      applyGrip({ mesh, weapon: cfg.gun, k: 1 / s, maxDim: gun.maxDim });
+      applyGrip({ mesh, weapon: cfg.gun, k: 1 / s, maxDim: gun.maxDim, len: gun.len });
     }
     if (hand && RbLibrary.SQUAD.includes(kind)) {
       for (const [slot, name] of Object.entries(SLOT_GUN)) {
         const g = this.guns.get(name);
         if (!g) continue;
-        const m = new THREE.Mesh(g.geo, this.gunMat);
+        const m = new THREE.Mesh(g.geo, this.gunMaterial());
         m.name = 'arma_' + slot; m.frustumCulled = false; m.visible = false;
-        m.userData.weapon = name; m.userData.k = 1 / s; m.userData.maxDim = g.maxDim;
+        m.userData.weapon = name; m.userData.k = 1 / s; m.userData.maxDim = g.maxDim; m.userData.len = g.len;
         hand.add(m);
-        applyGrip({ mesh: m, weapon: name, k: 1 / s, maxDim: g.maxDim });
+        applyGrip({ mesh: m, weapon: name, k: 1 / s, maxDim: g.maxDim, len: g.len });
       }
     }
     return t;
@@ -508,7 +790,8 @@ export class RbLibrary {
     });
   }
 
-  gunMaterial(): THREE.Material { return this.gunMat; }
+  /** Materiales PBR del arma por clase de pieza: 0 metal pavonado, 1 polímero, 2 madera, 3 detalles, 4 pintura (granada). */
+  gunMaterial(): THREE.Material[] { return (this.gunMats ??= makeGunMaterials()); }
 
   ghostMaterial(): THREE.Material {
     if (!this.ghost) this.ghost = new THREE.MeshStandardMaterial({ color: 0x9db4d6, transparent: true, opacity: 0.22, depthWrite: false, roughness: 1 });
@@ -530,7 +813,8 @@ export class RbLibrary {
 
   dispose(): void {
     this.templates.clear();
-    this.gunMat.dispose();
+    if (this.gunMats) for (const m of this.gunMats) { m.map?.dispose(); m.roughnessMap?.dispose(); m.dispose(); }
+    this.gunMats = null;
     gunRegistry.clear();
   }
 }
@@ -568,12 +852,15 @@ function makeRamArmor(): THREE.Group {
   return g;
 }
 /** Bandolera con granadas del granadero. */
-function makeBandolier(): THREE.Group {
+function makeBandolier(m67?: { geo: THREE.BufferGeometry; maxDim: number; len: number }, mats?: THREE.Material[], cmPerM = 100): THREE.Group {
   const { dark, olive } = props();
   const g = new THREE.Group();
   const band = boxMesh(6, 70, 3, dark); band.rotation.z = BANDOLIER.rotZ; g.add(band);
   for (let i = -1; i <= 1; i++) {
-    const gr = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 9, 8), olive); gr.frustumCulled = false;
+    // granadas M67 (modelo nuevo) o, si no cargó, cilindros oliva
+    const gr = m67 && mats ? new THREE.Mesh(m67.geo, mats) : new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 9, 8), olive);
+    gr.frustumCulled = false;
+    if (m67 && mats) gr.scale.setScalar((m67.len / m67.maxDim) * cmPerM);
     gr.position.set(-Math.sin(BANDOLIER.rotZ) * i * 22 - 1, Math.cos(BANDOLIER.rotZ) * i * 22, 4); g.add(gr);
   }
   g.position.set(...BANDOLIER.pos);
@@ -615,7 +902,13 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+const _qh = new THREE.Quaternion(), _qd = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _eu = new THREE.Euler();
+const _m4 = new THREE.Matrix4(), _vx = new THREE.Vector3(), _vy = new THREE.Vector3(), _vz = new THREE.Vector3(), _vp = new THREE.Vector3(), _vs = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+
 export class RbView {
+  /** Peso (0..1) con que el arma se orienta a la dirección de mira en vez de seguir la mano animada. */
+  private lockTarget = 0; private lockW = 0;
   readonly skinned = true;
   root = new THREE.Group();
   inner: THREE.Object3D;
@@ -670,7 +963,7 @@ export class RbView {
     for (const [slot, name] of [['primary', 'arma'], ['secondary', 'arma_secondary'], ['knife', 'arma_knife'], ['grenade', 'arma_grenade']] as [string, string][]) {
       const o = this.inner.getObjectByName(name);
       if (!o) continue;
-      const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim };
+      const e: GunEntry = { mesh: o, weapon: o.userData.weapon, k: o.userData.k, maxDim: o.userData.maxDim, len: o.userData.len };
       this.slotGuns.set(slot, e); gunRegistry.add(e);
     }
     this.normalSet = tpl.variants[this.variant];
@@ -704,16 +997,16 @@ export class RbView {
       m.name = 'arma_x'; m.frustumCulled = false;
       this.extra.push(m);
       hand.add(m);
-      const entry: GunEntry = { mesh: m, weapon: name, k: 1 / this.inner.scale.y, maxDim: g.maxDim, mul };
+      const entry: GunEntry = { mesh: m, weapon: name, k: 1 / this.inner.scale.y, maxDim: g.maxDim, mul, len: g.len };
       applyGrip(entry);
       gunRegistry.add(entry);
       return entry;
     };
     let main: GunEntry | null = null;
     if (e.primaryVariant === 1 && VARIANT_GUN[kind]) main = add(VARIANT_GUN[kind]!);
-    else if (e.variant === 'tirador') main = add('Sniper');
+    else if (e.variant === 'tirador') main = add('SVD');
     else if (e.variant === 'asaltante') main = add('Knife_1');
-    else if (e.bossVariant === 'ametrallador') main = add('ShortCannon', 1.25);
+    else if (e.bossVariant === 'ametrallador') main = add('M249', 1.25);
     if (main) {
       const old = this.slotGuns.get('primary');
       if (old) old.mesh.visible = false;
@@ -723,7 +1016,7 @@ export class RbView {
     const attach = (g: THREE.Group): void => { this.inner.add(g); g.traverse((o) => { if ((o as THREE.Mesh).isMesh) this.extra.push(o); }); };
     if (e.variant === 'blindado') { this.riot = makeRiotShield(); attach(this.riot); }
     if (e.bossVariant === 'embestida') attach(makeRamArmor());
-    if (e.variant === 'granadero') attach(makeBandolier());
+    if (e.variant === 'granadero') { const g = this.lib.gunGeo('M67'); attach(makeBandolier(g ?? undefined, g ? this.lib.gunMaterial() : undefined, 1 / this.inner.scale.y)); }
   }
 
   private glowMats: (THREE.Material | THREE.Material[])[] | null = null;
@@ -802,6 +1095,7 @@ export class RbView {
 
   /** Decide las animaciones según el estado de la entidad. */
   private decide(e: Entity, time: number): void {
+    this.lockTarget = 0;
     if (!e.alive) {
       if (!this.death) {
         const a = this.action('Death01', 'full');
@@ -864,13 +1158,17 @@ export class RbView {
       this.setLayer('torso', legName, false, ts);              // esprintando: el torso del propio clip, arma baja
     } else if (e.reloading > 0) {
       this.setLayer('torso', 'Pistol_Reload', false, 1);
+      this.lockTarget = RELOAD_LOCK;                           // al recargar el arma sube hacia la cara, pero sin apuntar al cielo
     } else if (time - e.lastShotAt < 0.35 && time >= e.lastShotAt) {
       this.setLayer('torso', 'Pistol_Shoot', true, 1, 0.04, e.lastShotAt !== this.lastShot);
       this.lastShot = e.lastShotAt;
+      this.lockTarget = 1;
     } else if ((time - e.lastShotAt < 0.6 && time >= e.lastShotAt) || (e.isPlayer && e.aiming)) {
       this.setLayer('torso', 'Pistol_Aim_Neutral', false, 1);   // apuntando, aunque no dispare
+      this.lockTarget = 1;
     } else {
       this.setLayer('torso', legName, false, ts);
+      if (!moving && !e.crouch) this.lockTarget = 1;           // parado con el arma: la de la pose de reposo, al frente
     }
     this.fadeOverride = 0;
     // golpe recibido: Hit_Chest mezclado al 60 %
@@ -977,8 +1275,35 @@ export class RbView {
         t.has = tiltOn;
         if (tiltOn) { t.saved.copy(t.bone.quaternion); this.tiltBone(t.bone, -e.pitch * RB_PITCH_FACTOR * t.k); }
       }
+      this.aimGun(e, animDt);
     }
     this.overlays(e, time, host, alive, dt);
+  }
+
+  /**
+   * Blocaje de puntería: la mano sigue la animación (Pistol_Aim/Shoot/Idle, pensadas para pistola), pero el arma larga debe
+   * apuntar siempre donde mira el personaje. Con el hueso de la mano ya en su pose, se calcula la rotación local que deja el cañón
+   * (-X del marco canónico) en la dirección (yaw, pitch) con el «arriba» del arma en +Y de mundo. El retroceso de Pistol_Shoot,
+   * el vaivén de caderas al andar y el giro de tronco quedan absorbidos por la muñeca (unos grados), no por el cañón.
+   */
+  private aimGun(e: Entity, dt: number): void {
+    const gun = this.slotGuns.get(this.slot) ?? this.slotGuns.get('primary');
+    if (!gun || !this.hand || !AUTO_GRIP[gun.weapon]) return;
+    this.lockW += (this.lockTarget - this.lockW) * (1 - Math.exp(-Math.max(dt, 0.001) * 14));
+    const gr = GUN_GRIP[gun.weapon];
+    _eu.set(THREE.MathUtils.degToRad(gr.rot[0]), THREE.MathUtils.degToRad(gr.rot[1]), THREE.MathUtils.degToRad(gr.rot[2]), 'XYZ');
+    _qb.setFromEuler(_eu);
+    if (this.lockW < 0.005) { gun.mesh.quaternion.copy(_qb); return; }
+    this.hand.updateWorldMatrix(true, false);
+    this.hand.matrixWorld.decompose(_vp, _qh, _vs);
+    const cp = Math.cos(e.pitch ?? 0), wy = this.yaw;                   // dirección de mira del cuerpo (suavizada hacia e.yaw)
+    _vx.set(-Math.cos(wy) * cp, -Math.sin(e.pitch ?? 0), -Math.sin(wy) * cp).normalize();   // -dirección de mira = eje X del arma
+    _vz.crossVectors(_vx, _up).normalize();
+    _vy.crossVectors(_vz, _vx);
+    _m4.makeBasis(_vx, _vy, _vz);
+    _qd.setFromRotationMatrix(_m4);
+    _qd.premultiply(_qh.invert());                                      // rotación local respecto a la mano
+    gun.mesh.quaternion.slerpQuaternions(_qb, _qd, Math.min(1, this.lockW));
   }
 
   /** Giro de un hueso alrededor del eje lateral del modelo, compuesto sobre la animación. */

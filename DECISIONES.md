@@ -241,6 +241,12 @@ Añadidos que no están en el documento, aprobados por el dueño. Lo que cambia 
 * **Accesibilidad**: alternar en vez de mantener (agacharse, apuntar, esprintar), ayuda de apuntado también en ordenador, campo de visión 50-80, contorno de alto contraste, reducir destellos, pausa automática al perder el foco, y subtítulos activados por defecto en instalaciones nuevas.
 * **Analítica anónima: no hecha.** Necesita un servidor que reciba los datos y el dueño no ha decidido dónde; sigue el registro local exportable.
 
+## Armas más realistas y gorra del Técnico (decisión del dueño, 2026-11-19)
+
+* Las armas del pack Quaternius desentonaban con los personajes realistas. En el estilo realista se sustituyen por ocho modelos de TastyTony con licencia **CC BY 4.0** (el dueño aceptó expresamente una licencia con atribución; es el único asset del juego que no es CC0/MIT/propio). No traen texturas: los materiales (metal pavonado, polímero, madera, color arena) se asignan por código. Las del pack anterior quedan de reserva y para el estilo cómic; el cuchillo y el lanzacohetes del artillero siguen siendo los antiguos.
+* El arma se orienta cada fotograma hacia la mira del personaje (los clips de animación son de pistola y desviaban los fusiles hasta 50°). No hay animación de fusil en la librería CC0: la mano izquierda no agarra el guardamanos.
+* La gorra del Técnico se tiñe del mismo azul marino que su uniforme.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo
@@ -272,6 +278,7 @@ sonidos y fuentes siguen sin ser de terceros.
 | Mobiliario de oficina | 3DAssets.dev | CC0 según el sitio; generado por IA |
 | Texturas PBR, HDRI, botiquín y caja de munición | Poly Haven y ambientCG | CC0 |
 | Fondo del menú (`public/ui/fondo-torre.webp`) | Aportado por el dueño | del dueño |
+| Armas del estilo realista: M4a1, HK MP5, M249 SAW, Milkor MGL Mk 1s, M1911, Remington 870, SVD Dragunov, M67 (`public/models/armas/`) | TastyTony, serie «Low-Poly» — sketchfab.com/TastyTony (descargados por el dueño; URL de cada uno en su `license.txt`) | **CC BY 4.0**: obliga a citar al autor (hecho en Créditos y en `PROCEDENCIA.txt`). Modificados: materiales y escala |
 | Música y efectos originales, voces del Modo Chutaos (`public/audio/`) | Aportados por el dueño (Chutaos Team) | del dueño |
 | Retratos de la selección de personaje | Vistas previas de Microsoft Rocketbox | MIT |
 | Personajes, armas, botiquín, granada | Quaternius, «Toon Shooter Game Kit» — quaternius.com/packs/toonshootergamekit.html | CC0 (consta en la página del autor; la descarga no trae fichero de licencia) |

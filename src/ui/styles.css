@@ -773,3 +773,5 @@ button.tut-btn.on { border-color: var(--acc); color: var(--acc); }
 .lo-head { display: flex; align-items: center; gap: 0.5rem; }
 .lo-head b { font-size: 1.15rem; letter-spacing: 0.1em; }
 .lo-col .lo-opt .statl { grid-template-columns: 3.4rem 1fr 0; }
+
+.credits .cred-attr { font-size: 0.8rem; line-height: 1.4; color: #c3ccd8; user-select: text; -webkit-user-select: text; }
