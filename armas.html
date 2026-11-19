@@ -8,12 +8,14 @@
     html, body { margin: 0; height: 100%; background: #7a7f88; color: #111; font: 13px system-ui, sans-serif; overflow: hidden; }
     canvas { display: block; width: 100%; height: 100%; }
     .et { position: fixed; transform: translate(-50%, 0); background: rgba(255,255,255,.75); padding: 2px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
-    #nota { position: fixed; top: 8px; left: 10px; background: rgba(255,255,255,.8); padding: 6px 10px; border-radius: 8px; max-width: 70ch; }
+    #barra { position: fixed; top: 8px; right: 10px; background: rgba(255,255,255,.85); padding: 6px 10px; border-radius: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        #nota { position: fixed; top: 8px; left: 10px; background: rgba(255,255,255,.8); padding: 6px 10px; border-radius: 8px; max-width: 70ch; }
   </style>
 </head>
 <body>
   <canvas id="lienzo"></canvas>
-  <div id="nota">Armas en uso, a tamaño real (cañón a la derecha), con materiales PBR y el HDRI de la oficina. Arrastra para girar, rueda para acercar.</div>
+  <div id="nota">Arriba, las 8 armas nuevas (*, TastyTony, CC BY 4.0); debajo, las del pack anterior para comparar. Tamaño real, cañón a la derecha. «Operadores» (o ?vista=operador): un soldado por arma en su pose real de apuntado, congelada, vista lateral y tres cuartos (con ?armas=1 se ajusta el agarre con __armas.set y «Reponer pose»). Arrastra para girar, rueda para acercar.</div>
+  <div id="barra"><button id="modoArmas">Armas</button><button id="modoOp">Operadores</button><button id="repon">Reponer pose</button></div>
   <script type="module" src="/src/galeria/armas.ts"></script>
 </body>
 </html>

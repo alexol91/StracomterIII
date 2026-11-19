@@ -868,6 +868,8 @@ export function creditsScreen(s: Screens, p: { onBack(): void }): HTMLElement {
       h('p', null, 'Almudena Segovia Calabuig'),
       h('h3', { class: 'h-title' }, t('cred.versionHead')),
       h('p', null, t('cred.versionText')),
+      h('h3', { class: 'h-title' }, t('cred.weaponsHead')),
+      h('p', { class: 'cred-attr' }, t('cred.weaponsText')),
       h('h3', { class: 'h-title' }, t('cred.libsHead')),
       h('p', null, t('cred.three')),
       h('div', { class: 'btn-row', style: 'margin:1rem 0 0.5rem' },

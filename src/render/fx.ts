@@ -317,6 +317,11 @@ export class Fx {
     this.tracerMatEnemy.color.setHex(cb ? 0xffee00 : 0xff5a2a);
   }
 
+  private m67: { geo: THREE.BufferGeometry; maxDim: number; len: number } | null = null;
+  private m67Mats: THREE.Material[] | null = null;
+  /** Granada M67 (estilo realista): sustituye al cilindro/granada del pack anterior como proyectil. */
+  setM67(info: { geo: THREE.BufferGeometry; maxDim: number; len: number } | null, mats: THREE.Material[] | null): void { this.m67 = info; this.m67Mats = mats; }
+
   /** Efectos sueltos para los objetivos (coordenadas three: x, altura, z). */
   emitSpark(x: number, y: number, z: number): void { this.real.shieldSpark(x, y, z); }
   emitSmoke(x: number, y: number, z: number): void { this.real.legacy(x, y, z, 0.1, 0.9, 0.1, 1.6, 0.18, 0x2a2a2c, 0, 0.5); }
@@ -770,6 +775,12 @@ export class Fx {
 
   private makeProjView(p: Projectile): THREE.Group {
     const g = new THREE.Group();
+    if (p.kind === 'grenade' && this.m67 && this.m67Mats && getStyleMode() === 'realista') {
+      const mesh = new THREE.Mesh(this.m67.geo, this.m67Mats);
+      mesh.scale.setScalar(this.m67.len / this.m67.maxDim);
+      g.add(mesh);
+      return g;
+    }
     const m = p.kind === 'rocket' ? this.rocketGeo : p.kind === 'flash' ? this.flashGeo : p.kind === 'smoke' ? this.smokeGeo : this.grenadeGeo;
     g.add(new THREE.Mesh(m.geo, this.projMat));
     if (m.hull) g.add(new THREE.Mesh(m.hull, this.projHullMat));
