@@ -247,6 +247,21 @@ Añadidos que no están en el documento, aprobados por el dueño. Lo que cambia 
 * El arma se orienta cada fotograma hacia la mira del personaje (los clips de animación son de pistola y desviaban los fusiles hasta 50°). No hay animación de fusil en la librería CC0: la mano izquierda no agarra el guardamanos.
 * La gorra del Técnico se tiñe del mismo azul marino que su uniforme.
 
+## Audio de combate sintetizado en modo normal (decisión del dueño, 2026-11-19)
+
+* El dueño prefiere los efectos sintetizados de la primera versión a sus muestras. En modo normal ya **no
+  suenan** `public/audio/efectos` (pistol, pistolOld, machine, knife, ouch, ouchOld, dead): las muestras
+  del dueño quedan solo para el Modo Chutaos, que suena exactamente igual que antes.
+* Disparos y explosiones se calculan por código una vez al cargar (`src/audio/gunsynth.ts`: crack,
+  cuerpo, golpe grave, mecánica y cola, con saturación suave) y se reproducen como buffer. **Cada arma
+  suena distinta**: M4A1, MP5, M249, SVD, M1911, Remington 870 (con corredera de bomba), Milkor MGL y el
+  lanzacohetes del jefe. Bala enemiga que pasa cerca: chasquido. Cuchillo, heridas y muertes vuelven al
+  sintetizado de la V1 (con un chasquido de impacto añadido).
+* Interruptor para volver a lo anterior: `AUDIO_NORMAL` en `src/audio/config.ts` (`'muestras-dueno'`).
+* `npx tsx tools/oir-armas.ts` escribe los sonidos en WAV para escucharlos fuera del juego.
+* Sigue sin haber sonidos de terceros. Para dar el salto a grabaciones reales hace falta descargarlas
+  (con cuenta) y verificar la licencia fichero a fichero; ver la propuesta del informe de esta tarea.
+
 ## Lo que se ha recortado
 
 * **Sección 14.1, punto 4 («deseable»): flanqueo, supresión y repliegue están hechos, pero el flanqueo
@@ -279,7 +294,7 @@ sonidos y fuentes siguen sin ser de terceros.
 | Texturas PBR, HDRI, botiquín y caja de munición | Poly Haven y ambientCG | CC0 |
 | Fondo del menú (`public/ui/fondo-torre.webp`) | Aportado por el dueño | del dueño |
 | Armas del estilo realista: M4a1, HK MP5, M249 SAW, Milkor MGL Mk 1s, M1911, Remington 870, SVD Dragunov, M67 (`public/models/armas/`) | TastyTony, serie «Low-Poly» — sketchfab.com/TastyTony (descargados por el dueño; URL de cada uno en su `license.txt`) | **CC BY 4.0**: obliga a citar al autor (hecho en Créditos y en `PROCEDENCIA.txt`). Modificados: materiales y escala |
-| Música y efectos originales, voces del Modo Chutaos (`public/audio/`) | Aportados por el dueño (Chutaos Team) | del dueño |
+| Música y efectos originales, voces del Modo Chutaos (`public/audio/`) | Aportados por el dueño (Chutaos Team) | del dueño; los efectos solo suenan en el Modo Chutaos (o con `AUDIO_NORMAL = 'muestras-dueno'`) |
 | Retratos de la selección de personaje | Vistas previas de Microsoft Rocketbox | MIT |
 | Personajes, armas, botiquín, granada | Quaternius, «Toon Shooter Game Kit» — quaternius.com/packs/toonshootergamekit.html | CC0 (consta en la página del autor; la descarga no trae fichero de licencia) |
 | Mesas, escritorios, sillas, estanterías, sofás, butacas, macetas | Kenney, «Furniture Pack 1.0» — opengameart.org/content/furniture-kit | CC0 (`public/models/furniture/LICENSE-Kenney.txt`) |

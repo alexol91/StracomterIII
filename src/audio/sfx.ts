@@ -1,9 +1,20 @@
-// Efectos de sonido sintetizados con Web Audio (sin ficheros de terceros).
+// Efectos de sonido con Web Audio: sintetizados (modo normal) y muestras del dueño (Modo Chutaos).
 // Posicional "barato": paneo estéreo + atenuación por distancia + pasa-bajos para lo lejano/trasero.
 
 import type { IWorld } from '../contracts';
 import type { GameEvent, Kind } from '../sim/types';
 import type { Samples } from './samples';
+import { AUDIO_NORMAL } from './config';
+import { type GunId, GUN_IDS, renderExplosion, renderFlyby, renderGun, renderPump } from './gunsynth';
+
+/** Arma que suena por clase (ranura principal). Ver src/render/rbchars.ts (CFG y VARIANT_GUN). */
+const GUN_BY_KIND: Record<string, GunId> = {
+  captain: 'M4A1', technic: 'MP5', especialist: 'M249', explosives: 'MGL',
+  enemy1: 'M1911', enemy2: 'MP5', enemy3: 'REM870', miniboss: 'RPG', megaboss: 'M249',
+};
+const GUN_VARIANT: Record<string, GunId> = { technic: 'REM870', especialist: 'SVD', explosives: 'MGL' };
+/** Variantes precalculadas por sonido (se elige una al azar en cada disparo). */
+const GUN_VARIANTS = 4;
 
 const MAX_VOICES = 24;       // polifonía normal de efectos
 const MAX_VOICES_PRIO = 32;  // tope para sonidos del jugador / interfaz
@@ -82,6 +93,10 @@ export class Sfx {
   private conv: ConvolverNode;
   private roomProfile: 'mid' | 'big' | 'ext' = 'mid';
   private irCache = new Map<string, AudioBuffer>();
+  /** Banco de sonidos sintetizados offline (gunsynth.ts): clave -> variantes. */
+  private bank = new Map<string, AudioBuffer[]>();
+  private lastPump = new Map<number, number>();
+  private lastFlyby = -9;
 
   constructor(private ctx: AudioContext, private out: AudioNode, private samples: Samples) {
     // Un único buffer de ruido blanco de 3 s, reutilizado por todos los efectos.
@@ -102,9 +117,102 @@ export class Sfx {
     this.roomIn.connect(this.conv);
     this.conv.connect(this.roomOut);
     this.roomOut.connect(this.out);
+    if (AUDIO_NORMAL === 'sintetizado') this.prewarm();
   }
 
   setLayers(on: boolean): void { this.layers = on; }
+
+  // ───────────────────────── Banco sintetizado ─────────────────────────
+
+  private static readonly BANK: { key: string; n: number; render: (sr: number, v: number) => Float32Array }[] = [
+    ...GUN_IDS.map(id => ({ key: 'g:' + id, n: GUN_VARIANTS, render: (sr: number, v: number) => renderGun(id, sr, v) })),
+    { key: 'explosion', n: 3, render: renderExplosion },
+    { key: 'pump', n: 2, render: renderPump },
+    { key: 'flyby', n: 3, render: renderFlyby },
+  ];
+
+  /** Calcula las variantes de `key` si aún no están (síncrono: unos ms por sonido). */
+  private variants(key: string): AudioBuffer[] | null {
+    const have = this.bank.get(key);
+    if (have) return have;
+    const def = Sfx.BANK.find(d => d.key === key);
+    if (!def) return null;
+    const sr = this.ctx.sampleRate;
+    const arr: AudioBuffer[] = [];
+    for (let v = 0; v < def.n; v++) {
+      const data = def.render(sr, v);
+      const b = this.ctx.createBuffer(1, data.length, sr);
+      b.getChannelData(0).set(data);
+      arr.push(b);
+    }
+    this.bank.set(key, arr);
+    return arr;
+  }
+
+  /** Precalcula el banco en segundo plano, un sonido por tarea, para no dar tirones en partida. */
+  private prewarm(): void {
+    const keys = Sfx.BANK.map(d => d.key);
+    const next = () => {
+      const k = keys.shift();
+      if (!k) return;
+      try { this.variants(k); } catch { /* sin audio */ }
+      setTimeout(next, 30);
+    };
+    setTimeout(next, 50);
+  }
+
+  /** Reproduce una variante al azar del banco en la ruta. */
+  private bankPlay(r: Route, key: string, vol: number, dt = 0, rate = 1): boolean {
+    const vs = this.variants(key);
+    if (!vs || vs.length === 0) return false;
+    const b = vs[Math.floor(Math.random() * vs.length)];
+    const s = this.ctx.createBufferSource();
+    s.buffer = b;
+    s.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = vol;
+    s.connect(g);
+    g.connect(r.in);
+    s.start(r.t + dt);
+    r.len = Math.max(r.len, dt + b.duration / rate + 0.02);
+    return true;
+  }
+
+  /** Qué arma lleva el tirador (por clase, variante de arma, oficio o variante de jefe). */
+  private gunOf(world: IWorld, id: number, kind: Kind, weapon?: string): GunId {
+    if (weapon === 'secondary') return 'M1911';
+    let en: { primaryVariant?: number; variant?: string | null; bossVariant?: string | null } | undefined;
+    try { en = id === world.player.id ? world.player : world.entityById(id); } catch { en = undefined; }
+    if (en?.bossVariant === 'ametrallador') return 'M249';
+    if (en?.variant === 'tirador') return 'SVD';
+    if (en?.primaryVariant === 1 && GUN_VARIANT[kind]) return GUN_VARIANT[kind];
+    return GUN_BY_KIND[kind] ?? 'M4A1';
+  }
+
+  /** Disparo sintetizado: cuerpo del banco + capas cercanas (solo el propio) + casquillo. */
+  private gunShot(r: Route, gun: GunId, own: boolean): void {
+    // variación por disparo: tono ±2 % y nivel ±1 dB (la de la ruta se ignora: ±6 % es mucho para un arma)
+    const rate = 0.98 + Math.random() * 0.04;
+    const lvl = Math.pow(10, (Math.random() * 2 - 1) / 20);
+    if (!this.bankPlay(r, 'g:' + gun, lvl, 0, rate)) { this.shotSynth(r, 'enemy2'); return; }
+    if (own && this.layers) {
+      // pegada en primera persona: golpe grave corto que se «siente» (el arma contra el hombro)
+      const heavy = gun === 'SVD' || gun === 'REM870' || gun === 'M249' || gun === 'RPG';
+      this.osc(r, 'sine', heavy ? 72 : 90, heavy ? 40 : 50, 0, heavy ? 0.1 : 0.07, heavy ? 0.45 : 0.3, 0.002);
+    }
+    if (own && gun !== 'REM870' && gun !== 'MGL' && gun !== 'RPG') this.casing(r);
+  }
+
+  /** Casquillo del jugador cayendo (como mucho 1 cada 0,12 s). */
+  private casing(r: Route): void {
+    if (this.ctx.currentTime - this.lastCasing < 0.12) return;
+    this.lastCasing = this.ctx.currentTime;
+    const dt = 0.25 + Math.random() * 0.15;
+    const f = 4200 + Math.random() * 2600;
+    this.osc(r, 'sine', f, f * 0.97, dt, 0.06, 0.05, 0.001);
+    this.osc(r, 'sine', f * 1.52, f * 1.5, dt + 0.012, 0.045, 0.03, 0.001);
+    this.nz(r, dt, 0.02, 0.05, 'highpass', 6000, 6000, 1, 0.001);
+  }
 
   private makeIR(p: 'mid' | 'big' | 'ext'): AudioBuffer {
     const cached = this.irCache.get(p);
@@ -540,6 +648,8 @@ export class Sfx {
     const now = this.ctx.currentTime;
     const dist = (p: { x: number; y: number }) => Math.hypot(p.x - cam.x, p.y - cam.y);
     const hasV = (n: string) => chut && this.samples.get(n) !== null;
+    // Modo normal sintetizado (ver config.ts): sin muestras del dueño. Chutaos: exactamente como antes.
+    const synth = !chut && AUDIO_NORMAL === 'sintetizado';
     // Suceso de una entidad, localizada por id
     const ent = (key: string, id: number, vol: number, fn: (r: Route, own: boolean) => void, opt: { maxD?: number } = {}): Item | null => {
       if (id === pid) return { key, d: 0, own: true, play: () => this.play(world, null, vol * 1.2, (r) => fn(r, true), { prio: true }) };
@@ -589,6 +699,25 @@ export class Sfx {
         if (hasV('v:pistol') && !explos) {
           return { key: 'shotv', d: pos ? dist(pos) : 0, own, play: () => { this.voice(world, pos, 'v:pistol', 0.9); } };
         }
+        if (synth) {
+          const gun: GunId = this.shotgunIds.has(id) ? 'REM870' : this.gunOf(world, id, kind, weapon);
+          const pump = gun === 'REM870' && now - (this.lastPump.get(id) ?? -9) > 0.45;
+          if (pump) this.lastPump.set(id, now);
+          const sfn = (r: Route) => {
+            this.gunShot(r, gun, own);
+            if (pump) this.bankPlay(r, 'pump', own ? 0.55 : 0.4, own ? 0.32 : 0.4);
+          };
+          const big = gun === 'SVD' || gun === 'REM870' || gun === 'RPG';
+          const gate = () => {
+            if (!auto || gun === 'REM870' || gun === 'SVD') return true;
+            const last = this.lastShot.get(id) ?? -9;
+            if (now - last < 1 / 14) return false; // máx. ~14 disparos/s por tirador
+            this.lastShot.set(id, now);
+            return true;
+          };
+          if (own) return { key: 'shot', d: 0, own: true, play: () => { if (gate()) this.play(world, null, big ? 1.45 : 1.3, sfn, { prio: true, room: 0.3 }); } };
+          return { key: 'shot', d: dist(pos!), own: false, play: () => { if (gate()) this.play(world, pos, big ? 1.15 : 1.0, sfn, { room: 0.55 }); } };
+        }
         if (this.shotgunIds.has(id) && !hasV('v:pistol')) {
           const bf = (r: Route) => this.blast(r, own);
           if (own) return { key: 'shot', d: 0, own: true, play: () => this.play(world, null, 1.4, bf, { prio: true, room: 0.3 }) };
@@ -615,7 +744,13 @@ export class Sfx {
         const ep = { x: e.x, y: e.y };
         const ed = dist(ep);
         const it: Item = { key: 'explosion', d: ed, own: false, play: () => {
-          this.play(world, ep, synthVol, (r) => this.explosion(r, ed / 340), { room: 1.0 });
+          if (synth) {
+            // banco sintetizado + un golpe sub propio de la ruta; retardo por distancia (d/340 s)
+            this.play(world, ep, 1.6, (r) => {
+              if (!this.bankPlay(r, 'explosion', 1.0, ed / 340, 0.96 + Math.random() * 0.08)) this.explosion(r, ed / 340);
+              if (ed < 15) this.osc(r, 'sine', 55, 28, ed / 340, 0.5, 0.6, 0.004);
+            }, { room: 1.0 });
+          } else this.play(world, ep, synthVol, (r) => this.explosion(r, ed / 340), { room: 1.0 });
           if (ed < 6 && this.layers) this.stun(world);
         } };
         if (hasV('v:explosion')) {
@@ -629,7 +764,10 @@ export class Sfx {
         const hit = e.hit;
         if (hasV('v:knife')) return vEnt('knife', e.id, 'v:knife', 0.9);
         return ent('knife', e.id, 0.7, (r) => {
-          if (!this.smp(r, 'knife', 1, 1.0)) this.nz(r, 0, 0.16, 0.5, 'bandpass', 2500, 6000, 1.5, 0.05);
+          if (synth || !this.smp(r, 'knife', 1, 1.0)) {
+            this.nz(r, 0, 0.16, 0.5, 'bandpass', 2500, 6000, 1.5, 0.05); // tajo (V1)
+            if (synth) this.nz(r, 0.01, 0.12, 0.25, 'bandpass', 900, 1800, 1, 0.04); // aire desplazado
+          }
           if (hit) {
             this.nz(r, 0.07, 0.09, 0.6, 'lowpass', 900, 250);
             this.osc(r, 'triangle', 220, 90, 0.07, 0.08, 0.3);
@@ -695,6 +833,22 @@ export class Sfx {
         if (hasV('v:ouch')) return vEnt('hurt', e.id, 'v:ouch', 1.0);
         const heavy = e.zone === 'head' || e.zone === 'blast';
         const ouch = () => (Math.random() < 0.25 && this.samples.get('ouchOld')) ? 'ouchOld' : 'ouch';
+        if (synth) { // V1: impacto en el cuerpo y quejido sintético, sin la voz del dueño
+          if (e.id === pid) {
+            return { key: 'hurt', d: 0, own: true, play: () => this.play(world, null, 1.3, (r) => {
+              this.nz(r, 0, 0.015, 0.5, 'bandpass', 2500, 1800, 1.5, 0.0005); // chasquido del impacto
+              this.osc(r, 'sine', 170, 55, 0, 0.18, 0.8);
+              this.nz(r, 0, 0.14, 0.6, 'bandpass', 900, 400, 1);
+              this.osc(r, 'sawtooth', 260, 120, 0.01, 0.12, 0.2);
+              if (heavy) this.osc(r, 'sine', 70, 35, 0.05, 0.3, 0.5);
+            }, { prio: true }) };
+          }
+          return ent('hurt', e.id, 0.7, (r) => {
+            this.nz(r, 0, 0.012, 0.35, 'bandpass', 2200, 1600, 1.5, 0.0005);
+            this.nz(r, 0, 0.1, 0.55, 'lowpass', 600, 200);
+            this.osc(r, 'sine', 140, 70, 0, 0.1, 0.35);
+          }, { maxD: 35 });
+        }
         if (e.id === pid) {
           return { key: 'hurt', d: 0, own: true, play: () => this.play(world, null, 1.3, (r) => {
             this.smp(r, ouch(), 1, 1.0);
@@ -716,7 +870,7 @@ export class Sfx {
         const ally = e.team === 'ally';
         if (hasV('v:dead')) return vAt('death', e.x, e.y, 'v:dead', 1.0, e.id === pid);
         const fn = (r: Route) => {
-          if (this.smp(r, 'dead', ally ? 1 : 0.92, 1.0)) this.nz(r, 0.05, 0.2, 0.35, 'lowpass', 500, 160); // golpe del cuerpo
+          if (!synth && this.smp(r, 'dead', ally ? 1 : 0.92, 1.0)) this.nz(r, 0.05, 0.2, 0.35, 'lowpass', 500, 160); // golpe del cuerpo
           else this.deathSound(r, ally);
         };
         if (e.id === pid) return { key: 'death', d: 0, own: true, play: () => this.play(world, null, 1.0, fn, { prio: true }) };
@@ -970,10 +1124,25 @@ export class Sfx {
   }
 
   /** Items adicionales de un suceso: impactos por superficie y confirmaciones del jugador. */
-  private extras(e: GameEvent, world: IWorld, out: (it: Item) => void): void {
+  private extras(e: GameEvent, world: IWorld, out: (it: Item) => void, chut = false): void {
     const pid = world.player.id;
     const cam = world.cam;
     const now = this.ctx.currentTime;
+    // Bala enemiga que pasa cerca del oyente: chasquido supersónico (solo modo normal sintetizado)
+    if (e.type === 'shot' && e.team !== 'ally' && e.id !== pid && !chut && AUDIO_NORMAL === 'sintetizado'
+      && now - this.lastFlyby >= 0.09) {
+      const vx = e.tx - e.fx, vy = e.ty - e.fy;
+      const l2 = vx * vx + vy * vy;
+      const u = l2 > 0 ? Math.max(0, Math.min(1, ((cam.x - e.fx) * vx + (cam.y - e.fy) * vy) / l2)) : 0;
+      const px = e.fx + u * vx, py = e.fy + u * vy;
+      const miss = Math.hypot(cam.x - px, cam.y - py);
+      const fromShooter = Math.hypot(cam.x - e.fx, cam.y - e.fy);
+      if (u > 0 && u < 1 && miss < 1.6 && fromShooter > 5) {
+        this.lastFlyby = now;
+        const p = { x: px, y: py };
+        out({ key: 'flyby', d: 0, own: true, play: () => this.play(world, p, 0.9, (r) => { this.bankPlay(r, 'flyby', 1, 0, 0.95 + Math.random() * 0.1); }, { prio: true }) });
+      }
+    }
     if (e.type === 'shot' && e.hit === 'wall') {
       const surf = e.surface ?? 'wall';
       if (surf === 'none' || surf === 'body') return;
@@ -1096,7 +1265,7 @@ export class Sfx {
         const g = groups.get(x.key);
         if (g) g.push(x); else groups.set(x.key, [x]);
       };
-      try { this.extras(e, world, add); } catch { /* nada */ }
+      try { this.extras(e, world, add, chut); } catch { /* nada */ }
       if (it) add(it);
     }
     if (groups.has('confirmK')) groups.delete('confirmH'); // la baja ya confirma el impacto
