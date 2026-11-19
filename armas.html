@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Armas — Stracomter (solo desarrollo)</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #7a7f88; color: #111; font: 13px system-ui, sans-serif; overflow: hidden; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .et { position: fixed; transform: translate(-50%, 0); background: rgba(255,255,255,.75); padding: 2px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; }
+    #nota { position: fixed; top: 8px; left: 10px; background: rgba(255,255,255,.8); padding: 6px 10px; border-radius: 8px; max-width: 70ch; }
+  </style>
+</head>
+<body>
+  <canvas id="lienzo"></canvas>
+  <div id="nota">Armas en uso, a tamaño real (cañón a la derecha), con materiales PBR y el HDRI de la oficina. Arrastra para girar, rueda para acercar.</div>
+  <script type="module" src="/src/galeria/armas.ts"></script>
+</body>
+</html>
